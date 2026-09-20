@@ -4,6 +4,7 @@ import argparse
 import copy
 import logging
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -300,7 +301,7 @@ def _merge_variant(
     return merged
 
 
-def _resume_status_id(resume: dict[str, Any]) -> str:
+def _resume_status_id(resume: Mapping[str, Any]) -> str:
     status = resume.get("status")
     if isinstance(status, dict):
         return str(status.get("id") or "")
