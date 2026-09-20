@@ -396,6 +396,15 @@ class Operation(
         for attr_name in self._ARG_ATTRS:
             setattr(self, attr_name, getattr(args, attr_name, None))
 
+    def _resolve_resume_selector(self, tool: HHApplicantTool) -> None:
+        if self.resume_alias:
+            self.resume_id = resolve_resume_alias(tool.config, self.resume_alias)
+            logger.info(
+                "Resolved resume alias %s -> %s",
+                self.resume_alias,
+                self.resume_id,
+            )
+
     def run(
         self,
         tool: HHApplicantTool,
@@ -414,13 +423,7 @@ class Operation(
             else self.cover_letter
         )
         self._assign_args(args)
-        if self.resume_alias:
-            self.resume_id = resolve_resume_alias(tool.config, self.resume_alias)
-            logger.info(
-                "Resolved resume alias %s -> %s",
-                self.resume_alias,
-                self.resume_id,
-            )
+        self._resolve_resume_selector(tool)
         if self.max_responses is not None and self.max_responses < 0:
             raise ValueError("max_responses must be a non-negative integer")
         self.responses_sent = 0
