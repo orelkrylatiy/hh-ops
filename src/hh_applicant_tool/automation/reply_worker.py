@@ -54,6 +54,12 @@ UI_ACTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+QUESTION_HINT_RE = re.compile(
+    r"\b(сколько|когда|какой|какая|какие|где|почему|готовы|можете|"
+    r"есть\s+ли|расскажите|укажите|ответьте|уточните|подскажите)\b",
+    re.IGNORECASE,
+)
+
 
 def is_system_notification(text: str) -> bool:
     return bool(SYSTEM_NOTIFICATION_RE.match(text or ""))
@@ -276,7 +282,11 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         return ACTION_MANUAL, "repeated_after_applicant_reply"
     if UI_ACTION_RE.search(text):
         return ACTION_MANUAL, "ui_action_hint"
-    if "?" not in text and ACKNOWLEDGEMENT_RE.search(text):
+    if (
+        "?" not in text
+        and not QUESTION_HINT_RE.search(text)
+        and ACKNOWLEDGEMENT_RE.search(text)
+    ):
         return ACTION_IGNORE, "acknowledgement_without_question"
     return ACTION_REPLY, "employer_message"
 
