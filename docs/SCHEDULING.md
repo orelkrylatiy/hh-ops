@@ -1,351 +1,66 @@
-# ⏰ Автозапуск hh-applicant-tool
+# Scheduling
 
-Этот гайд описывает способы автоматического запуска ежедневных задач.
+В проекте один канонический scheduler: **cron**. В Docker он устанавливается из
+корневого `crontab`; на обычном Linux/macOS host можно использовать
+`scripts/setup-cron.sh`.
 
-> **Что выбрать.** На сервере/в Docker — **cron** (канонический путь, см. `crontab`).
-> `scripts/scheduler.py` — простая кросс-платформенная альтернатива (один процесс-демон)
-> для локального запуска без crontab. Держите что-то одно, чтобы задачи не дублировались.
->
-> Архитектура: cron запускает детерминированные команды, а LLM лишь генерирует тексты
-> писем и ответов внутри них (см. [LLM_SETUP.md](LLM_SETUP.md)). Отдельного агента,
-> который сам решает что запускать, поднимать не нужно.
+Это намеренно: отдельные Python-daemon/systemd timer реализации удалены, чтобы
+не было двух независимых scheduler'ов, одновременно работающих с одним HH
+профилем.
 
----
-
-## 📋 Способы автозапуска
-
-| Способ | ОС | Сложность | Надёжность |
-|--------|----|-----------|------------|
-| **cron** | macOS, Linux | ⭐ Просто | ⭐⭐⭐ Высокая |
-| **systemd timer** | Linux | ⭐⭐ Средне | ⭐⭐⭐⭐ Очень высокая |
-| **Python scheduler** | Любая | ⭐ Просто | ⭐⭐ Средняя |
-| **Docker + cron** | Любая | ⭐⭐ Средне | ⭐⭐⭐ Высокая |
-
----
-
-## 1️⃣ Cron (рекомендуется для macOS/Linux)
-
-### Быстрая настройка
+## Установка на host
 
 ```bash
-# Автозапуск в 9:00 ежедневно
-make schedule
-
-# Или в своё время (например, 10:30)
-make schedule-time TIME=10:30
+bash scripts/setup-cron.sh
 ```
 
-### Что делает скрипт
-
-1. Создаёт preview cron-задачи:
-   - **09:15** — `scripts/apply.sh --dry-run`
-   - **09:30** — `scripts/reply.sh --dry-run`
-
-   Resume publishing is not scheduled by default. To opt in deliberately,
-   run the setup command with `ENABLE_LIVE_RESUME_PUBLISHING=true`; it creates
-   a job with the explicit `--live` acknowledgement.
-
-2. Логи сохраняются в `logs/boost.log` и `logs/apply.log`
-
-### Проверка
+Настраиваемые времена:
 
 ```bash
-# Посмотреть задачи
-crontab -l | grep hh-applicant
-
-# Посмотреть логи
-tail -f logs/boost.log
-tail -f logs/apply.log
+BOOST_TIME=09:00 \
+APPLY_TIME=09:10 \
+REPLY_START_HOUR=9 \
+REPLY_END_HOUR=21 \
+CLEANUP_TIME=22:10 \
+bash scripts/setup-cron.sh
 ```
 
-### Отмена
+Фактические HH-write всё равно контролирует `.env`:
+
+```dotenv
+HH_AUTOMATION_MODE=off
+# off | dry-run | live
+```
+
+## Расписание контейнера
+
+| Время | Действие |
+|---|---|
+| 09:00 | boost-resume |
+| 09:10 | bounded apply batch |
+| :25 каждый час 09–21 | bounded reply pass |
+| 22:10 | cleanup state=discard |
+| 02:20 | local aggregate ops report |
+
+`cleanup` не blacklist'ит работодателей и не удаляет старые активные
+переговоры. `CLEANUP_DELETE_CHAT=1` дополнительно скрывает rejected web-chat.
+
+## Ручные one-shot команды
 
 ```bash
-make unschedule
+./scripts/apply.sh --dry-run
+./scripts/reply.sh --dry-run
+./scripts/cleanup.sh --dry-run
+./scripts/daily.sh --dry-run
 ```
 
-### Вручную (если make не работает)
+Для нескольких профилей:
 
 ```bash
-# Открой crontab
-crontab -e
-
-# Добавь строки (замени /path/to/project на свой):
-30 9 * * * cd /path/to/project && /bin/bash /path/to/project/scripts/apply.sh --dry-run >> /path/to/project/logs/apply.log 2>&1
-45 9 * * * cd /path/to/project && /bin/bash /path/to/project/scripts/reply.sh --dry-run >> /path/to/project/logs/reply.log 2>&1
+./scripts/all-profiles.sh apply --dry-run
+./scripts/all-profiles.sh reply --dry-run
+./scripts/all-profiles.sh cleanup --dry-run
 ```
 
----
-
-## 2️⃣ systemd timer (для Linux серверов)
-
-### Настройка
-
-```bash
-# Запустить скрипт настройки
-bash scripts/setup-systemd-timer.sh
-
-# Или через make (если есть)
-make schedule-systemd
-```
-
-### Проверка
-
-```bash
-# Список таймеров
-systemctl --user list-timers | grep hh-
-
-# Статус
-systemctl --user status hh-boost.timer
-systemctl --user status hh-apply.timer
-
-# Логи
-journalctl --user -u hh-boost.service -f
-journalctl --user -u hh-apply.service -f
-```
-
-### Отмена
-
-```bash
-systemctl --user disable --now hh-boost.timer hh-apply.timer
-rm ~/.config/systemd/user/hh-*.service ~/.config/systemd/user/hh-*.timer
-systemctl --user daemon-reload
-```
-
----
-
-## 3️⃣ Python Scheduler (кроссплатформенный)
-
-### Тестовый запуск
-
-```bash
-# Один запуск (проверка)
-make scheduler-test
-
-# Или вручную
-python3 scripts/scheduler.py --once
-```
-
-### Фоновый запуск
-
-```bash
-# Запуск в фоне (daemon)
-make scheduler-background
-
-# Проверка
-ps aux | grep scheduler
-```
-
-###Foreground (для отладки)
-
-```bash
-make scheduler
-```
-
-### Параметры
-
-```bash
-# Своё время запуска
-python3 scripts/scheduler.py --time 10:30
-
-# Отдельное время для apply
-python3 scripts/scheduler.py --time 09:00 --apply-time 09:20
-
-# Explicitly allow real applications and resume publishing
-python3 scripts/scheduler.py --live --time 09:00 --apply-time 09:20
-
-# Только boost (без apply)
-python3 scripts/scheduler.py --no-apply
-
-# Только apply (без boost)
-python3 scripts/scheduler.py --no-boost
-```
-
-### Остановка
-
-```bash
-# Найти PID
-ps aux | grep scheduler
-
-# Убить процесс
-kill <PID>
-```
-
----
-
-## 4️⃣ Docker + Cron
-
-### Dockerfile с cron
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Установка cron
-RUN apt-get update && apt-get install -y cron
-
-# Копирование проекта
-COPY . .
-
-# Установка зависимостей
-RUN pip install -e .
-
-# Копирование crontab
-COPY crontab /etc/cron.d/hh-applicant
-RUN chmod 0644 /etc/cron.d/hh-appinant
-RUN crontab /etc/cron.d/hh-applicant
-
-# Запуск cron
-CMD ["cron", "-f"]
-```
-
-### docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  scheduler:
-    build: .
-    volumes:
-      - ./config:/app/config
-      - ./logs:/app/logs
-    restart: unless-stopped
-```
-
-### Запуск
-
-```bash
-docker compose up -d scheduler
-docker compose logs -f scheduler
-```
-
----
-
-## 📊 Сравнение способов
-
-| Критерий | cron | systemd | Python | Docker |
-|----------|------|---------|--------|--------|
-| **Простота** | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| **Надёжность** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
-| **Кроссплатформенность** | macOS/Linux | Linux | Любая | Любая |
-| **Логирование** | Файл | journalctl | Файл | stdout |
-| **Перезапуск** | Автоматически | Автоматически | Нет | Автоматически |
-
----
-
-## 🎯 Рекомендуемая конфигурация
-
-### Для macOS (локальная разработка)
-
-```bash
-# Cron — просто и надёжно
-make schedule TIME=09:00
-```
-
-### Для Linux сервера (VPS)
-
-```bash
-# systemd timer — максимальная надёжность
-bash scripts/setup-systemd-timer.sh
-```
-
-### Для тестирования
-
-```bash
-# Python scheduler — один запуск
-make scheduler-test
-```
-
-### Для Docker-развёртывания
-
-```bash
-# Docker + cron
-docker compose up -d scheduler
-```
-
----
-
-## ⚠️ Важные замечания
-
-### 1. Время запуска
-
-- **Boost-resume**: 1 раз в 24 часа, лучше утром (9:00-10:00)
-- **Apply-vacancies**: через 15-30 минут после boost
-
-### 2. Лимиты HH.ru
-
-- ~100-150 откликов в сутки
-- Не запускай чаще 1 раза в день
-- Следи за логами на предмет ошибок
-
-### 3. Токены
-
-- Токены могут истекать
-- Раз в 1-2 недели проверяй `whoami`
-- При необходимости обнови через `authorize`
-
-### 4. Логи
-
-```bash
-# Проверка ошибок
-grep -i error logs/*.log
-
-# Последние 50 строк
-tail -50 logs/apply.log
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Cron не работает
-
-```bash
-# Проверь cron
-sudo systemctl status cron  # Linux
-sudo launchctl list | grep cron  # macOS
-
-# Логи cron
-grep CRON /var/log/syslog  # Linux
-log show --predicate 'process == "cron"' --last 1h  # macOS
-```
-
-### Python scheduler не запускается
-
-```bash
-# Проверь Python
-which python3
-python3 --version
-
-# Проверь зависимости
-python3 -m hh_applicant_tool --help
-
-# Запусти вручную
-python3 scripts/scheduler.py --once
-```
-
-### Нет логов
-
-```bash
-# Проверь права
-ls -la logs/
-
-# Создай директорию
-mkdir -p logs
-chmod 755 logs
-```
-
----
-
-## 📁 Файлы
-
-| Файл | Назначение |
-|------|------------|
-| `scripts/setup-cron.sh` | Настройка cron |
-| `scripts/setup-systemd-timer.sh` | Настройка systemd timer |
-| `scripts/scheduler.py` | Python-планировщик |
-| `logs/boost.log` | Лог поднятия резюме |
-| `logs/apply.log` | Лог откликов |
-| `logs/scheduler.log` | Лог планировщика |
+Per-profile `flock` в `all-profiles.sh` не даёт конфликтующим операциям
+одновременно работать с одним аккаунтом.
