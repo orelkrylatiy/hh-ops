@@ -252,6 +252,48 @@ publish в этом режиме не вызываются. Неоднознач
 списку резюме. При нескольких одновременно появившихся ID `--publish`
 fail-closed и ничего автоматически не публикует.
 
+## Варианты Резюме И Profile-specific Apply Lanes
+
+Для нескольких специализаций используются profile-local aliases:
+
+```json
+{
+  "resume_aliases": {
+    "primary": "<frontend resume id>",
+    "ai-engineer": "<ai resume id>"
+  }
+}
+```
+
+Alias хранится только в runtime `config/<profile>/config.json`; реальные HH
+resume IDs и персональные данные в Git не коммитятся.
+
+Новый вариант можно собрать из существующего HH-резюме, сохранив личные данные,
+образование, контакты и локацию из source resume:
+
+```bash
+./scripts/setup-ai-resume.sh --profile 0555 --dry-run
+./scripts/setup-ai-resume.sh --profile 0555 --live
+```
+
+Для `0555` tracked variant находится в
+`resumes/variants/0555-ai-engineer.toml`. Он позиционирует профиль как
+`AI Engineer / LLM Automation Engineer` на основе собственных AI/automation
+проектов и не подменяет предыдущую коммерческую компанию вымышленным AI-опытом.
+
+Scheduled apply проходит через `scripts/apply-profile.sh`. Если для профиля нет
+`rules/apply-lanes/<profile>.json`, выполняется ровно старый одиночный
+`apply.sh`. Для `0555` после появления alias `ai-engineer` включаются
+отдельные lanes:
+
+- frontend -> только `primary`;
+- `AI Engineer` -> только `ai-engineer`;
+- `LLM Engineer` -> только `ai-engineer`;
+- `AI автоматизация` -> только `ai-engineer`.
+
+Пока alias `ai-engineer` отсутствует, AI lanes fail-safe пропускаются, а
+текущий frontend flow продолжает работать.
+
 ## Автоответы В Чатах
 
 Preview без отправки и без вызова LLM:
