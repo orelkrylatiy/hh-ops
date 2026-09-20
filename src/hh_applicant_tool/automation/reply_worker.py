@@ -384,11 +384,7 @@ class ReplyWorker:
                 state = item.get("state")
                 if isinstance(state, dict) and state.get("id") == "discard":
                     negotiation_id = str(item.get("id") or "")
-                    if (
-                        negotiation_id
-                        and self.manual_queue is not None
-                        and not self.config.dry_run
-                    ):
+                    if negotiation_id and self.manual_queue is not None and not self.config.dry_run:
                         self.manual_queue.resolve_chat(negotiation_id)
                     continue
                 # /negotiations exposes messaging_status: only "ok" chats accept
