@@ -2,13 +2,13 @@
 Парсер markdown-шаблона резюме в словарь для POST /resumes.
 
 Поля с неизвестным заранее ID (город, профроль, гражданство и т.д.)
-возвращаются как {_suggest: endpoint, text: name} и разрешаются через
-_resolve_suggests при передаче флага --resolve.
+возвращаются как {_suggest: endpoint, text: name}. Операция create-resume
+разрешает эти значения через read-only HH suggest endpoints перед записью.
 """
 from __future__ import annotations
 
-import datetime as dt
 import re
+from datetime import date, datetime
 from typing import Any
 
 
@@ -205,12 +205,12 @@ def _parse_date(s: str) -> str:
         month = int(month_year.group(1))
         year = int(month_year.group(2))
         try:
-            parsed = dt.date(year, month, 1)
+            parsed = date(year, month, 1)
         except ValueError as exc:
             raise ValueError(f"Некорректная дата: {value!r}") from exc
         return parsed.isoformat()
     try:
-        return dt.date.fromisoformat(value).isoformat()
+        return date.fromisoformat(value).isoformat()
     except ValueError as exc:
         raise ValueError(
             f"Не удалось распознать дату: {value!r} "
@@ -288,19 +288,19 @@ def parse_resume_md(text: str) -> dict[str, Any]:
                 result[api_key] = v
         if v := kv.get("дата рождения"):
             try:
-                result["birth_date"] = dt.datetime.strptime(v, "%d.%m.%Y").date().isoformat()
+                result["birth_date"] = datetime.strptime(v, "%d.%m.%Y").date().isoformat()
             except ValueError as exc:
                 raise ValueError(
                     f"Некорректная дата рождения: {v!r} (ожидается ДД.ММ.ГГГГ)"
                 ) from exc
         if v := kv.get("пол"):
-            if api_id := _tr(v, GENDER_RU, "пол"):
-                result["gender"] = {"id": api_id}
+            result["gender"] = {"id": _tr(v, GENDER_RU, "пол")}
 
     # ── Желаемая должность ────────────────────────────────────────────────────
-    if (sec := secs.get("желаемая должность")):
-        if title := sec.splitlines()[0].strip():
-            result["title"] = title
+    if (sec := secs.get("желаемая должность")) and (
+        title := sec.splitlines()[0].strip()
+    ):
+        result["title"] = title
 
     # ── Контакты ──────────────────────────────────────────────────────────────
     if (sec := secs.get("контакты")):
@@ -334,9 +334,8 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["contact"] = contacts
 
     # ── Зарплата ──────────────────────────────────────────────────────────────
-    if (sec := secs.get("зарплата")):
-        if first := sec.splitlines()[0].strip():
-            result["salary"] = _parse_salary(first)
+    if (sec := secs.get("зарплата")) and (first := sec.splitlines()[0].strip()):
+        result["salary"] = _parse_salary(first)
 
     # ── Место проживания ──────────────────────────────────────────────────────
     for heading in ("место проживания", "город"):
@@ -346,9 +345,8 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             break
 
     # ── Метро ─────────────────────────────────────────────────────────────────
-    if (sec := secs.get("метро")):
-        if station := sec.splitlines()[0].strip():
-            result["metro"] = _suggest("/suggests/metro", station)
+    if (sec := secs.get("метро")) and (station := sec.splitlines()[0].strip()):
+        result["metro"] = _suggest("/suggests/metro", station)
 
     # ── Профессиональные роли ─────────────────────────────────────────────────
     if (sec := secs.get("профессиональные роли")):
@@ -357,10 +355,9 @@ def parse_resume_md(text: str) -> dict[str, Any]:
         kv = _parse_kv(sec)
         for v in kv.values():
             roles.append(_suggest("/suggests/professional_roles", v))
-        if not roles:
+        if not roles and (line := sec.splitlines()[0].strip()):
             # Первая строка как роль
-            if line := sec.splitlines()[0].strip():
-                roles.append(_suggest("/suggests/professional_roles", line))
+            roles.append(_suggest("/suggests/professional_roles", line))
         if roles:
             result["professional_roles"] = roles
 
@@ -368,8 +365,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
     if (sec := secs.get("занятость")):
         employments = []
         for v in _parse_values(sec):
-            if api_id := _tr(v, EMPLOYMENT_RU, "занятость"):
-                employments.append({"id": api_id})
+            employments.append({"id": _tr(v, EMPLOYMENT_RU, "занятость")})
         if employments:
             result["employments"] = employments
 
@@ -377,8 +373,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
     if (sec := secs.get("график работы")):
         schedules = []
         for v in _parse_values(sec):
-            if api_id := _tr(v, SCHEDULE_RU, "график"):
-                schedules.append({"id": api_id})
+            schedules.append({"id": _tr(v, SCHEDULE_RU, "график")})
         if schedules:
             result["schedules"] = schedules
 
@@ -387,8 +382,9 @@ def parse_resume_md(text: str) -> dict[str, Any]:
         kv = _parse_kv(sec)
         relocation: dict[str, Any] = {}
         if ttype := kv.get("тип"):
-            if api_id := _tr(ttype, RELOCATION_TYPE_RU, "тип переезда"):
-                relocation["type"] = {"id": api_id}
+            relocation["type"] = {
+                "id": _tr(ttype, RELOCATION_TYPE_RU, "тип переезда")
+            }
         if cities_str := kv.get("города"):
             cities = [item.strip() for item in cities_str.split(",") if item.strip()]
             if not cities:
@@ -400,16 +396,14 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["relocation"] = relocation
 
     # ── Командировки ──────────────────────────────────────────────────────────
-    if (sec := secs.get("командировки")):
-        if v := sec.splitlines()[0].strip():
-            if api_id := _tr(v, BUSINESS_TRIP_RU, "командировки"):
-                result["business_trip_readiness"] = {"id": api_id}
+    if (sec := secs.get("командировки")) and (v := sec.splitlines()[0].strip()):
+        result["business_trip_readiness"] = {
+            "id": _tr(v, BUSINESS_TRIP_RU, "командировки")
+        }
 
     # ── Время в пути ──────────────────────────────────────────────────────────
-    if (sec := secs.get("время в пути")):
-        if v := sec.splitlines()[0].strip():
-            if api_id := _tr(v, TRAVEL_TIME_RU, "время в пути"):
-                result["travel_time"] = {"id": api_id}
+    if (sec := secs.get("время в пути")) and (v := sec.splitlines()[0].strip()):
+        result["travel_time"] = {"id": _tr(v, TRAVEL_TIME_RU, "время в пути")}
 
     # ── Гражданство ───────────────────────────────────────────────────────────
     if (sec := secs.get("гражданство")):
@@ -498,8 +492,9 @@ def parse_resume_md(text: str) -> dict[str, Any]:
         edu: dict[str, Any] = {}
         kv = _parse_kv(sec)
         if level_str := kv.get("уровень"):
-            if api_id := _tr(level_str, EDU_LEVEL_RU, "уровень образования"):
-                edu["level"] = {"id": api_id}
+            edu["level"] = {
+                "id": _tr(level_str, EDU_LEVEL_RU, "уровень образования")
+            }
 
         primary: list[dict] = []
         additional: list[dict] = []
