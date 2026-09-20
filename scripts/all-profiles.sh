@@ -21,7 +21,7 @@ if [[ -f "$PROJECT_ROOT/.profiles" ]]; then
 elif [[ -n "${PROFILES:-}" ]]; then
     read -ra PROFILES_LIST <<< "$PROFILES"
 else
-    PROFILES_LIST=("default")
+    PROFILES_LIST=("1206")
 fi
 
 if [[ ${#PROFILES_LIST[@]} -eq 0 ]]; then
