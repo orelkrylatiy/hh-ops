@@ -50,7 +50,7 @@ HH_AUTOMATION_MODE=off
 ```text
 off      cron ничего не делает
 dry-run  читает данные и строит preview без внешних действий
-live     разрешает реальные отклики, ответы и boost
+live     разрешает реальные отклики, ответы, cleanup и boost
 ```
 
 Не переключай в `live`, пока не прошли AI probe и ручные dry-run.
