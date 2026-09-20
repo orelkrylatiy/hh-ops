@@ -36,6 +36,7 @@ class Namespace(BaseNamespace):
     search: str
     search_field: list[str] | None
     schedule: str
+    work_format: list[str] | None
     dry_run: bool
     response_delay_min: float
     response_delay_max: float
@@ -110,6 +111,7 @@ class Operation(
         "right_lng",
         "salary",
         "schedule",
+        "work_format",
         "search",
         "search_field",
         "sort_point_lat",
@@ -244,6 +246,11 @@ class Operation(
             "--schedule",
             help="Тип графика (fullDay, shift, flexible, remote, flyInFlyOut)",
             type=str,
+        )
+        api_search_filters.add_argument(
+            "--work-format",
+            nargs="+",
+            help="Формат работы (REMOTE, HYBRID, ON_SITE, FIELD_WORK)",
         )
         api_search_filters.add_argument(
             "--employment", nargs="+", help="Тип занятости"
