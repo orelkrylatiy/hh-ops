@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import json
 import logging
 import random
 import re
@@ -14,9 +13,9 @@ from urllib.parse import urlparse
 
 import requests
 
-from .. import utils
 from ..api.datatypes import PaginatedItems, SearchVacancy
 from ..utils.datatypes import VacancyTestsData
+from ..utils.find import find_key
 from ..utils.json import JSONDecoder
 from ..utils.string import bool2str, rand_text, strip_tags
 
@@ -39,23 +38,14 @@ class ApplyVacanciesHelpersMixin:
         msg.set_content(body)
         self.tool.smtp.send_message(msg)
 
-    def _get_vacancy_tests(self, response_url: str) -> VacancyTestsData:
-        r = self.tool.session.get(response_url)
-
-        tests_marker = ',"vacancyTests":'
-        start_tests = r.text.find(tests_marker)
-        end_tests = r.text.find(',"counters":', start_tests)
-
-        if -1 in (start_tests, end_tests):
-            raise ValueError("tests not found.")
-
-        try:
-            return utils.json.loads(
-                r.text[start_tests + len(tests_marker) : end_tests],
-                strict=False,
-            )
-        except json.JSONDecodeError as ex:
-            raise ValueError("Не могу распарсить vacancyTests.") from ex
+    def _get_vacancy_tests(
+        self,
+        response_url: str,
+    ) -> VacancyTestsData | None:
+        """Read vacancy test data from HH's current embedded initial state."""
+        config = self.tool.get_redirect_config(response_url)
+        tests = find_key(config, "vacancyTests")
+        return tests if isinstance(tests, dict) else None
 
     def _solve_vacancy_test(
         self,
@@ -239,6 +229,8 @@ class ApplyVacanciesHelpersMixin:
             params["text"] = self.search
         if self.schedule:
             params["schedule"] = self.schedule
+        if self.work_format:
+            params["work_format"] = list(self.work_format)
         if self.experience:
             params["experience"] = self.experience
         if self.currency:
@@ -346,7 +338,7 @@ class ApplyVacanciesHelpersMixin:
         r = self.tool.session.get("https://hh.ru/vacancy/" + vacancy["id"])
         r.raise_for_status()
 
-        match = re.search(r'"description": (.*)', r.text)
+        match = re.search(r'"description":\s*(.*)', r.text)
         if not match:
             return False
         description, _ = self.json_decoder.raw_decode(match.group(1))
