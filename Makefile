@@ -120,13 +120,14 @@ schedule:
 
 unschedule:
 	@echo "🗑️  Removing work-optimization cron jobs..."
-	@tmp=$$(mktemp); \
+	@tmp=$(mktemp); \
 	crontab -l 2>/dev/null | awk ' \
-		$$0 == "# work-optimization autonomous HH jobs" {skip=4; next} \
-		$$0 == "# work-optimization ops snapshots" {skip=2; next} \
-		skip > 0 {skip--; next} \
+		$0 == "# work-optimization autonomous HH jobs" {in_main=1; next} \
+		$0 == "# work-optimization ops snapshots" {in_main=0; ops_left=2; next} \
+		in_main {next} \
+		ops_left > 0 {ops_left--; next} \
 		{print} \
-	' > "$$tmp" || true; \
+	' > "$tmp" || true; \
 	crontab "$$tmp"; \
 	rm -f "$$tmp"
 	@echo "✅ Cron jobs removed"
