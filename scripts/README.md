@@ -30,7 +30,10 @@ Production использует только `crontab -> cron-job.sh -> all-prof
 `rules/apply-lanes/<profile>.json` runner просто делегирует старому
 `apply.sh`, поэтому существующие аккаунты не меняют поведение.
 
-Для `0555` настроены отдельные frontend и AI/LLM lanes. AI lanes активируются
+Для `0555` настроены отдельные frontend и AI/LLM lanes. Пока alias `primary`
+ещё не записан, frontend lane может вывести его только из единственного
+опубликованного резюме; при нескольких опубликованных резюме без alias запуск
+останавливается fail-closed. AI lanes активируются
 только после того, как `setup-ai-resume.sh --profile 0555 --live` создаст
 резюме и сохранит alias `ai-engineer`.
 
