@@ -258,10 +258,7 @@ def repeated_employer_message_after_reply(
             continue
         if normalize_message_text(message_text(item)) != latest_text:
             continue
-        if any(
-            message_role(between) == APPLICANT_ROLE
-            for between in ordered[index + 1 : -1]
-        ):
+        if any(message_role(between) == APPLICANT_ROLE for between in ordered[index + 1 : -1]):
             return True
     return False
 
@@ -284,11 +281,7 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         return ACTION_MANUAL, "repeated_after_applicant_reply"
     if UI_ACTION_RE.search(text):
         return ACTION_MANUAL, "ui_action_hint"
-    if (
-        "?" not in text
-        and not QUESTION_HINT_RE.search(text)
-        and ACKNOWLEDGEMENT_RE.search(text)
-    ):
+    if "?" not in text and not QUESTION_HINT_RE.search(text) and ACKNOWLEDGEMENT_RE.search(text):
         return ACTION_IGNORE, "acknowledgement_without_question"
     return ACTION_REPLY, "employer_message"
 
