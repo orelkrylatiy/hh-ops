@@ -92,9 +92,7 @@ def _lane_args(
                 flush=True,
             )
         else:
-            raise ValueError(
-                f"lane {name}: resume alias {resume_alias!r} is not configured"
-            )
+            raise ValueError(f"lane {name}: resume alias {resume_alias!r} is not configured")
 
     string_flags = {
         "search": "--search",
