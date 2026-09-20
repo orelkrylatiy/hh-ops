@@ -160,11 +160,7 @@ def _sanitize_experience(value: Any) -> list[dict[str, Any]]:
     for index, item in enumerate(value):
         if not isinstance(item, dict):
             raise ResumeTemplateError(f"experience[{index}] должен быть объектом")
-        clean = {
-            key: copy.deepcopy(item[key])
-            for key in allowed
-            if item.get(key) is not None
-        }
+        clean = {key: copy.deepcopy(item[key]) for key in allowed if item.get(key) is not None}
         if item.get("area") is not None:
             clean["area"] = _id_ref(item["area"], f"experience[{index}].area")
         if item.get("industries") is not None:
@@ -261,18 +257,14 @@ def _source_payload(full_resume: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(full_resume["skill_set"], list):
             raise ResumeTemplateError("Исходное поле skill_set должно быть списком")
         payload["skill_set"] = [
-            str(item)
-            for item in full_resume["skill_set"]
-            if isinstance(item, str) and item.strip()
+            str(item) for item in full_resume["skill_set"] if isinstance(item, str) and item.strip()
         ]
     if full_resume.get("experience") is not None:
         payload["experience"] = _sanitize_experience(full_resume["experience"])
     if full_resume.get("education") is not None:
         payload["education"] = _sanitize_education(full_resume["education"])
     if full_resume.get("recommendation") is not None:
-        payload["recommendation"] = _sanitize_recommendations(
-            full_resume["recommendation"]
-        )
+        payload["recommendation"] = _sanitize_recommendations(full_resume["recommendation"])
     if full_resume.get("site") is not None:
         payload["site"] = _sanitize_sites(full_resume["site"])
 
@@ -320,9 +312,7 @@ def _select_source_resume_id(
     explicit_resume_id: str | None,
 ) -> str:
     resumes = [
-        item
-        for item in tool.get_resumes()
-        if isinstance(item, dict) and item.get("id") is not None
+        item for item in tool.get_resumes() if isinstance(item, dict) and item.get("id") is not None
     ]
     if not resumes:
         raise ResumeTemplateError("В профиле нет резюме, которое можно использовать как источник")
@@ -340,19 +330,14 @@ def _select_source_resume_id(
     if primary_id and primary_id in by_id:
         return primary_id
 
-    published = [
-        str(item["id"])
-        for item in resumes
-        if _resume_status_id(item) == "published"
-    ]
+    published = [str(item["id"]) for item in resumes if _resume_status_id(item) == "published"]
     if len(published) == 1:
         return published[0]
     if len(resumes) == 1:
         return str(resumes[0]["id"])
 
     raise ResumeTemplateError(
-        "В профиле несколько резюме и alias 'primary' не задан. "
-        "Укажите --source-resume-id явно."
+        "В профиле несколько резюме и alias 'primary' не задан. Укажите --source-resume-id явно."
     )
 
 
