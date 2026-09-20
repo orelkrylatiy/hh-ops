@@ -153,6 +153,7 @@ jobs:
           bash -n \
             scripts/apply.sh \
             scripts/reply.sh \
+            scripts/cleanup.sh \
             scripts/cron-job.sh \
             scripts/daily.sh \
             scripts/all-profiles.sh \
@@ -169,6 +170,7 @@ jobs:
           shellcheck --exclude=SC1091,SC2016 \
             scripts/apply.sh \
             scripts/reply.sh \
+            scripts/cleanup.sh \
             scripts/cron-job.sh \
             scripts/daily.sh \
             scripts/all-profiles.sh \
@@ -182,6 +184,7 @@ jobs:
         run: |
           bash scripts/apply.sh --help >/dev/null
           bash scripts/reply.sh --help >/dev/null
+          bash scripts/cleanup.sh --help >/dev/null
           HH_AUTOMATION_MODE=off bash scripts/cron-job.sh apply >/dev/null
           python3 scripts/ops/daily_report.py --date today --root "$(mktemp -d)" --output-dir "$(mktemp -d)" >/dev/null
       - name: Smoke-test cron runtime environment
@@ -198,6 +201,7 @@ jobs:
           APPLY_PAGES=3 \
           APPLY_RUN_TIMEOUT=777 \
           REPLY_CHATS=23 \
+          CLEANUP_DELETE_CHAT=0 \
           HH_PROFILE_PARALLELISM=7 \
             bash scripts/write-runtime-env.sh "$runtime_env"
 
@@ -214,6 +218,7 @@ jobs:
           test "$APPLY_PAGES" = 3
           test "$APPLY_RUN_TIMEOUT" = 777
           test "$REPLY_CHATS" = 23
+          test "$CLEANUP_DELETE_CHAT" = 0
           test "$HH_PROFILE_PARALLELISM" = 7
       - name: Smoke-test ten concurrent profiles
         run: |
