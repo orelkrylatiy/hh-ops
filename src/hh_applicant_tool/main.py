@@ -324,7 +324,6 @@ class HHApplicantTool(MegaTool):
             if page + 1 >= r.get("pages", 0):
                 break
 
-
     def _is_authenticated(self, config: dict[str, Any]) -> bool:
         account = config.get("account") or {}
         if not account:
