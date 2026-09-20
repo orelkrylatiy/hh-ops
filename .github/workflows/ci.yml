@@ -60,12 +60,6 @@ jobs:
 
       - name: Ruff format critical automation paths
         run: |
-          ruff format --diff \
-            src/hh_applicant_tool/automation \
-            scripts/reply_iterative_ai.py \
-            tests/test_reply_worker.py \
-            tests/test_reply_state.py \
-            tests/test_manual_chats.py || true
           ruff format --check \
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
