@@ -38,6 +38,7 @@ jobs:
 
       - name: Ruff critical automation paths
         run: |
+          ruff check --diff src/hh_applicant_tool/utils/resume_md.py || true
           ruff check \
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
