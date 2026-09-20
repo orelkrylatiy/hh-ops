@@ -136,9 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     script_dir = Path(__file__).resolve().parent
     project_root = Path(os.environ.get("PROJECT_ROOT", script_dir.parent)).resolve()
-    apply_script = Path(
-        os.environ.get("APPLY_SCRIPT", str(script_dir / "apply.sh"))
-    ).resolve()
+    apply_script = Path(os.environ.get("APPLY_SCRIPT", str(script_dir / "apply.sh"))).resolve()
     lanes_dir = Path(
         os.environ.get(
             "APPLY_LANES_DIR",
@@ -148,9 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     lane_file = lanes_dir / f"{args.profile}.json"
 
     if not lane_file.exists():
-        return _run(
-            ["bash", str(apply_script), "--profile", args.profile, *passthrough]
-        )
+        return _run(["bash", str(apply_script), "--profile", args.profile, *passthrough])
 
     try:
         lanes = _load_lanes(lane_file)
