@@ -120,15 +120,15 @@ schedule:
 
 unschedule:
 	@echo "🗑️  Removing work-optimization cron jobs..."
-	@tmp=$(mktemp); \
+	@tmp=$$(mktemp); \
 	crontab -l 2>/dev/null | awk ' \
-		$0 == "# work-optimization autonomous HH jobs" {skip=4; next} \
-		$0 == "# work-optimization ops snapshots" {skip=2; next} \
+		$$0 == "# work-optimization autonomous HH jobs" {skip=4; next} \
+		$$0 == "# work-optimization ops snapshots" {skip=2; next} \
 		skip > 0 {skip--; next} \
 		{print} \
-	' > "$tmp" || true; \
-	crontab "$tmp"; \
-	rm -f "$tmp"
+	' > "$$tmp" || true; \
+	crontab "$$tmp"; \
+	rm -f "$$tmp"
 	@echo "✅ Cron jobs removed"
 
 .PHONY: help install dev admin-deps test lint format typecheck docker-build docker-run docker-stop docker-logs clean setup-config docker-test docker-shell ci test-cov schedule unschedule
