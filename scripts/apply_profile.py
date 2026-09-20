@@ -11,9 +11,9 @@ from typing import Any
 SCRIPT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPT_ROOT / "src"))
 
-from hh_applicant_tool.constants import CONFIG_DIR
-from hh_applicant_tool.utils.config import Config, resolve_profile_config_dir
-from hh_applicant_tool.utils.resume_aliases import get_resume_aliases
+from hh_applicant_tool.constants import CONFIG_DIR  # noqa: E402
+from hh_applicant_tool.utils.config import Config, resolve_profile_config_dir  # noqa: E402
+from hh_applicant_tool.utils.resume_aliases import get_resume_aliases  # noqa: E402
 
 
 def _positive_int(value: Any, field: str) -> int:
