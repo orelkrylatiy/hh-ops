@@ -211,7 +211,7 @@ Live worker прекращает или пропускает действие п
 - плохом LLM reply после corrective retry;
 - ошибке отправки после retries/read-back.
 
-Исключение из полного fail-closed поведения — специально настроенный **reply runtime fallback** после `OpenAIError`. Он не обходит stale-check, humanizer или idempotency.
+Исключение из полного fail-closed поведения — специально настроенный **reply runtime fallback** после `OpenAIError`. Он не обходит stale-check, humanizer или retry/dedup safeguards.
 
 ## Dry-run
 
