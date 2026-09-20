@@ -55,6 +55,32 @@ def _create_profile_db(path: pathlib.Path) -> None:
             "CREATE TABLE negotiations (id INTEGER PRIMARY KEY, chat_id INTEGER, state TEXT)"
         )
         conn.execute("INSERT INTO negotiations VALUES (987654, 555555, 'active')")
+        conn.execute(
+            """
+            CREATE TABLE manual_chat_queue (
+                chat_id TEXT,
+                message_id TEXT,
+                message_text TEXT,
+                vacancy_name TEXT,
+                employer_name TEXT,
+                reason TEXT,
+                status TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO manual_chat_queue VALUES (
+                'secret-chat-manual',
+                'secret-message-id',
+                'secret manual employer text',
+                'Secret manual vacancy',
+                'Secret manual employer',
+                'ui_action_hint',
+                'pending'
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -122,6 +148,7 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
     assert account1["reply"]["manual"] == 1
     assert account1["database"]["tables"]["vacancies"] == 1
     assert account1["database"]["tables"]["negotiations"] == 1
+    assert account1["database"]["tables"]["manual_chat_queue"] == 1
 
     account2 = report["profiles"]["account2"]
     assert account2["runs"]["apply"]["failed"] == 1
@@ -140,6 +167,11 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
         "123456",
         "987654",
         "555555",
+        "secret-chat-manual",
+        "secret-message-id",
+        "secret manual employer text",
+        "Secret manual vacancy",
+        "Secret manual employer",
     ):
         assert secret not in serialized
 
