@@ -60,6 +60,13 @@ QUESTION_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 
+FOLLOWUP_HINT_RE = re.compile(
+    r"\b(приглаша|интервью|собеседован|созвон|встреч|тестов\w*\s+задан|"
+    r"тестовое|зарплат|вилка|офис|удал[её]н|гибрид|формат|телеграм|telegram|"
+    r"whatsapp|контакт|ссылка|время|дата)\b",
+    re.IGNORECASE,
+)
+
 
 def is_system_notification(text: str) -> bool:
     return bool(SYSTEM_NOTIFICATION_RE.match(text or ""))
@@ -281,7 +288,12 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         return ACTION_MANUAL, "repeated_after_applicant_reply"
     if UI_ACTION_RE.search(text):
         return ACTION_MANUAL, "ui_action_hint"
-    if "?" not in text and not QUESTION_HINT_RE.search(text) and ACKNOWLEDGEMENT_RE.search(text):
+    if (
+        "?" not in text
+        and not QUESTION_HINT_RE.search(text)
+        and not FOLLOWUP_HINT_RE.search(text)
+        and ACKNOWLEDGEMENT_RE.search(text)
+    ):
         return ACTION_IGNORE, "acknowledgement_without_question"
     return ACTION_REPLY, "employer_message"
 
@@ -371,6 +383,13 @@ class ReplyWorker:
                     continue
                 state = item.get("state")
                 if isinstance(state, dict) and state.get("id") == "discard":
+                    negotiation_id = str(item.get("id") or "")
+                    if (
+                        negotiation_id
+                        and self.manual_queue is not None
+                        and not self.config.dry_run
+                    ):
+                        self.manual_queue.resolve_chat(negotiation_id)
                     continue
                 # /negotiations exposes messaging_status: only "ok" chats accept
                 # POST /negotiations/{id}/messages (no_invitation/disabled_by_employer
