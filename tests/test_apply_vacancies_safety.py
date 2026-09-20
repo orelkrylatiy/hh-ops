@@ -285,3 +285,38 @@ def test_negotiation_lookup_failure_falls_back_to_hh_checks() -> None:
 
     assert should_skip is False
     operation._is_excluded.assert_called_once()
+
+
+def test_missing_primary_alias_infers_only_published_resume() -> None:
+    operation = Operation()
+    operation.resume_alias = "primary"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={"resume_aliases": {}},
+        get_resumes=lambda: [
+            {
+                "id": "resume-front",
+                "status": {"id": "published"},
+            }
+        ],
+    )
+
+    operation._resolve_resume_selector(tool)
+
+    assert operation.resume_id == "resume-front"
+
+
+def test_missing_primary_alias_with_multiple_published_resumes_fails_closed() -> None:
+    operation = Operation()
+    operation.resume_alias = "primary"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={"resume_aliases": {}},
+        get_resumes=lambda: [
+            {"id": "resume-front", "status": {"id": "published"}},
+            {"id": "resume-ai", "status": {"id": "published"}},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="cannot be inferred safely"):
+        operation._resolve_resume_selector(tool)
