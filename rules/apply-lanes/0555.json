@@ -3,7 +3,7 @@
     {
       "name": "frontend-primary",
       "resume_alias": "primary",
-      "fallback_unfiltered_if_alias_missing": true
+      "allow_infer_primary": true
     },
     {
       "name": "ai-engineer",
