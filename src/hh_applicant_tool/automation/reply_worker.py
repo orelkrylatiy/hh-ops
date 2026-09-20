@@ -5,7 +5,6 @@ import logging
 import re
 import subprocess
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -334,11 +333,6 @@ def build_context(messages: list[dict[str, Any]]) -> tuple[list[str], bool]:
             continue
         context.append(f"{author}: {text}")
     return context, first_role == APPLICANT_ROLE
-
-
-def deterministic_idempotency_key(chat_id: str, employer_message_id: str) -> str:
-    """Stable key retained for callers; /negotiations does not accept it on POST."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"hh-reply:{chat_id}:{employer_message_id}"))
 
 
 class ReplyWorker:
