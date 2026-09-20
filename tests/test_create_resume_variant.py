@@ -230,3 +230,20 @@ def test_explicit_source_resume_must_exist(tmp_path) -> None:
 
     assert result == 1
     assert api.posts == []
+
+
+def test_tracked_0555_ai_variant_is_project_based_and_single_experience() -> None:
+    root = Path(__file__).resolve().parents[1]
+    variant_path = root / "resumes" / "variants" / "0555-ai-engineer.toml"
+    raw = variant_path.read_text(encoding="utf-8")
+
+    import tomllib
+
+    payload = tomllib.loads(raw)
+
+    assert payload["title"] == "AI Engineer / LLM Automation Engineer"
+    assert len(payload["experience"]) == 1
+    assert payload["experience"][0]["company"] == "Собственные AI/automation проекты"
+    assert "hh-ops" in payload["experience"][0]["description"]
+    assert "BrainWave" in payload["experience"][0]["description"]
+    assert "SDD" not in raw
