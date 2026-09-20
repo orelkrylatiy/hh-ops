@@ -356,10 +356,13 @@ def parse_resume_md(text: str) -> dict[str, Any]:
                 # comment — отдельное поле на верхнем уровне контакта
                 phone = _parse_phone(value)
                 comment = phone.pop("comment", None)
-                entry: dict[str, Any] = {"type": {"id": label_id}, "value": phone}
+                contact_entry: dict[str, Any] = {
+                    "type": {"id": label_id},
+                    "value": phone,
+                }
                 if comment:
-                    entry["comment"] = comment
-                contacts.append(entry)
+                    contact_entry["comment"] = comment
+                contacts.append(contact_entry)
         if contacts:
             result["contact"] = contacts
 
@@ -481,31 +484,31 @@ def parse_resume_md(text: str) -> dict[str, Any]:
         experience = []
         for company_name, job_body in _split_sections(sec, level=3):
             kv = _parse_kv(job_body)
-            entry: dict[str, Any] = {
+            experience_entry: dict[str, Any] = {
                 "company": company_name,
                 "position": kv.get("должность", ""),
                 "description": _parse_description(job_body),
             }
             if city := kv.get("город"):
-                entry["area"] = _suggest("/suggests/area_leaves", city)
+                experience_entry["area"] = _suggest("/suggests/area_leaves", city)
             # Даты: либо "Начало/Конец", либо "Период"
             if start_str := kv.get("начало"):
-                entry["start"] = _parse_date(start_str)
+                experience_entry["start"] = _parse_date(start_str)
                 end_str = kv.get("конец", "")
                 if end_str and end_str.strip().lower() not in _END_MARKERS:
-                    entry["end"] = _parse_date(end_str)
+                    experience_entry["end"] = _parse_date(end_str)
             elif period := kv.get("период"):
                 parts = re.split(r"\s*[—–]\s*", period, maxsplit=1)
-                entry["start"] = _parse_date(parts[0])
+                experience_entry["start"] = _parse_date(parts[0])
                 if len(parts) > 1 and parts[1].strip().lower() not in _END_MARKERS:
-                    entry["end"] = _parse_date(parts[1])
+                    experience_entry["end"] = _parse_date(parts[1])
             if industry := kv.get("отрасль"):
-                entry["industries"] = [{"name": industry}]
+                experience_entry["industries"] = [{"name": industry}]
             if url := kv.get("сайт"):
-                entry["company_url"] = url
+                experience_entry["company_url"] = url
             if company_id_text := kv.get("компания id"):
-                entry["company_id"] = company_id_text.strip()
-            experience.append(entry)
+                experience_entry["company_id"] = company_id_text.strip()
+            experience.append(experience_entry)
         if experience:
             result["experience"] = experience
 
