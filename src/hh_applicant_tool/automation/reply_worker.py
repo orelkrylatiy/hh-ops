@@ -48,6 +48,15 @@ ACKNOWLEDGEMENT_RE = re.compile(
     r"(верн[её]мся|свяжемся)\s+с\s+вами)",
     re.IGNORECASE,
 )
+QUESTIONNAIRE_COMPLETED_RE = re.compile(
+    r"(ваши\s+ответы\s+(?:отправлены|переданы)\s+работодателю"
+    r"(?:[\s\S]{0,240}?если\s+(?:ваш\s+)?отклик[\s\S]{0,160}?"
+    r"(?:заинтересует|подойд[её]т)[\s\S]{0,160}?"
+    r"(?:напишет|позвонит|свяжется))?"
+    r"|ответы\s+(?:отправлены|переданы)\s+работодателю)",
+    re.IGNORECASE,
+)
+
 UI_ACTION_RE = re.compile(
     r"(нажм(?:ите|и)\s+(?:на\s+)?кноп|кнопк\w*\s+(?:ниже|выше)|"
     r"выбер(?:ите|и)\s+(?:один\s+)?вариант|выберите\s+ответ)",
@@ -285,10 +294,17 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         return ACTION_MANUAL, "employer_message_without_text"
     if is_system_notification(text):
         return ACTION_IGNORE, "hh_system_notification"
-    if repeated_employer_message_after_reply(ordered):
-        return ACTION_MANUAL, "repeated_after_applicant_reply"
     if UI_ACTION_RE.search(text):
         return ACTION_MANUAL, "ui_action_hint"
+    if (
+        QUESTIONNAIRE_COMPLETED_RE.search(text)
+        and "?" not in text
+        and not QUESTION_HINT_RE.search(text)
+        and not FOLLOWUP_HINT_RE.search(text)
+    ):
+        return ACTION_IGNORE, "questionnaire_completed"
+    if repeated_employer_message_after_reply(ordered):
+        return ACTION_MANUAL, "repeated_after_applicant_reply"
     if (
         "?" not in text
         and not QUESTION_HINT_RE.search(text)
