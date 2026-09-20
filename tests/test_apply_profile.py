@@ -97,7 +97,7 @@ def test_primary_lane_can_infer_before_alias_registry_exists() -> None:
         {
             "name": "frontend-primary",
             "resume_alias": "primary",
-            "fallback_unfiltered_if_alias_missing": True,
+            "allow_infer_primary": True,
         },
         aliases={},
         project_root=Path("/repo"),
