@@ -80,17 +80,14 @@ def _lane_args(
     if resume_alias:
         if resume_alias in aliases:
             args += ["--resume-alias", resume_alias]
+        elif resume_alias == "primary" and lane.get("allow_infer_primary"):
+            args += ["--resume-alias", resume_alias]
         elif lane.get("skip_if_alias_missing"):
             print(
                 f"Lane {name}: skip, resume alias {resume_alias!r} is not configured",
                 flush=True,
             )
             return None
-        elif lane.get("fallback_unfiltered_if_alias_missing"):
-            print(
-                f"Lane {name}: alias {resume_alias!r} missing; using legacy unfiltered resume selection",
-                flush=True,
-            )
         else:
             raise ValueError(f"lane {name}: resume alias {resume_alias!r} is not configured")
 
