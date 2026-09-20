@@ -291,8 +291,11 @@ Scheduled apply проходит через `scripts/apply-profile.sh`. Если
 - `LLM Engineer` -> только `ai-engineer`;
 - `AI автоматизация` -> только `ai-engineer`.
 
-Пока alias `ai-engineer` отсутствует, AI lanes fail-safe пропускаются, а
-текущий frontend flow продолжает работать.
+Пока alias `ai-engineer` отсутствует, AI lanes fail-safe пропускаются. Для
+frontend lane alias `primary` может быть временно выведен только когда в
+аккаунте ровно одно опубликованное резюме. Если опубликованных резюме уже
+несколько, но alias не сохранён, apply останавливается fail-closed и не смешивает
+воронки.
 
 ## Автоответы В Чатах
 
