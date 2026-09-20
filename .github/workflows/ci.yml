@@ -50,6 +50,7 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_state.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py \
@@ -69,6 +70,7 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_state.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py
