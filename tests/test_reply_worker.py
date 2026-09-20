@@ -274,6 +274,31 @@ def test_collect_candidate_chats_only_keeps_unblocked_employer_turns() -> None:
     assert [chat["id"] for chat in chats] == ["reply-me"]
 
 
+def test_collect_resolves_pending_manual_queue_for_discarded_chat() -> None:
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [
+            {
+                "id": "discarded-chat",
+                "state": {"id": "discard"},
+                "messaging_status": "ok",
+            }
+        ],
+        "pages": 1,
+    }
+    queue = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, max_chats=100),
+        hh=hh,
+        ai=Mock(),
+        system_prompt="prompt",
+        manual_queue=queue,
+    )
+
+    assert worker.collect_candidate_chats() == []
+    queue.resolve_chat.assert_called_once_with("discarded-chat")
+
+
 def test_make_decision_builds_context_and_vacancy_metadata() -> None:
     hh = Mock()
     hh.call_api.return_value = {
@@ -571,6 +596,19 @@ def test_classifier_ignores_plain_acknowledgement() -> None:
 
     assert action == ACTION_IGNORE
     assert reason == "acknowledgement_without_question"
+
+
+def test_classifier_does_not_ignore_acknowledgement_with_invitation() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Спасибо за отклик. Приглашаем на собеседование завтра в 15:00.",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
 
 
 def test_classifier_does_not_ignore_acknowledgement_with_real_question() -> None:
