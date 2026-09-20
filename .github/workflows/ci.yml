@@ -52,6 +52,7 @@ jobs:
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
+            tests/test_manual_chats.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py \
@@ -73,6 +74,7 @@ jobs:
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
+            tests/test_manual_chats.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py
@@ -189,6 +191,8 @@ jobs:
           bash scripts/apply.sh --help >/dev/null
           bash scripts/reply.sh --help >/dev/null
           bash scripts/cleanup.sh --help >/dev/null
+          make -n schedule >/dev/null
+          make -n unschedule >/dev/null
           HH_AUTOMATION_MODE=off bash scripts/cron-job.sh apply >/dev/null
 
           fake_bin="$(mktemp -d)"
