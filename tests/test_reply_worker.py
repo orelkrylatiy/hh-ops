@@ -573,6 +573,19 @@ def test_classifier_ignores_plain_acknowledgement() -> None:
     assert reason == "acknowledgement_without_question"
 
 
+def test_classifier_does_not_ignore_acknowledgement_with_real_question() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Спасибо за отклик. Сколько лет коммерческого опыта с React",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
 def test_classifier_marks_explicit_button_flow_manual() -> None:
     messages = [
         _message(
