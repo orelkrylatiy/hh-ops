@@ -199,10 +199,7 @@ def _sanitize_education(value: Any) -> dict[str, Any]:
         result["level"] = _id_ref(value["level"], "education.level")
     for field in ("primary", "additional", "attestation", "elementary"):
         if value.get(field) is not None:
-            result[field] = _sanitize_education_entries(
-                value[field],
-                f"education.{field}",
-            )
+            result[field] = _sanitize_education_entries(value[field], f"education.{field}")
     return result
 
 
