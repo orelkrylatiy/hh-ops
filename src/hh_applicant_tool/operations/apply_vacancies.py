@@ -397,13 +397,38 @@ class Operation(
             setattr(self, attr_name, getattr(args, attr_name, None))
 
     def _resolve_resume_selector(self, tool: HHApplicantTool) -> None:
-        if self.resume_alias:
+        if not self.resume_alias:
+            return
+
+        try:
             self.resume_id = resolve_resume_alias(tool.config, self.resume_alias)
-            logger.info(
-                "Resolved resume alias %s -> %s",
-                self.resume_alias,
+        except ValueError:
+            if self.resume_alias != "primary":
+                raise
+
+            published = [
+                str(resume["id"])
+                for resume in tool.get_resumes()
+                if resume.get("id")
+                and (resume.get("status") or {}).get("id") == "published"
+            ]
+            if len(published) != 1:
+                raise ValueError(
+                    "Resume alias 'primary' is missing and cannot be inferred safely: "
+                    f"found {len(published)} published resumes"
+                )
+            self.resume_id = published[0]
+            logger.warning(
+                "Resume alias primary is missing; inferred the only published resume: %s",
                 self.resume_id,
             )
+            return
+
+        logger.info(
+            "Resolved resume alias %s -> %s",
+            self.resume_alias,
+            self.resume_id,
+        )
 
     def run(
         self,
