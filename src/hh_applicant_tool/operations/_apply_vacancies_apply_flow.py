@@ -255,24 +255,42 @@ class ApplyVacanciesApplyFlowMixin:
                     resume_hash=resume_id,
                     letter=letter,
                 )
+            except ValueError as ex:
+                logger.warning(
+                    "Не удалось обработать тест (%s), пробую обычный отклик: %s",
+                    ex,
+                    vacancy["alternate_url"],
+                )
             except Exception as ex:
                 logger.error("Произошла непредвиденная ошибка: %s", ex)
                 return VacancyResponseResult(should_continue=True, accepted=False)
+            else:
+                if str(result.get("success")).lower() == "true":
+                    print(
+                        "📨 Отправили отклик на вакансию с тестом",
+                        vacancy["alternate_url"],
+                    )
+                    return VacancyResponseResult(
+                        should_continue=True,
+                        accepted=True,
+                    )
 
-            if str(result.get("success")).lower() == "true":
-                print("📨 Отправили отклик на вакансию с тестом", vacancy["alternate_url"])
-                return VacancyResponseResult(should_continue=True, accepted=True)
-
-            err = result.get("error")
-            if err == "negotiations-limit-exceeded":
-                logger.warning("Достигли лимита на отклики")
-                return VacancyResponseResult(should_continue=False, accepted=False)
-            logger.error(
-                "Произошла ошибка при отклике на вакансию с тестом: %s - %s",
-                vacancy["alternate_url"],
-                err,
-            )
-            return VacancyResponseResult(should_continue=True, accepted=False)
+                err = result.get("error")
+                if err == "negotiations-limit-exceeded":
+                    logger.warning("Достигли лимита на отклики")
+                    return VacancyResponseResult(
+                        should_continue=False,
+                        accepted=False,
+                    )
+                logger.error(
+                    "Произошла ошибка при отклике на вакансию с тестом: %s - %s",
+                    vacancy["alternate_url"],
+                    err,
+                )
+                return VacancyResponseResult(
+                    should_continue=True,
+                    accepted=False,
+                )
 
         params = {
             "resume_id": resume_id,
@@ -358,16 +376,21 @@ class ApplyVacanciesApplyFlowMixin:
         else:
             mail_to_value = mail_to
 
-        mail_subject = rand_text(
-            self.tool.config.get("apply_mail_subject")
-            or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
-        )
-        mail_body = unescape_string(
+        mail_subject = (
             rand_text(
-                self.tool.config.get("apply_mail_body")
-                or "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
-                % message_placeholders
+                self.tool.config.get("apply_mail_subject")
+                or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
             )
+            % message_placeholders
+        )
+        mail_body = (
+            unescape_string(
+                rand_text(
+                    self.tool.config.get("apply_mail_body")
+                    or "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+                )
+            )
+            % message_placeholders
         )
         try:
             self._send_email(mail_to_value, mail_subject, mail_body)

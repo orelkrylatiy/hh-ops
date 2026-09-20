@@ -36,6 +36,7 @@ class Namespace(BaseNamespace):
     search: str
     search_field: list[str] | None
     schedule: str
+    work_format: list[str] | None
     dry_run: bool
     response_delay_min: float
     response_delay_max: float
@@ -110,6 +111,7 @@ class Operation(
         "right_lng",
         "salary",
         "schedule",
+        "work_format",
         "search",
         "search_field",
         "sort_point_lat",
@@ -246,6 +248,11 @@ class Operation(
             type=str,
         )
         api_search_filters.add_argument(
+            "--work-format",
+            nargs="+",
+            help="Формат работы (REMOTE, HYBRID, ON_SITE, FIELD_WORK)",
+        )
+        api_search_filters.add_argument(
             "--employment", nargs="+", help="Тип занятости"
         )
         api_search_filters.add_argument(
@@ -379,7 +386,7 @@ class Operation(
 
     def _assign_args(self, args: Namespace) -> None:
         for attr_name in self._ARG_ATTRS:
-            setattr(self, attr_name, getattr(args, attr_name))
+            setattr(self, attr_name, getattr(args, attr_name, None))
 
     def run(
         self,

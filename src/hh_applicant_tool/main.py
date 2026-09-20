@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import html
+import json
 import logging
 import os
 import re
@@ -322,6 +324,46 @@ class HHApplicantTool(MegaTool):
             if page + 1 >= r.get("pages", 0):
                 break
 
+    def _is_authenticated(self, config: dict[str, Any]) -> bool:
+        account = config.get("account") or {}
+        if not account:
+            return False
+        return any(value is not None for value in account.values())
+
+    def parse_redirect_config(
+        self,
+        response: requests.Response,
+        check_auth: bool = True,
+    ) -> dict[str, Any]:
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Unexpected HH response: {response.status_code} {response.url}"
+            )
+
+        try:
+            raw_config = response.text.split(
+                'id="HH-Lux-InitialState">'
+            )[1].split("</template>")[0]
+        except IndexError as exc:
+            raise RuntimeError(
+                f"HH-Lux-InitialState not found on {response.url}"
+            ) from exc
+
+        raw_config = html.unescape(raw_config)
+        config = json.loads(raw_config)
+        if not isinstance(config, dict) or "redirectConfig" not in config:
+            raise ValueError("HH redirectConfig is missing from initial state")
+        if check_auth and not self._is_authenticated(config):
+            raise RuntimeError("HH web authorization has expired")
+        return config
+
+    def get_redirect_config(
+        self,
+        url: str,
+        check_auth: bool = True,
+    ) -> dict[str, Any]:
+        return self.parse_redirect_config(self.session.get(url), check_auth)
+
     def save_token(self) -> bool:
         if self.api_client.access_token != self.config.get("token", {}).get(
             "access_token"
@@ -406,21 +448,33 @@ class HHApplicantTool(MegaTool):
             session=self.openai_session,
         )
 
+    def _cookie_value(self, name: str) -> str | None:
+        """Return one cookie value from the CookieJar by name."""
+        return next(
+            (cookie.value for cookie in self.session.cookies if cookie.name == name),
+            None,
+        )
+
     def _extract_xsrf_token(self, content: str) -> str:
-        xsrf_token_marker = ',"xsrfToken":"'
-        s1 = content.find(xsrf_token_marker)
-        if s1 == -1:
+        # hh.ru may HTML-escape embedded state and may expose multiple xsrfToken
+        # values. The server validates the token matching the _xsrf cookie.
+        content = html.unescape(content)
+        tokens = re.findall(r',"xsrfToken":"([^"]+)"', content)
+        if not tokens:
             raise ValueError("xsrf token not found")
-        s1 += len(xsrf_token_marker)
-        s2 = content.find('"', s1)
-        if s2 == -1:
-            raise ValueError("malformed xsrf token")
-        return content[s1:s2]
+
+        cookie_xsrf = self._cookie_value("_xsrf")
+        if cookie_xsrf and cookie_xsrf in tokens:
+            return cookie_xsrf
+        return tokens[0]
 
     def _get_xsrf_token(self, url: str | None = None) -> str:
-        """Возвращает XSRF-токен, который выдается на сессию"""
-        r = self.session.get(url or "https://hh.ru/")
-        return self._extract_xsrf_token(r.text)
+        """Return the XSRF token validated by hh.ru for this web session."""
+        cookie_xsrf = self._cookie_value("_xsrf")
+        if cookie_xsrf:
+            return cookie_xsrf
+        response = self.session.get(url or "https://hh.ru/")
+        return self._extract_xsrf_token(response.text)
 
     @cached_property
     def xsrf_token(self) -> str:
