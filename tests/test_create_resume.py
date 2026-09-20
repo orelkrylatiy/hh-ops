@@ -86,11 +86,7 @@ def test_resolve_suggests_fails_on_ambiguous_non_exact_results() -> None:
     with pytest.raises(ResumeTemplateError, match="Неоднозначное значение"):
         _resolve_suggests(
             api,
-            {
-                "professional_roles": [
-                    {"_suggest": "/suggests/professional_roles", "text": "React"}
-                ]
-            },
+            {"professional_roles": [{"_suggest": "/suggests/professional_roles", "text": "React"}]},
         )
 
 
@@ -149,9 +145,7 @@ text = "Программист, разработчик"
     api = FakeApi()
     api.suggestions = {
         "Москва": [{"id": "1", "text": "Москва"}],
-        "Программист, разработчик": [
-            {"id": "96", "text": "Программист, разработчик"}
-        ],
+        "Программист, разработчик": [{"id": "96", "text": "Программист, разработчик"}],
     }
     tool = SimpleNamespace(api_client=api, get_resumes=Mock())
 
