@@ -74,7 +74,7 @@ class Operation(BaseOperation):
             (max(args.limit, 1),),
         ).fetchall()
         payload = [dict(row) for row in rows]
-        if getattr(args, "json_output", False):
+        if getattr(args, "json", False):
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
 
