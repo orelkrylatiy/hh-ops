@@ -25,7 +25,7 @@ def _write_lanes(path: Path) -> None:
                     {
                         "name": "frontend-primary",
                         "resume_alias": "primary",
-                        "fallback_unfiltered_if_alias_missing": True,
+                        "allow_infer_primary": True,
                     },
                     {
                         "name": "ai-engineer",
@@ -90,7 +90,7 @@ def test_lane_skips_missing_optional_ai_alias(capsys) -> None:
     assert "skip" in capsys.readouterr().out
 
 
-def test_primary_lane_can_fallback_before_alias_registry_exists() -> None:
+def test_primary_lane_can_infer_before_alias_registry_exists() -> None:
     module = _load_module()
 
     args = module._lane_args(
@@ -103,7 +103,7 @@ def test_primary_lane_can_fallback_before_alias_registry_exists() -> None:
         project_root=Path("/repo"),
     )
 
-    assert args == []
+    assert args == ["--resume-alias", "primary"]
 
 
 def test_main_runs_profile_lanes_with_alias_isolation(tmp_path, monkeypatch) -> None:
@@ -177,7 +177,8 @@ def test_main_skips_ai_lane_until_alias_exists(tmp_path, monkeypatch) -> None:
 
     assert result == 0
     assert len(calls) == 1
-    assert "--resume-alias" not in calls[0]
+    alias_index = calls[0].index("--resume-alias")
+    assert calls[0][alias_index + 1] == "primary"
 
 
 def test_main_preserves_legacy_single_run_without_lane_file(tmp_path, monkeypatch) -> None:
