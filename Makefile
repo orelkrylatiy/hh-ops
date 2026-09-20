@@ -16,11 +16,8 @@ help:
 	@echo "  make ci               - Run all checks (lint + typecheck + test)"
 	@echo ""
 	@echo "Scheduling (Auto-run):"
-	@echo "  make schedule         - Setup cron for daily auto-run (9:00)"
-	@echo "  make schedule-time    - Setup cron with custom time (TIME=10:30)"
-	@echo "  make scheduler        - Run Python scheduler in foreground"
-	@echo "  make scheduler-test   - Test scheduler (single run)"
-	@echo "  make unschedule       - Remove cron jobs"
+	@echo "  make schedule         - Install the canonical cron schedule"
+	@echo "  make unschedule       - Remove the canonical cron schedule"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build     - Build Docker image"
@@ -121,34 +118,17 @@ schedule:
 	@echo "🕐 Setting up cron for daily auto-run at 09:00..."
 	@bash scripts/setup-cron.sh
 
-schedule-time:
-	@if [ -z "$(TIME)" ]; then \
-		echo "❌ Usage: make schedule-time TIME=10:30"; \
-		exit 1; \
-	fi
-	@echo "🕐 Setting up cron for daily auto-run at $(TIME)..."
-	@RUN_TIME=$(TIME) bash scripts/setup-cron.sh
-
-scheduler:
-	@echo "🕐 Running Python scheduler (foreground)..."
-	@mkdir -p logs
-	@python3 scripts/scheduler.py
-
-scheduler-test:
-	@echo "🧪 Testing scheduler (single run)..."
-	@mkdir -p logs
-	@python3 scripts/scheduler.py --once
-
-scheduler-background:
-	@echo "🕐 Starting scheduler in background..."
-	@mkdir -p logs
-	@nohup python3 scripts/scheduler.py > logs/scheduler.out 2>&1 &
-	@echo "✅ Scheduler started (PID: $$!)"
-	@echo "📝 Logs: logs/scheduler.log"
-
 unschedule:
-	@echo "🗑️  Removing cron jobs..."
-	@(crontab -l 2>/dev/null | grep -v "hh-applicant-tool" | grep -v "boost-resume" | grep -v "apply-vacancies") | crontab -
+	@echo "🗑️  Removing work-optimization cron jobs..."
+	@tmp=$(mktemp); \
+	crontab -l 2>/dev/null | awk ' \
+		$0 == "# work-optimization autonomous HH jobs" {skip=4; next} \
+		$0 == "# work-optimization ops snapshots" {skip=2; next} \
+		skip > 0 {skip--; next} \
+		{print} \
+	' > "$tmp" || true; \
+	crontab "$tmp"; \
+	rm -f "$tmp"
 	@echo "✅ Cron jobs removed"
 
-.PHONY: help install dev admin-deps test lint format typecheck docker-build docker-run docker-stop docker-logs clean setup-config docker-test docker-shell ci test-cov schedule schedule-time scheduler scheduler-test scheduler-background unschedule
+.PHONY: help install dev admin-deps test lint format typecheck docker-build docker-run docker-stop docker-logs clean setup-config docker-test docker-shell ci test-cov schedule unschedule
