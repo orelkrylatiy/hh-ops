@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import time
 import uuid
@@ -27,6 +28,20 @@ AI_CLICHES = (
 )
 PLACEHOLDER_TOKENS = ("[", "]", "{{", "}}", "<имя>", "<name>")
 
+# HH шлёт служебные уведомления (удаление вакансии и т.п.) с author=employer,
+# поэтому роль не помогает - распознаём по тексту. На такие сообщения отвечать нельзя.
+SYSTEM_NOTIFICATION_RE = re.compile(
+    r"^\s*(Вакансия\s+(не\s+прошла\s+проверку|была\s+удалена|закрыта|снята\s+с\s+публикации|архивирована)"
+    r"|Резюме\s+(было\s+)?отклонено"
+    r"|Отклик\s+(был\s+)?(отклон|сня|истёк)"
+    r"|Вы\s+можете\s+откликаться\s+на\s+другие\s+вакансии)",
+    re.IGNORECASE,
+)
+
+
+def is_system_notification(text: str) -> bool:
+    return bool(SYSTEM_NOTIFICATION_RE.match(text or ""))
+
 
 class HHCLIError(RuntimeError):
     """Raised when the hh-applicant-tool subprocess fails."""
@@ -40,6 +55,8 @@ class ReplyWorkerConfig:
     ai_retries: int = 1
     send_retries: int = 2
     send_retry_delay: float = 1.0
+    # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
+    skip_chat_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -290,6 +307,8 @@ class ReplyWorker:
                 negotiation_id = str(item.get("id") or "")
                 if not negotiation_id:
                     continue
+                if negotiation_id in self.config.skip_chat_ids:
+                    continue
                 try:
                     messages = self._negotiation_messages(negotiation_id)
                 except HHCLIError as exc:
@@ -301,6 +320,13 @@ class ReplyWorker:
                 if not ordered:
                     continue
                 if message_role(ordered[-1]) != EMPLOYER_ROLE:
+                    continue
+                if is_system_notification(message_text(ordered[-1])):
+                    # Служебное уведомление HH (удаление вакансии и т.п.): молчим.
+                    logger.info(
+                        "Chat %s last employer message is an HH system notification; skip",
+                        negotiation_id,
+                    )
                     continue
                 chats.append(item)
                 if len(chats) >= self.config.max_chats:
@@ -377,7 +403,7 @@ class ReplyWorker:
 
     def make_decision(self, chat: dict[str, Any]) -> ReplyDecision | None:
         chat_id = str(chat.get("id") or "")
-        if not chat_id:
+        if not chat_id or chat_id in self.config.skip_chat_ids:
             return None
         detail = self._chat_detail(chat_id)
         if detail.get("block_reason") or not self._write_allowed(detail):
@@ -385,6 +411,8 @@ class ReplyWorker:
 
         latest = self._latest_message(detail)
         if latest is None or message_role(latest) != EMPLOYER_ROLE:
+            return None
+        if is_system_notification(message_text(latest)):
             return None
         latest_id = message_id(latest)
         if not latest_id:
