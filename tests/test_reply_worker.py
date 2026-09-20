@@ -586,6 +586,22 @@ def test_classifier_does_not_ignore_acknowledgement_with_real_question() -> None
     assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
 
 
+def test_classifier_routes_non_text_employer_event_to_manual() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (
+        ACTION_MANUAL,
+        "employer_message_without_text",
+    )
+
+
 def test_classifier_marks_explicit_button_flow_manual() -> None:
     messages = [
         _message(
