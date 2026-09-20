@@ -13,7 +13,7 @@ COOKIES_FILENAME = "cookies.txt"
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/146.0.7680.75 Safari/537.36"
+    "Chrome/151.0.0.0 Safari/537.36"
 )
 
 # Admin Panel API Endpoints
