@@ -21,6 +21,7 @@ from hh_applicant_tool.automation.reply_fallback import (
     FallbackChatAI,
     load_reply_fallback_config,
 )
+from hh_applicant_tool.automation.reply_state import ManualChatQueue
 from hh_applicant_tool.automation.reply_worker import (
     HHCLI,
     ReplyWorker,
@@ -28,7 +29,6 @@ from hh_applicant_tool.automation.reply_worker import (
     build_ai_client,
     load_json_config,
 )
-from hh_applicant_tool.automation.reply_state import ManualChatQueue
 from hh_applicant_tool.constants import CONFIG_DIR, DATABASE_FILENAME
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 
