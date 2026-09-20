@@ -5,10 +5,11 @@
 возвращаются как {_suggest: endpoint, text: name}. Операция create-resume
 разрешает эти значения через read-only HH suggest endpoints перед записью.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime
 import re
+from datetime import date, datetime
 from typing import Any
 
 
