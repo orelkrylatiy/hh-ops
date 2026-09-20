@@ -1,0 +1,42 @@
+{
+  "lanes": [
+    {
+      "name": "frontend-primary",
+      "resume_alias": "primary",
+      "allow_infer_primary": true
+    },
+    {
+      "name": "ai-engineer",
+      "resume_alias": "ai-engineer",
+      "skip_if_alias_missing": true,
+      "search": "AI Engineer",
+      "limit": 25,
+      "pages": 12,
+      "ai_filter": "light",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
+      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+    },
+    {
+      "name": "llm-engineer",
+      "resume_alias": "ai-engineer",
+      "skip_if_alias_missing": true,
+      "search": "LLM Engineer",
+      "limit": 25,
+      "pages": 12,
+      "ai_filter": "light",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
+      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+    },
+    {
+      "name": "ai-automation",
+      "resume_alias": "ai-engineer",
+      "skip_if_alias_missing": true,
+      "search": "AI автоматизация",
+      "limit": 20,
+      "pages": 10,
+      "ai_filter": "light",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
+      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+    }
+  ]
+}

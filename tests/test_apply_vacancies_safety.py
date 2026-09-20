@@ -177,3 +177,146 @@ def test_max_responses_parser_rejects_negative_values() -> None:
     assert parser.parse_args(["--max-responses", "0"]).max_responses == 0
     with pytest.raises(SystemExit):
         parser.parse_args(["--max-responses", "-1"])
+
+
+def test_resume_id_and_alias_are_mutually_exclusive() -> None:
+    operation = Operation()
+    parser = argparse.ArgumentParser()
+    operation.setup_parser(parser)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--resume-id",
+                "resume-1",
+                "--resume-alias",
+                "ai-engineer",
+            ]
+        )
+
+
+def test_resume_alias_resolves_to_exact_resume_id() -> None:
+    operation = Operation()
+    operation.resume_alias = "ai-engineer"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={
+            "resume_aliases": {
+                "primary": "resume-front",
+                "ai-engineer": "resume-ai",
+            }
+        }
+    )
+
+    operation._resolve_resume_selector(tool)
+
+    assert operation.resume_id == "resume-ai"
+
+
+def test_unknown_resume_alias_fails_closed() -> None:
+    operation = Operation()
+    operation.resume_alias = "missing"
+    operation.resume_id = None
+    tool = SimpleNamespace(config={"resume_aliases": {"primary": "resume-front"}})
+
+    with pytest.raises(ValueError, match="Unknown resume alias"):
+        operation._resolve_resume_selector(tool)
+
+
+def test_existing_local_negotiation_skips_vacancy_before_apply() -> None:
+    operation = Operation()
+    operation.dry_run = False
+    operation._args = SimpleNamespace(skip_tests=False)
+    negotiation_repo = Mock()
+    negotiation_repo.find.return_value = iter([object()])
+    operation.tool = SimpleNamespace(
+        storage=SimpleNamespace(negotiations=negotiation_repo)
+    )
+    operation._is_excluded = Mock(return_value=False)
+
+    should_skip = operation._should_skip_vacancy_basic(
+        _vacancy("123"),
+        "resume-ai",
+    )
+
+    assert should_skip is True
+    negotiation_repo.find.assert_called_once_with(vacancy_id=123)
+    operation._is_excluded.assert_not_called()
+
+
+def test_missing_local_negotiation_keeps_existing_hh_relation_logic() -> None:
+    operation = Operation()
+    operation.dry_run = False
+    operation._args = SimpleNamespace(skip_tests=False)
+    negotiation_repo = Mock()
+    negotiation_repo.find.return_value = iter([])
+    operation.tool = SimpleNamespace(
+        storage=SimpleNamespace(negotiations=negotiation_repo)
+    )
+    operation._is_excluded = Mock(return_value=False)
+
+    vacancy = _vacancy("124")
+    vacancy["relations"] = ["got_response"]
+
+    should_skip = operation._should_skip_vacancy_basic(
+        vacancy,
+        "resume-ai",
+    )
+
+    assert should_skip is True
+    operation._is_excluded.assert_not_called()
+
+
+def test_negotiation_lookup_failure_falls_back_to_hh_checks() -> None:
+    operation = Operation()
+    operation.dry_run = False
+    operation._args = SimpleNamespace(skip_tests=False)
+    negotiation_repo = Mock()
+    negotiation_repo.find.side_effect = TypeError("db unavailable")
+    operation.tool = SimpleNamespace(
+        storage=SimpleNamespace(negotiations=negotiation_repo)
+    )
+    operation._is_excluded = Mock(return_value=False)
+
+    should_skip = operation._should_skip_vacancy_basic(
+        _vacancy("125"),
+        "resume-ai",
+    )
+
+    assert should_skip is False
+    operation._is_excluded.assert_called_once()
+
+
+def test_missing_primary_alias_infers_only_published_resume() -> None:
+    operation = Operation()
+    operation.resume_alias = "primary"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={"resume_aliases": {}},
+        get_resumes=lambda: [
+            {
+                "id": "resume-front",
+                "status": {"id": "published"},
+            }
+        ],
+    )
+
+    operation._resolve_resume_selector(tool)
+
+    assert operation.resume_id == "resume-front"
+
+
+def test_missing_primary_alias_with_multiple_published_resumes_fails_closed() -> None:
+    operation = Operation()
+    operation.resume_alias = "primary"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={"resume_aliases": {}},
+        get_resumes=lambda: [
+            {"id": "resume-front", "status": {"id": "published"}},
+            {"id": "resume-ai", "status": {"id": "published"}},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="cannot be inferred safely"):
+        operation._resolve_resume_selector(tool)

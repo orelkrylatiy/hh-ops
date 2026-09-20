@@ -7,7 +7,9 @@
 
 | Скрипт | Назначение |
 |---|---|
-| `apply.sh` | один bounded batch откликов |
+| `apply.sh` | один bounded batch откликов с optional resume alias |
+| `apply-profile.sh` | profile-specific apply lanes с legacy fallback |
+| `setup-ai-resume.sh` | dry-run/live создание AI resume variant |
 | `reply.sh` | один bounded pass по чатам |
 | `cleanup.sh` | очистка rejected/discard переговоров |
 | `daily.sh` | ручной one-shot apply + reply |
@@ -21,6 +23,31 @@
 Production использует только `crontab -> cron-job.sh -> all-profiles.sh`.
 Отдельных Python-daemon/systemd scheduler'ов нет, чтобы один аккаунт случайно
 не обрабатывался двумя scheduler'ами одновременно.
+
+## Resume lanes
+
+`all-profiles.sh apply` вызывает `apply-profile.sh`. Для профилей без
+`rules/apply-lanes/<profile>.json` runner просто делегирует старому
+`apply.sh`, поэтому существующие аккаунты не меняют поведение.
+
+Для `0555` настроены отдельные frontend и AI/LLM lanes. Пока alias `primary`
+ещё не записан, frontend lane может вывести его только из единственного
+опубликованного резюме; при нескольких опубликованных резюме без alias запуск
+останавливается fail-closed. AI lanes активируются
+только после того, как `setup-ai-resume.sh --profile 0555 --live` создаст
+резюме и сохранит alias `ai-engineer`.
+
+Preview создания:
+
+```bash
+./scripts/setup-ai-resume.sh --profile 0555 --dry-run
+```
+
+Live creation + publish:
+
+```bash
+./scripts/setup-ai-resume.sh --profile 0555 --live
+```
 
 ## Чаты
 

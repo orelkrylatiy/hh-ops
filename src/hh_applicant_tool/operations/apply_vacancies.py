@@ -10,6 +10,7 @@ from ..api import datatypes
 from ..main import BaseNamespace, BaseOperation
 from ..storage.repositories.errors import RepositoryError
 from ..utils.misc import expand_env_placeholders, load_prompt
+from ..utils.resume_aliases import resolve_resume_alias
 from ._apply_vacancies_ai import ApplyVacanciesAIMixin
 from ._apply_vacancies_apply_flow import ApplyVacanciesApplyFlowMixin
 from ._apply_vacancies_helpers import ApplyVacanciesHelpersMixin
@@ -23,6 +24,7 @@ logger = logging.getLogger(__package__)
 
 class Namespace(BaseNamespace):
     resume_id: str | None
+    resume_alias: str | None
     letter_file: Path | None
     ignore_employers: Path | None
     force_message: bool
@@ -107,6 +109,7 @@ class Operation(
         "message_prompt",
         "premium",
         "professional_role",
+        "resume_alias",
         "resume_id",
         "right_lng",
         "salary",
@@ -121,7 +124,12 @@ class Operation(
     )
 
     def setup_parser(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--resume-id", help="Идентефикатор резюме")
+        resume_group = parser.add_mutually_exclusive_group()
+        resume_group.add_argument("--resume-id", help="Идентификатор резюме")
+        resume_group.add_argument(
+            "--resume-alias",
+            help="Профильный alias резюме из config.resume_aliases",
+        )
         parser.add_argument(
             "--search",
             help="Строка поиска для фильтрации вакансий. Если указана, то поиск будет производиться по вакансиям. В остальных случаях отклики будут производиться по списку рекомендованных вакансий.",  # noqa: E501
@@ -388,6 +396,40 @@ class Operation(
         for attr_name in self._ARG_ATTRS:
             setattr(self, attr_name, getattr(args, attr_name, None))
 
+    def _resolve_resume_selector(self, tool: HHApplicantTool) -> None:
+        if not self.resume_alias:
+            return
+
+        try:
+            self.resume_id = resolve_resume_alias(tool.config, self.resume_alias)
+        except ValueError:
+            if self.resume_alias != "primary":
+                raise
+
+            published = [
+                str(resume["id"])
+                for resume in tool.get_resumes()
+                if resume.get("id")
+                and (resume.get("status") or {}).get("id") == "published"
+            ]
+            if len(published) != 1:
+                raise ValueError(
+                    "Resume alias 'primary' is missing and cannot be inferred safely: "
+                    f"found {len(published)} published resumes"
+                )
+            self.resume_id = published[0]
+            logger.warning(
+                "Resume alias primary is missing; inferred the only published resume: %s",
+                self.resume_id,
+            )
+            return
+
+        logger.info(
+            "Resolved resume alias %s -> %s",
+            self.resume_alias,
+            self.resume_id,
+        )
+
     def run(
         self,
         tool: HHApplicantTool,
@@ -406,6 +448,7 @@ class Operation(
             else self.cover_letter
         )
         self._assign_args(args)
+        self._resolve_resume_selector(tool)
         if self.max_responses is not None and self.max_responses < 0:
             raise ValueError("max_responses must be a non-negative integer")
         self.responses_sent = 0

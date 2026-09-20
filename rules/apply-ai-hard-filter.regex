@@ -1,0 +1,24 @@
+# AI/LLM application hard filter.
+# Intentionally does NOT exclude Python, data, backend or junior keywords.
+
+# Clearly non-engineering business roles
+продаж\w*
+(?<!\w)sales(?!\w)
+маркетолог\w*
+(?<!\w)smm(?!\w)
+рекрутер\w*
+(?<!\w)hr(?!\w)
+копирайтер\w*
+контент[- ]?менеджер\w*
+дизайнер\w*
+
+# Clearly unrelated enterprise stacks
+(?<!\w)1c(?!\w)
+(?<!\w)1с(?!\w)
+(?<!\w)bitrix(?!\w)
+битрикс\w*
+
+# Existing hard location exclusions for the account fleet
+казан\w*
+(?<!\w)спб(?!\w)
+минск\w*

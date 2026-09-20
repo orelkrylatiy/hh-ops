@@ -72,11 +72,29 @@ class ApplyVacanciesApplyFlowMixin:
             except RepositoryError as ex:
                 logger.exception(ex)
 
+    def _has_existing_negotiation(self, vacancy_id: str | int) -> bool:
+        try:
+            return any(
+                self.tool.storage.negotiations.find(
+                    vacancy_id=int(vacancy_id),
+                )
+            )
+        except (AttributeError, RepositoryError, TypeError, ValueError):
+            return False
+
     def _should_skip_vacancy_basic(
         self,
         vacancy: dict[str, Any],
         resume_id: str,
     ) -> bool:
+        vacancy_id = vacancy.get("id")
+        if vacancy_id is not None and self._has_existing_negotiation(vacancy_id):
+            logger.debug(
+                "Пропускаем вакансию с существующим negotiation в локальной базе: %s",
+                vacancy.get("alternate_url", vacancy_id),
+            )
+            return True
+
         relations = vacancy.get("relations", [])
         if relations:
             logger.debug(

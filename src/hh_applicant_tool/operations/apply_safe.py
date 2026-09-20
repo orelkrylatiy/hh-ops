@@ -118,6 +118,7 @@ class Operation(BaseApplyOperation):
         args.message_prompt = load_prompt(args.message_prompt)
         self._configure_cover_letter_fallback(tool, args)
         self._assign_args(args)
+        self._resolve_resume_selector(tool)
 
         if self.max_responses is not None and self.max_responses < 0:
             raise ValueError("max_responses must be a non-negative integer")
