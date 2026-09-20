@@ -222,6 +222,36 @@ Live:
 
 Для cover letters static fallback не используется: `AIError` пропускает конкретную vacancy и помечает run как неуспешный.
 
+## Создание Резюме Из Шаблона
+
+В репозитории есть пример `docs/resume_template.md`. Перед реальным созданием
+рекомендуется всегда смотреть финальный HH payload:
+
+```bash
+hh-applicant-tool --profile-id default create-resume docs/resume_template.md --dry-run
+```
+
+Реальное создание:
+
+```bash
+hh-applicant-tool --profile-id default create-resume docs/resume_template.md
+```
+
+Создание с последующей публикацией:
+
+```bash
+hh-applicant-tool --profile-id default create-resume docs/resume_template.md --publish
+```
+
+Поддерживаются `.md`, `.markdown` и `.toml`. `--dry-run` может делать
+только read-only запросы к HH suggestions/directories; `POST /resumes` и
+publish в этом режиме не вызываются. Неоднозначные справочники, невалидные даты,
+контакты, enum-значения и отрасли останавливают операцию до создания резюме.
+
+Если HH после `POST /resumes` не вернул ID, команда определяет новый ID по
+списку резюме. При нескольких одновременно появившихся ID `--publish`
+fail-closed и ничего автоматически не публикует.
+
 ## Автоответы В Чатах
 
 Preview без отправки и без вызова LLM:
