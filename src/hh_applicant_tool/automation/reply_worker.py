@@ -276,6 +276,8 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
     text = message_text(latest)
     if message_role(latest) != EMPLOYER_ROLE:
         return ACTION_IGNORE, "latest_not_employer"
+    if not text:
+        return ACTION_MANUAL, "employer_message_without_text"
     if is_system_notification(text):
         return ACTION_IGNORE, "hh_system_notification"
     if repeated_employer_message_after_reply(ordered):
