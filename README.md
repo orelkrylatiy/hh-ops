@@ -26,9 +26,10 @@ LLM только там, где нужен текст
 - AI-сопроводительные письма;
 - пропуск вакансий с тестовыми заданиями в autonomous path;
 - лимит именно по успешным откликам, а не по числу просмотренных вакансий;
-- автоответы через актуальный `/common/chats` API HH;
-- повторная проверка чата перед отправкой ответа;
-- deterministic idempotency key для защиты от дублей при retry;
+- автоответы через applicant `/negotiations` chat API с повторной проверкой истории;
+- rule-based chat classifier: `REPLY_TEXT / IGNORE / MANUAL`;
+- SQLite-очередь ручных/button-flow чатов;
+- защита от дублей через re-read после сомнительного POST;
 - configurable runtime fallback-сообщение при недоступности LLM в reply path;
 - multi-profile с bounded concurrency до 10 профилей по умолчанию и per-profile locks;
 - ежедневный cron batch откликов и почасовые проверки чатов;
@@ -235,28 +236,42 @@ Live:
 ./scripts/reply.sh --profile default --chats 20 --live
 ```
 
-Worker использует current common-chat flow:
+Worker использует applicant negotiation flow:
 
 ```text
-GET /common/chats
-GET /common/chats/{chat_id}/messages
-LLM generation / runtime fallback
+GET /negotiations
+GET /negotiations/{id}/messages
+classifier
+  ├─ IGNORE
+  ├─ MANUAL -> SQLite manual_chat_queue
+  └─ REPLY_TEXT -> LLM / runtime fallback
 humanizer
-GET /common/chats/{chat_id}/messages   # revalidate
-POST /common/chats/{chat_id}/messages  # idempotent
+GET /negotiations/{id}/messages   # revalidate exact employer turn
+POST /negotiations/{id}/messages
 ```
 
-Ответ отправляется только когда:
+Classifier не тратит LLM-вызов на очевидные состояния. Служебные HH-уведомления
+и простые acknowledgement без вопроса получают `IGNORE`. Явные button/UI hints
+получают `MANUAL`. Если тот же employer-вопрос повторился после нашего
+текстового ответа, это считается сильным признаком, что бот ждал кнопку или
+структурированное действие, и чат тоже уходит в `MANUAL`.
 
-- чат относится к negotiation;
-- чат не заблокирован;
-- HH разрешает запись;
-- последнее сообщение от работодателя;
-- за время генерации последнее сообщение не изменилось.
+Обычный `REPLY_TEXT` проходит существующий LLM/humanizer pipeline. Перед POST
+worker перечитывает историю и отправляет ответ только если тот же employer
+message всё ещё последний. После сетевой ошибки worker снова читает чат и не
+повторяет POST, если предполагаемый ответ уже появился.
 
-Если человек ответил вручную или работодатель прислал ещё одно сообщение, старый AI-ответ не отправляется.
+Pending manual cases можно посмотреть:
 
-Каждый employer turn получает deterministic UUID `idempotency_key`. Retry использует тот же ключ; дополнительно worker перечитывает чат после сомнительного POST, чтобы не отправить дубль при потерянном HTTP-ответе.
+```bash
+hh-applicant-tool --profile-id default manual-chats
+```
+
+После ручного браузерного ответа:
+
+```bash
+hh-applicant-tool --profile-id default manual-chats --resolve CHAT_ID
+```
 
 ## Humanizer
 
@@ -280,6 +295,7 @@ Container `crontab` по умолчанию:
 | 09:00 | boost резюме, только `live` |
 | 09:10 | один application batch |
 | каждый час 09:25–21:25 | один bounded pass по чатам |
+| 22:10 | очистка rejected/discard переговоров |
 
 Время берётся из timezone контейнера/сервера (`TZ`).
 
@@ -294,6 +310,7 @@ APPLY_PER_PAGE=50
 APPLY_PAGES=20
 APPLY_RUN_TIMEOUT=3600
 REPLY_CHATS=100
+CLEANUP_DELETE_CHAT=1
 HH_PROFILE_PARALLELISM=10
 ```
 
@@ -309,6 +326,24 @@ HH_AUTOMATION_MODE=live
 ./scripts/setup-cron.sh
 ```
 
+## Очистка Rejected Переговоров
+
+Preview:
+
+```bash
+./scripts/cleanup.sh --profile default --dry-run
+```
+
+Live:
+
+```bash
+./scripts/cleanup.sh --profile default --live
+```
+
+По умолчанию очищаются только переговоры со state=`discard`. При
+`CLEANUP_DELETE_CHAT=1` соответствующий web-chat также скрывается. Cleanup не
+blacklist'ит работодателя и не использует ATS-эвристику.
+
 ## Docker
 
 ```bash
@@ -317,7 +352,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-`docker-compose.yml` передаёт scheduler knobs в container environment. `container-entrypoint.sh` через `scripts/write-runtime-env.sh` сохраняет их в `/tmp/hh-runtime.env`, потому что cron запускается с урезанным environment. Поэтому кастомные `SEARCH_QUERY`, `APPLY_*`, `REPLY_CHATS` и `HH_PROFILE_PARALLELISM` работают и в scheduled jobs.
+`docker-compose.yml` передаёт scheduler knobs в container environment. `container-entrypoint.sh` через `scripts/write-runtime-env.sh` сохраняет их в `/tmp/hh-runtime.env`, потому что cron запускается с урезанным environment. Поэтому кастомные `SEARCH_QUERY`, `APPLY_*`, `REPLY_CHATS`, `CLEANUP_DELETE_CHAT` и `HH_PROFILE_PARALLELISM` работают и в scheduled jobs.
 
 Admin panel публикуется только на localhost:
 
