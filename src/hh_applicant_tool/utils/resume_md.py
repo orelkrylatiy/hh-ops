@@ -7,6 +7,7 @@ _resolve_suggests при передаче флага --resolve.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 from typing import Any
 
@@ -132,13 +133,12 @@ _END_MARKERS = frozenset({"настоящее время", "по настоящ�
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
 
-def _tr(value: str, mapping: dict[str, str], field: str) -> str | None:
+def _tr(value: str, mapping: dict[str, str], field: str) -> str:
     result = mapping.get(value.strip().lower())
     if result is None:
-        import logging
-        logging.getLogger(__package__).warning(
-            "Неизвестное значение для %s: %r. Допустимые: %s",
-            field, value, ", ".join(mapping),
+        allowed = ", ".join(sorted(mapping))
+        raise ValueError(
+            f"Неизвестное значение для {field}: {value!r}. Допустимые: {allowed}"
         )
     return result
 
@@ -198,45 +198,73 @@ def _parse_description(text: str) -> str:
 
 
 def _parse_date(s: str) -> str:
-    """'03.2021' → '2021-03-01';  '2021-03-01' → без изменений."""
-    s = s.strip()
-    m = re.match(r"^(\d{2})\.(\d{4})$", s)
-    if m:
-        return f"{m.group(2)}-{m.group(1)}-01"
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-        return s
-    raise ValueError(f"Не удалось распознать дату: {s!r} (ожидается ММ.ГГГГ)")
+    """'03.2021' → '2021-03-01'; '2021-03-01' → ISO date."""
+    value = s.strip()
+    month_year = re.fullmatch(r"(\d{2})\.(\d{4})", value)
+    if month_year:
+        month = int(month_year.group(1))
+        year = int(month_year.group(2))
+        try:
+            parsed = dt.date(year, month, 1)
+        except ValueError as exc:
+            raise ValueError(f"Некорректная дата: {value!r}") from exc
+        return parsed.isoformat()
+    try:
+        return dt.date.fromisoformat(value).isoformat()
+    except ValueError as exc:
+        raise ValueError(
+            f"Не удалось распознать дату: {value!r} "
+            "(ожидается ММ.ГГГГ или YYYY-MM-DD)"
+        ) from exc
 
 
 def _parse_phone(s: str) -> dict[str, str]:
-    """+7 916 123-45-67 (комментарий) → {country, city, number[, comment]}"""
+    """Parse a Russian HH phone into country/city/number components."""
+    value = s.strip()
     comment: str | None = None
-    m = re.search(r"\(([^)]+)\)\s*$", s)
-    if m:
-        comment = m.group(1)
-        s = s[: m.start()].strip()
-    digits = re.sub(r"\D", "", s)
-    if len(digits) == 11 and digits[0] in ("7", "8"):
-        result: dict[str, str] = {"country": "7", "city": digits[1:4], "number": digits[4:]}
-    else:
-        result = {"country": digits[:1] or "7", "city": digits[1:4], "number": digits[4:]}
+    match = re.search(r"\(([^)]+)\)\s*$", value)
+    if match:
+        comment = match.group(1).strip()
+        value = value[: match.start()].strip()
+
+    digits = re.sub(r"\D", "", value)
+    if len(digits) != 11 or digits[0] not in ("7", "8"):
+        raise ValueError(
+            f"Некорректный телефон: {s!r}. "
+            "Ожидается российский номер из 11 цифр, например +7 916 123-45-67"
+        )
+
+    result: dict[str, str] = {
+        "country": "7",
+        "city": digits[1:4],
+        "number": digits[4:],
+    }
     if comment:
         result["comment"] = comment
     return result
 
 
 def _parse_salary(s: str) -> dict[str, Any]:
-    """'200 000 руб.' → {amount: 200000, currency: 'RUR'}"""
-    m = re.search(r"[\d\s]+", s)
-    if not m:
+    """'200 000 руб.' → {amount: 200000, currency: 'RUR'}."""
+    match = re.fullmatch(r"\s*([\d\s]+?)\s*([^\d\s].*)?\s*", s)
+    if not match:
         raise ValueError(f"Не удалось распознать зарплату: {s!r}")
-    amount = int(re.sub(r"\s", "", m.group()))
-    tail = s[m.end():].strip().lower()
-    currency = "RUR"
-    for key, val in CURRENCY_RU.items():
-        if tail.startswith(key):
-            currency = val
-            break
+
+    amount = int(re.sub(r"\s", "", match.group(1)))
+    if amount <= 0:
+        raise ValueError("Зарплата должна быть положительным числом")
+
+    currency_text = (match.group(2) or "").strip().lower()
+    if not currency_text:
+        currency = "RUR"
+    else:
+        currency = next(
+            (code for key, code in CURRENCY_RU.items() if currency_text == key),
+            None,
+        )
+        if currency is None:
+            raise ValueError(f"Неизвестная валюта зарплаты: {currency_text!r}")
+
     return {"amount": amount, "currency": currency}
 
 
@@ -259,9 +287,12 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             if v := kv.get(ru_key):
                 result[api_key] = v
         if v := kv.get("дата рождения"):
-            m = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", v)
-            if m:
-                result["birth_date"] = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+            try:
+                result["birth_date"] = dt.datetime.strptime(v, "%d.%m.%Y").date().isoformat()
+            except ValueError as exc:
+                raise ValueError(
+                    f"Некорректная дата рождения: {v!r} (ожидается ДД.ММ.ГГГГ)"
+                ) from exc
         if v := kv.get("пол"):
             if api_id := _tr(v, GENDER_RU, "пол"):
                 result["gender"] = {"id": api_id}
@@ -279,10 +310,16 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             if not line.startswith("- ") or ":" not in line:
                 continue
             label, _, value = line[2:].partition(":")
-            label_id = CONTACT_TYPE_RU.get(label.strip().lower(), "cell")
+            label_key = label.strip().lower()
+            label_id = CONTACT_TYPE_RU.get(label_key)
+            if label_id is None:
+                raise ValueError(f"Неизвестный тип контакта: {label.strip()!r}")
             value = value.strip()
+            if not value:
+                raise ValueError(f"Пустое значение контакта: {label.strip()!r}")
             if label_id == "email":
-                # email: value — просто строка
+                if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+                    raise ValueError(f"Некорректный email: {value!r}")
                 contacts.append({"type": {"id": "email"}, "value": value})
             else:
                 # телефон: value — объект {country, city, number[, formatted]},
@@ -353,9 +390,11 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             if api_id := _tr(ttype, RELOCATION_TYPE_RU, "тип переезда"):
                 relocation["type"] = {"id": api_id}
         if cities_str := kv.get("города"):
+            cities = [item.strip() for item in cities_str.split(",") if item.strip()]
+            if not cities:
+                raise ValueError("Раздел 'Переезд': список городов пуст")
             relocation["area"] = [
-                _suggest("/suggests/area_leaves", c.strip())
-                for c in cities_str.split(",")
+                _suggest("/suggests/area_leaves", city) for city in cities
             ]
         if relocation:
             result["relocation"] = relocation
@@ -397,10 +436,17 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             if not line.startswith("- ") or ":" not in line:
                 continue
             lang_str, _, level_str = line[2:].partition(":")
-            lang_id = LANG_NAME_RU.get(lang_str.strip().lower())
-            level_id = LANG_LEVEL_RU.get(level_str.strip().lower())
-            if lang_id and level_id:
-                languages.append({"id": lang_id, "level": {"id": level_id}})
+            language_name = lang_str.strip()
+            level_name = level_str.strip()
+            lang_id = LANG_NAME_RU.get(language_name.lower())
+            level_id = LANG_LEVEL_RU.get(level_name.lower())
+            if lang_id is None:
+                raise ValueError(f"Неизвестный язык: {language_name!r}")
+            if level_id is None:
+                raise ValueError(
+                    f"Неизвестный уровень языка {language_name!r}: {level_name!r}"
+                )
+            languages.append({"id": lang_id, "level": {"id": level_id}})
         if languages:
             result["language"] = languages
 
@@ -442,7 +488,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             if url := kv.get("сайт"):
                 entry["company_url"] = url
             if company_id_text := kv.get("компания id"):
-                entry["company_id"] = _suggest("/suggests/companies", company_id_text)
+                entry["company_id"] = company_id_text.strip()
             experience.append(entry)
         if experience:
             result["experience"] = experience
