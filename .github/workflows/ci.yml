@@ -64,6 +64,11 @@ jobs:
 
       - name: Ruff format critical automation paths
         run: |
+          ruff format --diff \
+            src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/utils/resume_md.py \
+            tests/test_create_resume.py \
+            tests/test_resume_md.py || true
           ruff format --check \
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
