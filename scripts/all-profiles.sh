@@ -64,7 +64,7 @@ shift || true
 ARGS=("$@")
 
 case "$COMMAND" in
-    apply) CMD_SCRIPT="$SCRIPT_DIR/apply.sh" ;;
+    apply) CMD_SCRIPT="$SCRIPT_DIR/apply-profile.sh" ;;
     reply) CMD_SCRIPT="$SCRIPT_DIR/reply.sh" ;;
     cleanup) CMD_SCRIPT="$SCRIPT_DIR/cleanup.sh" ;;
     daily) CMD_SCRIPT="$SCRIPT_DIR/daily.sh" ;;
