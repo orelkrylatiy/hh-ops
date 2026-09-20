@@ -109,9 +109,7 @@ def main() -> int:
             dry_run=dry_run,
             max_chats=args.max_chats,
             skip_chat_ids=tuple(
-                x.strip()
-                for x in os.environ.get("HH_REPLY_SKIP", "").split(",")
-                if x.strip()
+                x.strip() for x in os.environ.get("HH_REPLY_SKIP", "").split(",") if x.strip()
             ),
         ),
         hh=HHCLI(args.profile),
