@@ -76,20 +76,12 @@ def _resolve_one_suggestion(
     if not isinstance(raw_items, list):
         raise ResumeTemplateError(f"{endpoint} не вернул список items для {path}")
 
-    items = [
-        item
-        for item in raw_items
-        if isinstance(item, dict) and item.get("id") is not None
-    ]
+    items = [item for item in raw_items if isinstance(item, dict) and item.get("id") is not None]
     if not items:
         raise ResumeTemplateError(f"HH не нашёл значение {path}={text!r}")
 
     target = _normalize_label(text)
-    exact = [
-        item
-        for item in items
-        if _normalize_label(_suggestion_label(item)) == target
-    ]
+    exact = [item for item in items if _normalize_label(_suggestion_label(item)) == target]
     if len(exact) == 1:
         selected = exact[0]
     elif len(exact) > 1:
@@ -106,12 +98,8 @@ def _resolve_one_suggestion(
             _suggestion_label(selected),
         )
     else:
-        labels = ", ".join(
-            _suggestion_label(item) or str(item.get("id")) for item in items[:5]
-        )
-        raise ResumeTemplateError(
-            f"Неоднозначное значение {path}={text!r}. HH предложил: {labels}"
-        )
+        labels = ", ".join(_suggestion_label(item) or str(item.get("id")) for item in items[:5])
+        raise ResumeTemplateError(f"Неоднозначное значение {path}={text!r}. HH предложил: {labels}")
 
     return {"id": str(selected["id"])}
 
@@ -126,8 +114,7 @@ def _resolve_suggests(api_client: Any, obj: Any, path: str = "$") -> Any:
                 raise ResumeTemplateError(f"Некорректная suggestion-ссылка в {path}")
             return _resolve_one_suggestion(api_client, endpoint, text, path)
         return {
-            key: _resolve_suggests(api_client, value, f"{path}.{key}")
-            for key, value in obj.items()
+            key: _resolve_suggests(api_client, value, f"{path}.{key}") for key, value in obj.items()
         }
     if isinstance(obj, list):
         return [
@@ -167,9 +154,7 @@ def _resolve_industries(api_client: Any, experience: Any) -> None:
             raise ResumeTemplateError(f"experience[{exp_index}] должен быть объектом")
         industries = exp.get("industries", [])
         if not isinstance(industries, list):
-            raise ResumeTemplateError(
-                f"experience[{exp_index}].industries должен быть списком"
-            )
+            raise ResumeTemplateError(f"experience[{exp_index}].industries должен быть списком")
         for ind_index, industry in enumerate(industries):
             if not isinstance(industry, dict):
                 raise ResumeTemplateError(
@@ -180,8 +165,7 @@ def _resolve_industries(api_client: Any, experience: Any) -> None:
             name = str(industry.get("name") or "").strip()
             if not name:
                 raise ResumeTemplateError(
-                    f"experience[{exp_index}].industries[{ind_index}] "
-                    "не содержит id или name"
+                    f"experience[{exp_index}].industries[{ind_index}] не содержит id или name"
                 )
             unresolved.append(
                 (
@@ -197,9 +181,7 @@ def _resolve_industries(api_client: Any, experience: Any) -> None:
     try:
         tree = api_client.get("/industries")
     except ApiError as exc:
-        raise ResumeTemplateError(
-            f"Не удалось загрузить справочник отраслей: {exc}"
-        ) from exc
+        raise ResumeTemplateError(f"Не удалось загрузить справочник отраслей: {exc}") from exc
 
     by_name = _flatten_industries(tree)
     for industry, name, path in unresolved:
@@ -208,8 +190,7 @@ def _resolve_industries(api_client: Any, experience: Any) -> None:
             raise ResumeTemplateError(f"Отрасль не найдена: {path}={name!r}")
         if len(ids) > 1:
             raise ResumeTemplateError(
-                f"Неоднозначная отрасль {path}={name!r}: "
-                f"совпали ID {', '.join(ids)}"
+                f"Неоднозначная отрасль {path}={name!r}: совпали ID {', '.join(ids)}"
             )
         industry.clear()
         industry["id"] = ids[0]
@@ -232,15 +213,12 @@ def _validate_payload(payload: dict[str, Any]) -> None:
     required = ("first_name", "last_name", "title", "area", "professional_roles")
     missing = [field for field in required if not payload.get(field)]
     if missing:
-        raise ResumeTemplateError(
-            "В шаблоне отсутствуют обязательные поля: " + ", ".join(missing)
-        )
+        raise ResumeTemplateError("В шаблоне отсутствуют обязательные поля: " + ", ".join(missing))
 
     unresolved = _find_internal_suggestions(payload)
     if unresolved:
         raise ResumeTemplateError(
-            "В payload остались неразрешённые HH suggestions: "
-            + ", ".join(unresolved)
+            "В payload остались неразрешённые HH suggestions: " + ", ".join(unresolved)
         )
 
     area = payload.get("area")
@@ -250,10 +228,7 @@ def _validate_payload(payload: dict[str, Any]) -> None:
     roles = payload.get("professional_roles")
     if not isinstance(roles, list) or not roles:
         raise ResumeTemplateError("Нужна хотя бы одна professional role")
-    if any(
-        not isinstance(role, dict) or not role.get("id")
-        for role in roles
-    ):
+    if any(not isinstance(role, dict) or not role.get("id") for role in roles):
         raise ResumeTemplateError("Каждая professional role должна содержать id")
 
     experience = payload.get("experience", [])
@@ -329,17 +304,13 @@ class Operation(BaseOperation):
             "--dry-run",
             action="store_true",
             help=(
-                "Разрешить read-only suggest-запросы и показать финальный payload "
-                "без POST /resumes"
+                "Разрешить read-only suggest-запросы и показать финальный payload без POST /resumes"
             ),
         )
         parser.add_argument(
             "--publish",
             action="store_true",
-            help=(
-                "Опубликовать созданное резюме, только если его ID "
-                "определён однозначно"
-            ),
+            help=("Опубликовать созданное резюме, только если его ID определён однозначно"),
         )
 
     def run(self, tool: HHApplicantTool, args: Namespace) -> int | None:
@@ -366,9 +337,7 @@ class Operation(BaseOperation):
         if args.dry_run:
             print(json.dumps(payload, indent=2))
             if args.publish:
-                logger.info(
-                    "--publish проигнорирован в --dry-run; внешних изменений нет"
-                )
+                logger.info("--publish проигнорирован в --dry-run; внешних изменений нет")
             return None
 
         before_ids = _resume_ids(tool)
