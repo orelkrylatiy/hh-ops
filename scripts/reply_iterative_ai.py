@@ -28,7 +28,8 @@ from hh_applicant_tool.automation.reply_worker import (
     build_ai_client,
     load_json_config,
 )
-from hh_applicant_tool.constants import CONFIG_DIR
+from hh_applicant_tool.automation.reply_state import ManualChatQueue
+from hh_applicant_tool.constants import CONFIG_DIR, DATABASE_FILENAME
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 
 DEFAULT_SYSTEM_PROMPT = """Ты соискатель и отвечаешь работодателю в чате HH.ru.
@@ -54,9 +55,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def config_path(profile_id: str) -> Path:
+def profile_dir(profile_id: str) -> Path:
     base_dir = Path(os.environ.get("CONFIG_DIR", str(CONFIG_DIR)))
-    return resolve_profile_config_dir(base_dir, profile_id) / "config.json"
+    return resolve_profile_config_dir(base_dir, profile_id)
+
+
+def config_path(profile_id: str) -> Path:
+    return profile_dir(profile_id) / "config.json"
 
 
 def load_system_prompt() -> str:
@@ -94,6 +99,10 @@ def main() -> int:
             print(f"AI configuration error: {exc}", file=sys.stderr)
             return 2
 
+    manual_queue = None
+    if not dry_run:
+        manual_queue = ManualChatQueue(profile_dir(args.profile) / DATABASE_FILENAME)
+
     worker = ReplyWorker(
         ReplyWorkerConfig(
             profile_id=args.profile,
@@ -108,6 +117,7 @@ def main() -> int:
         hh=HHCLI(args.profile),
         ai=ai,
         system_prompt=prompt,
+        manual_queue=manual_queue,
     )
     stats = worker.run()
     stats["fallback"] = ai.fallback_uses if isinstance(ai, FallbackChatAI) else 0
