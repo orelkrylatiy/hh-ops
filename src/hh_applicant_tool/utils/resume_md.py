@@ -12,7 +12,6 @@ import re
 from datetime import date, datetime
 from typing import Any
 
-
 # ── Таблицы перевода русских значений в API-идентификаторы ────────────────────
 
 GENDER_RU = {"мужской": "male", "женский": "female"}
