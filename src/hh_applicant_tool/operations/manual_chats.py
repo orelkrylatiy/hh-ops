@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from typing import TYPE_CHECKING
 
+from ..automation.reply_state import ManualChatQueue
 from ..main import BaseNamespace, BaseOperation
-from ..storage.queries import ensure_manual_chat_queue
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -35,7 +36,7 @@ class Operation(BaseOperation):
         )
 
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:
-        ensure_manual_chat_queue(tool.db)
+        ManualChatQueue(tool.db_path)
 
         if args.resolve:
             if args.message_id:
@@ -60,7 +61,7 @@ class Operation(BaseOperation):
             print(f"Resolved: {cur.rowcount}")
             return
 
-        tool.db.row_factory = __import__("sqlite3").Row
+        tool.db.row_factory = sqlite3.Row
         rows = tool.db.execute(
             """
             SELECT chat_id, message_id, message_text, vacancy_name,
