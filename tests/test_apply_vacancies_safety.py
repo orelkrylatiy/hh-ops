@@ -177,3 +177,47 @@ def test_max_responses_parser_rejects_negative_values() -> None:
     assert parser.parse_args(["--max-responses", "0"]).max_responses == 0
     with pytest.raises(SystemExit):
         parser.parse_args(["--max-responses", "-1"])
+
+
+def test_resume_id_and_alias_are_mutually_exclusive() -> None:
+    operation = Operation()
+    parser = argparse.ArgumentParser()
+    operation.setup_parser(parser)
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--resume-id",
+                "resume-1",
+                "--resume-alias",
+                "ai-engineer",
+            ]
+        )
+
+
+def test_resume_alias_resolves_to_exact_resume_id() -> None:
+    operation = Operation()
+    operation.resume_alias = "ai-engineer"
+    operation.resume_id = None
+    tool = SimpleNamespace(
+        config={
+            "resume_aliases": {
+                "primary": "resume-front",
+                "ai-engineer": "resume-ai",
+            }
+        }
+    )
+
+    operation._resolve_resume_selector(tool)
+
+    assert operation.resume_id == "resume-ai"
+
+
+def test_unknown_resume_alias_fails_closed() -> None:
+    operation = Operation()
+    operation.resume_alias = "missing"
+    operation.resume_id = None
+    tool = SimpleNamespace(config={"resume_aliases": {"primary": "resume-front"}})
+
+    with pytest.raises(ValueError, match="Unknown resume alias"):
+        operation._resolve_resume_selector(tool)
