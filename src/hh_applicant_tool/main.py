@@ -609,6 +609,7 @@ class HHApplicantTool(MegaTool):
             "install",
             "uninstall",
             "migrate-db",
+            "manual-chats",
             "log",
         }
 
