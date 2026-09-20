@@ -246,6 +246,27 @@ jobs:
           test "$REPLY_CHATS" = 23
           test "$CLEANUP_DELETE_CHAT" = 0
           test "$HH_PROFILE_PARALLELISM" = 7
+      - name: Smoke-test automatic profile discovery
+        run: |
+          fake_bin="$(mktemp -d)"
+          config_root="$(mktemp -d)"
+          logs="$(mktemp -d)"
+          locks="$(mktemp -d)"
+          mkdir -p "$config_root/account-only"
+          printf '{}\n' > "$config_root/account-only/config.json"
+          cat > "$fake_bin/hh-applicant-tool" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" > "$PROFILE_DISCOVERY_ARGS"
+          EOF
+          chmod +x "$fake_bin/hh-applicant-tool"
+          PROFILE_DISCOVERY_ARGS="$(mktemp)" \
+          CONFIG_DIR="$config_root" \
+          HH_PROFILES_LOG_DIR="$logs" \
+          HH_PROFILES_LOCK_DIR="$locks" \
+          PATH="$fake_bin:$PATH" \
+            bash scripts/all-profiles.sh refresh
+          grep -q 'profile=account-only command=refresh' "$logs/account-only-refresh.log"
+
       - name: Smoke-test ten concurrent profiles
         run: |
           fake_bin="$(mktemp -d)"
