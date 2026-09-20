@@ -598,6 +598,62 @@ def test_classifier_ignores_plain_acknowledgement() -> None:
     assert reason == "acknowledgement_without_question"
 
 
+def test_classifier_ignores_completed_recruiter_questionnaire() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            (
+                "Спасибо! Ваши ответы отправлены работодателю. "
+                "Если ваш отклик его заинтересует, он напишет в этом же чате "
+                "или позвонит по номеру, который вы указали."
+            ),
+            "2026-09-20T10:22:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_IGNORE, "questionnaire_completed")
+
+
+def test_classifier_keeps_question_after_completion_notice_actionable() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Ваши ответы отправлены работодателю. Когда вам удобно созвониться?",
+            "2026-09-20T10:22:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
+def test_classifier_keeps_invitation_after_completion_notice_actionable() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            ("Ваши ответы отправлены работодателю. Приглашаем на собеседование завтра в 15:00."),
+            "2026-09-20T10:22:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
+def test_classifier_keeps_button_after_completion_notice_manual() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Ваши ответы отправлены работодателю. Нажмите кнопку ниже для продолжения.",
+            "2026-09-20T10:22:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_MANUAL, "ui_action_hint")
+
+
 def test_classifier_does_not_ignore_acknowledgement_with_invitation() -> None:
     messages = [
         _message(
