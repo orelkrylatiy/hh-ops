@@ -43,6 +43,8 @@ jobs:
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/utils/resume_md.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -53,6 +55,8 @@ jobs:
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
+            tests/test_create_resume.py \
+            tests/test_resume_md.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py \
@@ -65,6 +69,8 @@ jobs:
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/utils/resume_md.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -75,12 +81,19 @@ jobs:
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
+            tests/test_create_resume.py \
+            tests/test_resume_md.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py
 
       - name: Type check automation layer
-        run: basedpyright src/hh_applicant_tool/automation src/hh_applicant_tool/operations/manual_chats.py
+        run: |
+          basedpyright \
+            src/hh_applicant_tool/automation \
+            src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/utils/resume_md.py
 
       - name: Autonomous reply coverage gate
         run: |
@@ -91,6 +104,9 @@ jobs:
 
       - name: Cover-letter fallback regression tests
         run: pytest tests/test_apply_safe.py
+
+      - name: Resume creation regression tests
+        run: pytest tests/test_create_resume.py tests/test_resume_md.py
 
       - name: Admin UI shell regression tests
         run: pytest tests/test_admin_ui_shell.py
