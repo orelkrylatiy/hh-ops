@@ -386,7 +386,7 @@ class Operation(
 
     def _assign_args(self, args: Namespace) -> None:
         for attr_name in self._ARG_ATTRS:
-            setattr(self, attr_name, getattr(args, attr_name))
+            setattr(self, attr_name, getattr(args, attr_name, None))
 
     def run(
         self,
