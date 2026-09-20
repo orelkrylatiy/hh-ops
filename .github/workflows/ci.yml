@@ -42,6 +42,7 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/manual_chats.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -62,6 +63,7 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/manual_chats.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -76,7 +78,7 @@ jobs:
             tests/test_ops_daily_report.py
 
       - name: Type check automation layer
-        run: basedpyright src/hh_applicant_tool/automation
+        run: basedpyright src/hh_applicant_tool/automation src/hh_applicant_tool/operations/manual_chats.py
 
       - name: Autonomous reply coverage gate
         run: |
@@ -188,6 +190,24 @@ jobs:
           bash scripts/reply.sh --help >/dev/null
           bash scripts/cleanup.sh --help >/dev/null
           HH_AUTOMATION_MODE=off bash scripts/cron-job.sh apply >/dev/null
+
+          fake_bin="$(mktemp -d)"
+          cleanup_args="$(mktemp)"
+          cat > "$fake_bin/hh-applicant-tool" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" > "$CLEANUP_ARGS_FILE"
+          EOF
+          chmod +x "$fake_bin/hh-applicant-tool"
+          CLEANUP_ARGS_FILE="$cleanup_args" PATH="$fake_bin:$PATH" \
+            bash scripts/cleanup.sh --profile test-profile --dry-run
+          grep -qx -- '--no-auto-auth' "$cleanup_args"
+          grep -qx -- '--profile-id' "$cleanup_args"
+          grep -qx -- 'test-profile' "$cleanup_args"
+          grep -qx -- 'clear-negotiations' "$cleanup_args"
+          grep -qx -- '--delete-chat' "$cleanup_args"
+          grep -qx -- '--dry-run' "$cleanup_args"
+          ! grep -q -- '--blacklist' "$cleanup_args"
+          ! grep -q -- '--block-ats' "$cleanup_args"
           python3 scripts/ops/daily_report.py --date today --root "$(mktemp -d)" --output-dir "$(mktemp -d)" >/dev/null
       - name: Smoke-test cron runtime environment
         run: |
