@@ -162,3 +162,28 @@ def test_fallback_can_be_explicitly_disabled() -> None:
         operation.run(tool, args)
 
     operation._apply_vacancies.assert_not_called()
+
+
+def test_apply_safe_resolves_resume_alias_before_batch() -> None:
+    operation = Operation()
+    operation._apply_vacancies = Mock()
+    args = _args("--resume-alias", "ai-engineer")
+    tool = SimpleNamespace(
+        config={
+            "resume_aliases": {
+                "primary": "resume-front",
+                "ai-engineer": "resume-ai",
+            },
+            "cover_letter_fallback": {
+                "enabled": True,
+                "message": "Static fallback",
+            },
+        },
+        get_cover_letter_ai=Mock(),
+    )
+
+    result = operation.run(tool, args)
+
+    assert result is None
+    assert operation.resume_id == "resume-ai"
+    operation._apply_vacancies.assert_called_once_with()
