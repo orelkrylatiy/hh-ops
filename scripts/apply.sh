@@ -24,6 +24,9 @@ EXCLUDED_FILTER="${EXCLUDED_FILTER:-}"
 RUN_MODE="dry-run"
 RUN_MODE_EXPLICIT=""
 PROFILE_ID="${HH_PROFILE_ID:-}"
+RESUME_ID=""
+RESUME_ALIAS=""
+AI_FILTER=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +45,26 @@ while [[ $# -gt 0 ]]; do
         --search)
             [[ $# -ge 2 ]] || { echo "--search requires a value" >&2; exit 2; }
             SEARCH_QUERY="$2"
+            shift 2
+            ;;
+        --resume-id)
+            [[ $# -ge 2 ]] || { echo "--resume-id requires a value" >&2; exit 2; }
+            [[ -z "$RESUME_ALIAS" ]] || { echo "Cannot combine --resume-id and --resume-alias" >&2; exit 2; }
+            RESUME_ID="$2"
+            shift 2
+            ;;
+        --resume-alias)
+            [[ $# -ge 2 ]] || { echo "--resume-alias requires a value" >&2; exit 2; }
+            [[ -z "$RESUME_ID" ]] || { echo "Cannot combine --resume-id and --resume-alias" >&2; exit 2; }
+            RESUME_ALIAS="$2"
+            shift 2
+            ;;
+        --ai-filter)
+            [[ $# -ge 2 ]] || { echo "--ai-filter requires heavy or light" >&2; exit 2; }
+            case "$2" in
+                heavy|light) AI_FILTER="$2" ;;
+                *) echo "--ai-filter must be heavy or light" >&2; exit 2 ;;
+            esac
             shift 2
             ;;
         --limit|--max-responses)
@@ -92,6 +115,9 @@ Usage: apply.sh [--dry-run|--live] [options]
 
   --live                    Send real applications. Default is dry-run.
   --search QUERY            Search query.
+  --resume-id ID            Apply only with this resume ID.
+  --resume-alias ALIAS      Apply only with this profile-local resume alias.
+  --ai-filter MODE          Vacancy AI filter: light or heavy.
   --limit N                 Maximum successful applications for this run.
   --per-page N              Search results per page (default: 50).
   --pages N                 Maximum search pages (default: 20).
@@ -203,6 +229,18 @@ if [[ "$RUN_MODE" == "dry-run" ]]; then
     MODE_ARGS+=(--dry-run)
 fi
 
+RESUME_ARGS=()
+if [[ -n "$RESUME_ID" ]]; then
+    RESUME_ARGS+=(--resume-id "$RESUME_ID")
+elif [[ -n "$RESUME_ALIAS" ]]; then
+    RESUME_ARGS+=(--resume-alias "$RESUME_ALIAS")
+fi
+
+AI_FILTER_ARGS=()
+if [[ -n "$AI_FILTER" ]]; then
+    AI_FILTER_ARGS+=(--ai-filter "$AI_FILTER")
+fi
+
 APPLY_CMD=(
     "${HH_CMD[@]}" apply-safe
     --search "$SEARCH_QUERY"
@@ -214,10 +252,15 @@ APPLY_CMD=(
     --max-responses "$MAX_RESPONSES"
     --per-page "$PER_PAGE"
     --total-pages "$TOTAL_PAGES"
+    "${RESUME_ARGS[@]}"
+    "${AI_FILTER_ARGS[@]}"
     "${MODE_ARGS[@]}"
 )
 
-echo "HH apply: mode=$RUN_MODE query='$SEARCH_QUERY' hard_filter='$FILTER_SOURCE' max_responses=$MAX_RESPONSES scan=$TOTAL_PAGES*$PER_PAGE timeout=${RUN_TIMEOUT}s"
+selector="all-published"
+[[ -n "$RESUME_ID" ]] && selector="id:$RESUME_ID"
+[[ -n "$RESUME_ALIAS" ]] && selector="alias:$RESUME_ALIAS"
+echo "HH apply: mode=$RUN_MODE query='$SEARCH_QUERY' resume='$selector' ai_filter='${AI_FILTER:-off}' hard_filter='$FILTER_SOURCE' max_responses=$MAX_RESPONSES scan=$TOTAL_PAGES*$PER_PAGE timeout=${RUN_TIMEOUT}s"
 
 if command -v timeout >/dev/null 2>&1; then
     timeout --signal=TERM --kill-after=30 "${RUN_TIMEOUT}s" "${APPLY_CMD[@]}"
