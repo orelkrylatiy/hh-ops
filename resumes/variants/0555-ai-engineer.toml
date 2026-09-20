@@ -1,0 +1,44 @@
+title = "AI Engineer / LLM Automation Engineer"
+
+skills = """
+AI/LLM engineer с фокусом на автоматизацию продуктовых и инженерных процессов. Проектирую LLM-пайплайны, agent-assisted workflows и human-in-the-loop контуры, интегрирую OpenAI-compatible API и GigaChat, строю безопасные автоматизации с валидацией состояния, retry/dedup, observability и CI quality gates. Сильная база во frontend-разработке (React/TypeScript) позволяет собирать AI-функции end-to-end: от API и orchestration до пользовательского интерфейса.
+"""
+
+skill_set = [
+  "Python",
+  "LLM",
+  "OpenAI API",
+  "GigaChat API",
+  "AI Agents",
+  "Prompt Engineering",
+  "Agentic Workflows",
+  "REST API",
+  "Automation",
+  "Human-in-the-loop",
+  "Playwright",
+  "SQLite",
+  "GitHub Actions",
+  "Docker",
+  "Pytest",
+  "CI/CD",
+  "React",
+  "TypeScript",
+]
+
+[[professional_roles]]
+_suggest = "/suggests/professional_roles"
+text = "Программист, разработчик"
+
+[[experience]]
+company = "Собственные AI/automation проекты"
+position = "AI Engineer / LLM Automation Engineer"
+start = "2025-01-01"
+description = """
+• Разработал hh-ops: автономный multi-profile pipeline для поиска вакансий, безопасных откликов и обработки переписки. Интегрировал LLM-генерацию сопроводительных писем и ответов работодателям через OpenAI-compatible providers.
+• Разделил детерминированную классификацию состояния чата и генерацию текста. Реализовал human-in-the-loop очередь для button/UI-only сценариев, чтобы система не отправляла повторные или неподходящие ответы.
+• Построил механизмы надёжности для автономных workflow: повторная проверка состояния перед write, stale-state protection, retry/dedup после сетевых ошибок, fail-closed правила, dry-run/live режимы и per-profile locks.
+• Организовал multi-profile orchestration через cron и bounded workers, автоматическую очистку завершённых переговоров и privacy-safe операционные snapshot-отчёты.
+• Внедрил инженерный review loop для AI-assisted разработки: декомпозиция задачи, реализация, regression tests, статический анализ и CI gates. Проверки включают pytest, Ruff, basedpyright, Shellcheck, Docker и матрицу Python 3.11/3.13.
+• Разработал архитектуру образовательной платформы BrainWave с AI-ассистентом для подготовки к ОГЭ/ЕГЭ по информатике. Интегрировал GigaChat API, React/Tailwind UI и сценарии персонализированных объяснений и автоматизированной проверки заданий.
+• Проектировал API integrations и stateful automation так, чтобы LLM не принимала необратимые решения без deterministic guards и возможности ручной эскалации.
+"""
