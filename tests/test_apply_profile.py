@@ -235,8 +235,5 @@ def test_tracked_0555_lane_config_is_valid() -> None:
         "ai-automation",
     ]
     assert lanes[0]["resume_alias"] == "primary"
-    assert all(
-        lane.get("resume_alias") == "ai-engineer"
-        for lane in lanes[1:]
-    )
+    assert all(lane.get("resume_alias") == "ai-engineer" for lane in lanes[1:])
     assert all(lane.get("ai_filter") == "light" for lane in lanes[1:])
