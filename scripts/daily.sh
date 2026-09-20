@@ -130,7 +130,7 @@ if [[ -n "$PROFILE_ID" ]]; then
     PROFILE_ARGS=(--profile "$PROFILE_ID")
 fi
 
-echo "Daily HH pass: mode=$RUN_MODE profile=${PROFILE_ID:-default}"
+echo "Daily HH pass: mode=$RUN_MODE profile=${PROFILE_ID:-1206}"
 
 if [[ "$WITH_BOOST" == true ]]; then
     "$SCRIPT_DIR/all-profiles.sh" boost --live
