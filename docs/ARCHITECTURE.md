@@ -264,34 +264,47 @@ ReplyWorker
 
 ### 7.1 Поиск кандидатов на ответ
 
-`ReplyWorker.collect_candidate_chats()` вызывает:
+`ReplyWorker.collect_candidate_chats()` использует applicant negotiation API:
 
 ```text
-GET /common/chats
+GET /negotiations
+GET /negotiations/{id}/messages
 ```
 
-и оставляет только чаты, где:
+На раннем этапе исключаются `discard`, `messaging_status != ok`, explicit
+`HH_REPLY_SKIP`, пустые истории и чаты, где последнее сообщение уже от
+кандидата.
 
-- `type == NEGOTIATION`;
-- нет `block_reason`;
-- `last_message` принадлежит `EMPLOYER`.
+### 7.2 Classifier и manual queue
 
-Затем `make_decision()` загружает:
+Перед LLM вызывается deterministic classifier:
 
 ```text
-GET /common/chats/{chat_id}/messages
+latest employer turn
+       ↓
+system/ack? ─────────────→ IGNORE
+       ↓
+button hint / repeated
+after our reply? ────────→ MANUAL
+       ↓
+                         REPLY_TEXT
 ```
 
-и дополнительно требует:
+Повтор одного и того же employer-текста после applicant reply — сильный сигнал,
+что текстовый ответ не продвинул bot flow и UI ожидает кнопку/structured action.
 
-- `write_message_state.allowed == true`;
-- актуальное последнее сообщение всё ещё от работодателя;
-- у последнего сообщения есть id;
-- есть usable context.
+`MANUAL` не вызывает LLM и не делает POST. В live он upsert'ится в SQLite
+таблицу `manual_chat_queue` с chat/message id, текстом, vacancy/employer и
+reason. Когда история чата продвинулась после ручного ответа, stale pending
+items автоматически помечаются resolved.
 
-Контекст ограничен последними 30 сообщениями. Для дополнительного контекста worker получает `vacancy_id` и при возможности делает `GET /vacancies/{vacancy_id}`.
+Очередь доступна через:
 
-### 7.2 LLM selection и fallback
+```bash
+hh-applicant-tool --profile-id PROFILE manual-chats
+```
+
+### 7.3 LLM selection и fallback
 
 Есть два разных уровня fallback.
 
@@ -328,7 +341,7 @@ Default fallback включён:
 
 Fallback используется **только после `OpenAIError`**, а не вместо содержательно плохого ответа модели.
 
-### 7.3 ChatOpenAI retries
+### 7.4 ChatOpenAI retries
 
 `src/hh_applicant_tool/ai/openai.py` повторяет transient failures:
 
@@ -341,7 +354,7 @@ Fallback используется **только после `OpenAIError`**, а 
 
 Учитывается `Retry-After`. Битый JSON, provider `error` и неожиданная структура ответа преобразуются в `OpenAIError`.
 
-### 7.4 Humanizer
+### 7.5 Humanizer
 
 После LLM **или static fallback** текст проходит `reply_quality_issues()`.
 
@@ -355,12 +368,12 @@ Fallback используется **только после `OpenAIError`**, а 
 
 Для обычного LLM-текста при нарушении worker делает corrective generation. Если повторная попытка всё ещё плохая — сообщение пропускается.
 
-### 7.5 Stale-check
+### 7.6 Stale-check
 
 Перед реальной отправкой worker **ещё раз читает чат**:
 
 ```text
-GET /common/chats/{chat_id}/messages
+GET /negotiations/{id}/messages
 ```
 
 Он сравнивает:
@@ -373,25 +386,19 @@ latest.id == expected_last_message_id
 
 Если человек уже ответил вручную либо работодатель прислал новое сообщение, старый AI reply считается stale и не отправляется.
 
-### 7.6 Idempotent send
+### 7.7 Retry-safe send
 
-Для employer turn строится deterministic UUIDv5:
-
-```text
-hh-reply:{chat_id}:{employer_message_id}
-```
-
-POST:
+Отправка идёт form-urlencoded запросом:
 
 ```text
-POST /common/chats/{chat_id}/messages
-{
-  idempotency_key,
-  text
-}
+POST /negotiations/{id}/messages
+message=<reply>
 ```
 
-Если HTTP result неясен, worker перечитывает чат. Когда ожидаемый applicant text уже виден последним сообщением, операция считается successful и повторный send не нужен.
+Legacy negotiations endpoint не принимает server-side idempotency key. Поэтому
+после неясного network/HTTP результата worker перечитывает чат. Если ожидаемый
+applicant text уже виден последним сообщением, операция считается successful и
+повторный POST не выполняется.
 
 ## 8. Dry-run semantics
 
