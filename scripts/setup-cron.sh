@@ -71,9 +71,10 @@ cleanup() {
 trap cleanup EXIT
 
 crontab -l 2>/dev/null | awk -v marker="$MARKER" -v ops_marker="$OPS_MARKER" '
-    $0 == marker {skip=4; next}
-    $0 == ops_marker {skip=2; next}
-    skip > 0 {skip--; next}
+    $0 == marker {in_main=1; next}
+    $0 == ops_marker {in_main=0; ops_left=2; next}
+    in_main {next}
+    ops_left > 0 {ops_left--; next}
     {print}
 ' > "$TMP_CRON" || true
 
