@@ -44,8 +44,11 @@ jobs:
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
+            src/hh_applicant_tool/utils/resume_aliases.py \
             scripts/reply_iterative_ai.py \
+            scripts/apply_profile.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
             admin/ui_app.py \
@@ -56,6 +59,9 @@ jobs:
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
             tests/test_create_resume.py \
+            tests/test_create_resume_variant.py \
+            tests/test_resume_aliases.py \
+            tests/test_apply_profile.py \
             tests/test_resume_md.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
@@ -70,8 +76,11 @@ jobs:
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
+            src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
+            src/hh_applicant_tool/utils/resume_aliases.py \
             scripts/reply_iterative_ai.py \
+            scripts/apply_profile.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
             admin/ui_app.py \
@@ -82,6 +91,9 @@ jobs:
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
             tests/test_create_resume.py \
+            tests/test_create_resume_variant.py \
+            tests/test_resume_aliases.py \
+            tests/test_apply_profile.py \
             tests/test_resume_md.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
@@ -93,7 +105,10 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
-            src/hh_applicant_tool/utils/resume_md.py
+            src/hh_applicant_tool/operations/create_resume_variant.py \
+            src/hh_applicant_tool/utils/resume_md.py \
+            src/hh_applicant_tool/utils/resume_aliases.py \
+            scripts/apply_profile.py
 
       - name: Autonomous reply coverage gate
         run: |
@@ -106,7 +121,13 @@ jobs:
         run: pytest tests/test_apply_safe.py
 
       - name: Resume creation regression tests
-        run: pytest tests/test_create_resume.py tests/test_resume_md.py
+        run: |
+          pytest \
+            tests/test_create_resume.py \
+            tests/test_create_resume_variant.py \
+            tests/test_resume_aliases.py \
+            tests/test_apply_profile.py \
+            tests/test_resume_md.py
 
       - name: Admin UI shell regression tests
         run: pytest tests/test_admin_ui_shell.py
@@ -174,6 +195,8 @@ jobs:
         run: |
           bash -n \
             scripts/apply.sh \
+            scripts/apply-profile.sh \
+            scripts/setup-ai-resume.sh \
             scripts/reply.sh \
             scripts/cleanup.sh \
             scripts/cron-job.sh \
@@ -191,6 +214,8 @@ jobs:
           # SC2016: envsubst variable allow-list is intentionally single quoted.
           shellcheck --exclude=SC1091,SC2016 \
             scripts/apply.sh \
+            scripts/apply-profile.sh \
+            scripts/setup-ai-resume.sh \
             scripts/reply.sh \
             scripts/cleanup.sh \
             scripts/cron-job.sh \
@@ -205,6 +230,8 @@ jobs:
       - name: Smoke-test safe script entrypoints
         run: |
           bash scripts/apply.sh --help >/dev/null
+          bash scripts/apply-profile.sh --help >/dev/null
+          bash scripts/setup-ai-resume.sh --help >/dev/null
           bash scripts/reply.sh --help >/dev/null
           bash scripts/cleanup.sh --help >/dev/null
           make -n schedule >/dev/null
