@@ -146,8 +146,10 @@ def test_main_runs_profile_lanes_with_alias_isolation(tmp_path, monkeypatch) -> 
     ai = calls[1]
     assert frontend[-2:] == ["--resume-alias", "primary"]
     assert "--dry-run" in frontend
-    assert ["--resume-alias", "ai-engineer"] == ai[-12:-10]
-    assert "AI Engineer" in ai
+    alias_index = ai.index("--resume-alias")
+    assert ai[alias_index + 1] == "ai-engineer"
+    search_index = ai.index("--search")
+    assert ai[search_index + 1] == "AI Engineer"
     assert ai.count("--resume-alias") == 1
 
 
@@ -219,3 +221,22 @@ def test_lane_config_rejects_duplicate_names(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="duplicate lane name"):
         module._load_lanes(path)
+
+
+def test_tracked_0555_lane_config_is_valid() -> None:
+    module = _load_module()
+    root = Path(__file__).resolve().parents[1]
+    lanes = module._load_lanes(root / "rules" / "apply-lanes" / "0555.json")
+
+    assert [lane["name"] for lane in lanes] == [
+        "frontend-primary",
+        "ai-engineer",
+        "llm-engineer",
+        "ai-automation",
+    ]
+    assert lanes[0]["resume_alias"] == "primary"
+    assert all(
+        lane.get("resume_alias") == "ai-engineer"
+        for lane in lanes[1:]
+    )
+    assert all(lane.get("ai_filter") == "light" for lane in lanes[1:])
