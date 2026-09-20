@@ -161,9 +161,24 @@ CREATE TABLE IF NOT EXISTS skipped_vacancies (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (resume_id, vacancy_id)
 );
+/* ===================== manual chat queue ===================== */
+CREATE TABLE IF NOT EXISTS manual_chat_queue (
+    chat_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    vacancy_name TEXT,
+    employer_name TEXT,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chat_id, message_id)
+);
+
 /* ===================== ИНДЕКСЫ ===================== */
 CREATE INDEX IF NOT EXISTS idx_emp_site_upd ON employer_sites(updated_at);
 CREATE INDEX IF NOT EXISTS idx_skipped_vac_resume ON skipped_vacancies(resume_id, vacancy_id);
+CREATE INDEX IF NOT EXISTS idx_manual_chat_queue_status ON manual_chat_queue(status, updated_at);
 
 /* ===================== ТРИГГЕРЫ ===================== */
 CREATE TRIGGER IF NOT EXISTS trg_employer_sites_updated

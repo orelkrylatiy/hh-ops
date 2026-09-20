@@ -93,27 +93,28 @@ Autonomous path использует `--skip-tests`: вакансии с тес�
 
 ## Как Работают Автоответы
 
-Primary path использует current common-chat API:
+Primary path использует applicant negotiations API:
 
 ```text
-GET /common/chats
-GET /common/chats/{chat_id}/messages
-POST /common/chats/{chat_id}/messages
+GET /negotiations
+GET /negotiations/{id}/messages
+classifier
+POST /negotiations/{id}/messages
 ```
 
-Worker отвечает только если:
+До LLM worker классифицирует employer turn. `IGNORE` используется для
+служебных HH-сообщений и простых acknowledgement без вопроса. `MANUAL`
+используется для явных UI/button hints и для повторившегося employer-вопроса
+после нашего текстового ответа. Такие cases пишутся в SQLite
+`manual_chat_queue` и не получают автоматический текстовый ответ.
 
-1. чат типа `NEGOTIATION`;
-2. чат не заблокирован;
-3. `write_message_state.allowed == true`;
-4. последнее сообщение принадлежит роли `EMPLOYER`;
-5. после генерации последнее сообщение всё ещё то же самое.
+`REPLY_TEXT` проходит LLM/humanizer. Перед POST worker повторно читает чат и
+сверяет exact message id. Если человек уже ответил вручную или пришло новое
+сообщение, подготовленный ответ считается stale.
 
-Перед POST worker повторно читает чат. Если человек ответил вручную или пришло новое сообщение, подготовленный ответ считается stale и не отправляется.
-
-Для каждого employer turn строится deterministic UUID `idempotency_key` из `chat_id + employer_message_id`. Повторная попытка использует тот же key.
-
-Если HTTP result неясен, worker перечитывает чат и считает операцию успешной, когда ожидаемый applicant text уже появился последним сообщением.
+Negotiations endpoint не имеет server-side idempotency key, поэтому после
+сомнительного POST worker перечитывает историю и не повторяет отправку, если
+ожидаемый applicant text уже появился.
 
 ## AI Fallback Для Reply
 
@@ -210,7 +211,7 @@ Live worker прекращает или пропускает действие п
 - плохом LLM reply после corrective retry;
 - ошибке отправки после retries/read-back.
 
-Исключение из полного fail-closed поведения — специально настроенный **reply runtime fallback** после `OpenAIError`. Он не обходит stale-check, humanizer или idempotency.
+Исключение из полного fail-closed поведения — специально настроенный **reply runtime fallback** после `OpenAIError`. Он не обходит stale-check, humanizer или retry/dedup safeguards.
 
 ## Dry-run
 

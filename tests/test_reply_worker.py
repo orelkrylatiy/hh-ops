@@ -8,6 +8,9 @@ import pytest
 
 from hh_applicant_tool.ai.openai import OpenAIError
 from hh_applicant_tool.automation.reply_worker import (
+    ACTION_IGNORE,
+    ACTION_MANUAL,
+    ACTION_REPLY,
     APPLICANT_ROLE,
     EMPLOYER_ROLE,
     HHCLI,
@@ -18,6 +21,7 @@ from hh_applicant_tool.automation.reply_worker import (
     ReplyWorkerConfig,
     build_ai_client,
     build_context,
+    classify_chat,
     load_json_config,
     reply_quality_issues,
     sanitize_reply_text,
@@ -34,15 +38,20 @@ def _message(message_id: str, role: str, text: str, timestamp: str) -> dict[str,
     }
 
 
-def _decision() -> ReplyDecision:
-    return ReplyDecision(
-        chat_id="chat-1",
-        expected_last_message_id="employer-1",
-        context=["Работодатель: Когда удобно созвониться?"],
-        initiated_by_us=True,
-        vacancy_name="Frontend developer",
-        employer_name="Acme",
-    )
+def _decision(**overrides: Any) -> ReplyDecision:
+    values: dict[str, Any] = {
+        "chat_id": "chat-1",
+        "expected_last_message_id": "employer-1",
+        "context": ["Работодатель: Когда удобно созвониться?"],
+        "initiated_by_us": True,
+        "vacancy_name": "Frontend developer",
+        "employer_name": "Acme",
+        "action": ACTION_REPLY,
+        "reason": "employer_message",
+        "latest_message_text": "Когда удобно созвониться?",
+    }
+    values.update(overrides)
+    return ReplyDecision(**values)
 
 
 def _live_worker(hh=None, ai=None, **config_overrides) -> ReplyWorker:
@@ -263,6 +272,31 @@ def test_collect_candidate_chats_only_keeps_unblocked_employer_turns() -> None:
     chats = worker.collect_candidate_chats()
 
     assert [chat["id"] for chat in chats] == ["reply-me"]
+
+
+def test_collect_resolves_pending_manual_queue_for_discarded_chat() -> None:
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [
+            {
+                "id": "discarded-chat",
+                "state": {"id": "discard"},
+                "messaging_status": "ok",
+            }
+        ],
+        "pages": 1,
+    }
+    queue = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, max_chats=100),
+        hh=hh,
+        ai=Mock(),
+        system_prompt="prompt",
+        manual_queue=queue,
+    )
+
+    assert worker.collect_candidate_chats() == []
+    queue.resolve_chat.assert_called_once_with("discarded-chat")
 
 
 def test_make_decision_builds_context_and_vacancy_metadata() -> None:
@@ -546,3 +580,154 @@ def test_run_counts_chat_api_error_without_crashing_other_loop() -> None:
 def test_missing_ai_config_fails_closed() -> None:
     with pytest.raises(ValueError):
         select_ai_config({})
+
+
+def test_classifier_ignores_plain_acknowledgement() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Спасибо за отклик! Мы рассмотрим резюме и свяжемся с вами.",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    action, reason = classify_chat(messages)
+
+    assert action == ACTION_IGNORE
+    assert reason == "acknowledgement_without_question"
+
+
+def test_classifier_does_not_ignore_acknowledgement_with_invitation() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Спасибо за отклик. Приглашаем на собеседование завтра в 15:00.",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
+def test_classifier_does_not_ignore_acknowledgement_with_real_question() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Спасибо за отклик. Сколько лет коммерческого опыта с React",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
+def test_classifier_routes_non_text_employer_event_to_manual() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (
+        ACTION_MANUAL,
+        "employer_message_without_text",
+    )
+
+
+def test_classifier_marks_explicit_button_flow_manual() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Пожалуйста, нажмите на кнопку ниже и выберите вариант.",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    action, reason = classify_chat(messages)
+
+    assert action == ACTION_MANUAL
+    assert reason == "ui_action_hint"
+
+
+def test_classifier_marks_repeated_question_after_our_reply_manual() -> None:
+    question = "Есть коммерческий опыт с React?"
+    messages = [
+        _message("employer-1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
+        _message(
+            "applicant-1",
+            APPLICANT_ROLE,
+            "Да, более пяти лет.",
+            "2026-01-01T10:01:00+0300",
+        ),
+        _message("employer-2", EMPLOYER_ROLE, question, "2026-01-01T10:02:00+0300"),
+    ]
+
+    action, reason = classify_chat(messages)
+
+    assert action == ACTION_MANUAL
+    assert reason == "repeated_after_applicant_reply"
+
+
+def test_classifier_keeps_normal_question_as_text_reply() -> None:
+    messages = [
+        _message(
+            "employer-1",
+            EMPLOYER_ROLE,
+            "Когда вам удобно созвониться?",
+            "2026-01-01T10:00:00+0300",
+        )
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
+
+
+def test_run_manual_decision_queues_without_generating_or_sending() -> None:
+    manual_queue = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        manual_queue=manual_queue,
+    )
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    worker.make_decision = Mock(
+        return_value=_decision(
+            action=ACTION_MANUAL,
+            reason="repeated_after_applicant_reply",
+        )
+    )
+    worker.generate_reply = Mock()
+    worker.send_reply = Mock()
+
+    stats = worker.run()
+
+    assert stats["manual"] == 1
+    assert stats["sent"] == 0
+    manual_queue.enqueue.assert_called_once()
+    worker.generate_reply.assert_not_called()
+    worker.send_reply.assert_not_called()
+
+
+def test_run_ignore_decision_does_not_call_ai() -> None:
+    worker = _live_worker()
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    worker.make_decision = Mock(
+        return_value=_decision(
+            action=ACTION_IGNORE,
+            reason="acknowledgement_without_question",
+        )
+    )
+    worker.generate_reply = Mock()
+
+    stats = worker.run()
+
+    assert stats["ignored"] == 1
+    worker.generate_reply.assert_not_called()

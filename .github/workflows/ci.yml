@@ -42,6 +42,7 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/manual_chats.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -50,6 +51,8 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_state.py \
+            tests/test_manual_chats.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py \
@@ -61,6 +64,7 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/manual_chats.py \
             scripts/reply_iterative_ai.py \
             scripts/check_ai.py \
             scripts/ops/daily_report.py \
@@ -69,12 +73,14 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_state.py \
+            tests/test_manual_chats.py \
             tests/test_ai_openai_retry.py \
             tests/test_check_ai.py \
             tests/test_ops_daily_report.py
 
       - name: Type check automation layer
-        run: basedpyright src/hh_applicant_tool/automation
+        run: basedpyright src/hh_applicant_tool/automation src/hh_applicant_tool/operations/manual_chats.py
 
       - name: Autonomous reply coverage gate
         run: |
@@ -153,6 +159,7 @@ jobs:
           bash -n \
             scripts/apply.sh \
             scripts/reply.sh \
+            scripts/cleanup.sh \
             scripts/cron-job.sh \
             scripts/daily.sh \
             scripts/all-profiles.sh \
@@ -169,6 +176,7 @@ jobs:
           shellcheck --exclude=SC1091,SC2016 \
             scripts/apply.sh \
             scripts/reply.sh \
+            scripts/cleanup.sh \
             scripts/cron-job.sh \
             scripts/daily.sh \
             scripts/all-profiles.sh \
@@ -182,7 +190,28 @@ jobs:
         run: |
           bash scripts/apply.sh --help >/dev/null
           bash scripts/reply.sh --help >/dev/null
+          bash scripts/cleanup.sh --help >/dev/null
+          make -n schedule >/dev/null
+          make -n unschedule >/dev/null
           HH_AUTOMATION_MODE=off bash scripts/cron-job.sh apply >/dev/null
+
+          fake_bin="$(mktemp -d)"
+          cleanup_args="$(mktemp)"
+          cat > "$fake_bin/hh-applicant-tool" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" > "$CLEANUP_ARGS_FILE"
+          EOF
+          chmod +x "$fake_bin/hh-applicant-tool"
+          CLEANUP_ARGS_FILE="$cleanup_args" PATH="$fake_bin:$PATH" \
+            bash scripts/cleanup.sh --profile test-profile --dry-run
+          grep -qx -- '--no-auto-auth' "$cleanup_args"
+          grep -qx -- '--profile-id' "$cleanup_args"
+          grep -qx -- 'test-profile' "$cleanup_args"
+          grep -qx -- 'clear-negotiations' "$cleanup_args"
+          grep -qx -- '--delete-chat' "$cleanup_args"
+          grep -qx -- '--dry-run' "$cleanup_args"
+          ! grep -q -- '--blacklist' "$cleanup_args"
+          ! grep -q -- '--block-ats' "$cleanup_args"
           python3 scripts/ops/daily_report.py --date today --root "$(mktemp -d)" --output-dir "$(mktemp -d)" >/dev/null
       - name: Smoke-test cron runtime environment
         run: |
@@ -198,6 +227,7 @@ jobs:
           APPLY_PAGES=3 \
           APPLY_RUN_TIMEOUT=777 \
           REPLY_CHATS=23 \
+          CLEANUP_DELETE_CHAT=0 \
           HH_PROFILE_PARALLELISM=7 \
             bash scripts/write-runtime-env.sh "$runtime_env"
 
@@ -214,7 +244,29 @@ jobs:
           test "$APPLY_PAGES" = 3
           test "$APPLY_RUN_TIMEOUT" = 777
           test "$REPLY_CHATS" = 23
+          test "$CLEANUP_DELETE_CHAT" = 0
           test "$HH_PROFILE_PARALLELISM" = 7
+      - name: Smoke-test automatic profile discovery
+        run: |
+          fake_bin="$(mktemp -d)"
+          config_root="$(mktemp -d)"
+          logs="$(mktemp -d)"
+          locks="$(mktemp -d)"
+          mkdir -p "$config_root/account-only"
+          printf '{}\n' > "$config_root/account-only/config.json"
+          cat > "$fake_bin/hh-applicant-tool" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" > "$PROFILE_DISCOVERY_ARGS"
+          EOF
+          chmod +x "$fake_bin/hh-applicant-tool"
+          PROFILE_DISCOVERY_ARGS="$(mktemp)" \
+          CONFIG_DIR="$config_root" \
+          HH_PROFILES_LOG_DIR="$logs" \
+          HH_PROFILES_LOCK_DIR="$locks" \
+          PATH="$fake_bin:$PATH" \
+            bash scripts/all-profiles.sh refresh
+          grep -q 'profile=account-only command=refresh' "$logs/account-only-refresh.log"
+
       - name: Smoke-test ten concurrent profiles
         run: |
           fake_bin="$(mktemp -d)"

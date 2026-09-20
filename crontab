@@ -26,5 +26,8 @@ SHELL=/bin/bash
 # still the newest turn; ambiguous message ordering fails closed.
 25 9-21 * * * cd /app && /bin/bash /app/scripts/cron-job.sh reply >> /app/logs/cron.log 2>&1
 
+# Remove rejected negotiations after the reply window. No employer blacklisting.
+10 22 * * * cd /app && /bin/bash /app/scripts/cron-job.sh cleanup >> /app/logs/cron.log 2>&1
+
 # No separate refresh-token cron is needed: ApiClient refreshes access tokens
 # on authenticated requests and persists the updated token after the command.

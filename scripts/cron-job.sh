@@ -40,9 +40,9 @@ case "$MODE" in
 esac
 
 case "$JOB" in
-    apply|reply|boost) ;;
+    apply|reply|cleanup|boost) ;;
     *)
-        echo "Usage: $0 apply|reply|boost" >&2
+        echo "Usage: $0 apply|reply|cleanup|boost" >&2
         exit 2
         ;;
 esac
@@ -62,6 +62,9 @@ case "$JOB" in
     reply)
         "$SCRIPT_DIR/all-profiles.sh" reply "$MODE_FLAG" \
             --chats "${REPLY_CHATS:-100}"
+        ;;
+    cleanup)
+        "$SCRIPT_DIR/all-profiles.sh" cleanup "$MODE_FLAG"
         ;;
     boost)
         if [[ "$MODE" != "live" ]]; then

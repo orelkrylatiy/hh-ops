@@ -75,6 +75,7 @@ TABLE_ALLOWLIST = (
     "skipped_vacancies",
     "employers",
     "resumes",
+    "manual_chat_queue",
 )
 
 
@@ -132,6 +133,8 @@ def _profile_metrics() -> dict:
             "sent": 0,
             "stale": 0,
             "skipped": 0,
+            "ignored": 0,
+            "manual": 0,
             "errors": 0,
             "fallback": 0,
         },
@@ -175,7 +178,7 @@ def _profile_from_log(path: Path, root: Path, config_dir: Path) -> str:
     except ValueError:
         return "global"
     name = relative_logs.name
-    for command in ("apply", "reply", "daily", "boost", "update", "refresh"):
+    for command in ("apply", "reply", "cleanup", "daily", "boost", "update", "refresh"):
         suffix = f"-{command}.log"
         if name.endswith(suffix):
             return name[: -len(suffix)] or "global"
@@ -196,7 +199,7 @@ def _parse_reply_summary(line: str) -> dict[str, int] | None:
     if not required.issubset(value):
         return None
     result: dict[str, int] = {}
-    for key in (*sorted(required), "fallback"):
+    for key in (*sorted(required), "ignored", "manual", "fallback"):
         raw = value.get(key, 0)
         if isinstance(raw, bool):
             raw = int(raw)
@@ -381,6 +384,8 @@ def _totals(profiles: dict[str, dict], logs: dict) -> dict:
         "replies_planned": 0,
         "replies_sent": 0,
         "replies_stale": 0,
+        "replies_ignored": 0,
+        "replies_manual": 0,
         "reply_errors": 0,
         "reply_fallbacks": 0,
         "technical_event_occurrences": sum(logs.get("events", {}).values()),
@@ -396,6 +401,8 @@ def _totals(profiles: dict[str, dict], logs: dict) -> dict:
         totals["replies_planned"] += profile["reply"]["planned"]
         totals["replies_sent"] += profile["reply"]["sent"]
         totals["replies_stale"] += profile["reply"]["stale"]
+        totals["replies_ignored"] += profile["reply"]["ignored"]
+        totals["replies_manual"] += profile["reply"]["manual"]
         totals["reply_errors"] += profile["reply"]["errors"]
         totals["reply_fallbacks"] += profile["reply"]["fallback"]
     return totals

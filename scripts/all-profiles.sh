@@ -20,8 +20,30 @@ if [[ -f "$PROJECT_ROOT/.profiles" ]]; then
     done < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$PROJECT_ROOT/.profiles")
 elif [[ -n "${PROFILES:-}" ]]; then
     read -ra PROFILES_LIST <<< "$PROFILES"
+elif [[ -n "${HH_PROFILE_ID:-}" ]]; then
+    PROFILES_LIST=("$HH_PROFILE_ID")
 else
-    PROFILES_LIST=("1206")
+    CONFIG_BASE="${CONFIG_DIR:-$PROJECT_ROOT/config}"
+    DISCOVERED_PROFILES=()
+    if [[ -f "$CONFIG_BASE/config.json" ]]; then
+        DISCOVERED_PROFILES+=(".")
+    fi
+    shopt -s nullglob
+    for profile_dir in "$CONFIG_BASE"/*; do
+        if [[ -d "$profile_dir" && -f "$profile_dir/config.json" ]]; then
+            DISCOVERED_PROFILES+=("$(basename "$profile_dir")")
+        fi
+    done
+    shopt -u nullglob
+
+    case "${#DISCOVERED_PROFILES[@]}" in
+        0) PROFILES_LIST=("default") ;;
+        1) PROFILES_LIST=("${DISCOVERED_PROFILES[0]}") ;;
+        *)
+            echo "Multiple HH profiles found in $CONFIG_BASE; define .profiles or PROFILES explicitly" >&2
+            exit 2
+            ;;
+    esac
 fi
 
 if [[ ${#PROFILES_LIST[@]} -eq 0 ]]; then
@@ -44,16 +66,17 @@ ARGS=("$@")
 case "$COMMAND" in
     apply) CMD_SCRIPT="$SCRIPT_DIR/apply.sh" ;;
     reply) CMD_SCRIPT="$SCRIPT_DIR/reply.sh" ;;
+    cleanup) CMD_SCRIPT="$SCRIPT_DIR/cleanup.sh" ;;
     daily) CMD_SCRIPT="$SCRIPT_DIR/daily.sh" ;;
     boost|update|refresh) CMD_SCRIPT="" ;;
     *)
-        echo "Unknown command: $COMMAND (apply | reply | daily | boost | update | refresh)" >&2
+        echo "Unknown command: $COMMAND (apply | reply | cleanup | daily | boost | update | refresh)" >&2
         exit 1
         ;;
 esac
 
 RUN_MODE_MARKER="utility"
-if [[ "$COMMAND" == "apply" || "$COMMAND" == "reply" || "$COMMAND" == "daily" ]]; then
+if [[ "$COMMAND" == "apply" || "$COMMAND" == "reply" || "$COMMAND" == "cleanup" || "$COMMAND" == "daily" ]]; then
     RUN_MODE_MARKER="dry-run"
     for arg in "${ARGS[@]}"; do
         [[ "$arg" == "--live" ]] && RUN_MODE_MARKER="live"
@@ -120,8 +143,10 @@ wait_batch() {
 
 start_profile() {
     local profile="$1"
-    local log="$LOG_DIR/${profile}-${COMMAND}.log"
-    local lock="$LOCK_DIR/${profile}.lock"
+    local profile_label="$profile"
+    [[ "$profile" == "." ]] && profile_label="default"
+    local log="$LOG_DIR/${profile_label}-${COMMAND}.log"
+    local lock="$LOCK_DIR/${profile_label}.lock"
 
     (
         # File-descriptor locks are released by the kernel even on crash/OOM/SIGKILL.
@@ -163,7 +188,7 @@ start_profile() {
 }
 
 for profile in "${PROFILES_LIST[@]}"; do
-    if [[ ! "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    if [[ "$profile" != "." && ! "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
         echo "Invalid profile id: $profile" >&2
         FAILED+=("$profile")
         continue
