@@ -234,6 +234,24 @@ jobs:
           bash scripts/setup-ai-resume.sh --help >/dev/null
           bash scripts/reply.sh --help >/dev/null
           bash scripts/cleanup.sh --help >/dev/null
+
+          fake_resume_bin="$(mktemp -d)"
+          setup_args="$(mktemp)"
+          cat > "$fake_resume_bin/hh-applicant-tool" <<'EOF'
+          #!/usr/bin/env bash
+          printf '%s\n' "$@" > "$AI_RESUME_SETUP_ARGS"
+          EOF
+          chmod +x "$fake_resume_bin/hh-applicant-tool"
+          AI_RESUME_SETUP_ARGS="$setup_args" PATH="$fake_resume_bin:$PATH" \
+            bash scripts/setup-ai-resume.sh --profile 0555 --dry-run
+          grep -qx -- '--profile-id' "$setup_args"
+          grep -qx -- '0555' "$setup_args"
+          grep -qx -- 'create-resume-variant' "$setup_args"
+          grep -qx -- '--alias' "$setup_args"
+          grep -qx -- 'ai-engineer' "$setup_args"
+          grep -qx -- '--publish' "$setup_args"
+          grep -qx -- '--dry-run' "$setup_args"
+
           make -n schedule >/dev/null
           make -n unschedule >/dev/null
           HH_AUTOMATION_MODE=off bash scripts/cron-job.sh apply >/dev/null
