@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
+from hh_applicant_tool.automation.reply_state import ManualChatQueue
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,10 @@ EMPLOYER_ROLE = "EMPLOYER"
 APPLICANT_ROLE = "APPLICANT"
 MAX_CONTEXT_MESSAGES = 30
 MAX_REPLY_CHARS = 2000
+
+ACTION_REPLY = "REPLY_TEXT"
+ACTION_IGNORE = "IGNORE"
+ACTION_MANUAL = "MANUAL"
 
 AI_CLICHES = (
     "важно отметить",
@@ -35,6 +40,18 @@ SYSTEM_NOTIFICATION_RE = re.compile(
     r"|Резюме\s+(было\s+)?отклонено"
     r"|Отклик\s+(был\s+)?(отклон|сня|истёк)"
     r"|Вы\s+можете\s+откликаться\s+на\s+другие\s+вакансии)",
+    re.IGNORECASE,
+)
+
+ACKNOWLEDGEMENT_RE = re.compile(
+    r"(спасибо\s+за\s+(отклик|интерес)|ваш\s+отклик\s+(получен|принят)|"
+    r"резюме\s+(получено|рассмотрим)|мы\s+(рассмотрим|ознакомимся)|"
+    r"(верн[её]мся|свяжемся)\s+с\s+вами)",
+    re.IGNORECASE,
+)
+UI_ACTION_RE = re.compile(
+    r"(нажм(?:ите|и)\s+(?:на\s+)?кноп|кнопк\w*\s+(?:ниже|выше)|"
+    r"выбер(?:ите|и)\s+(?:один\s+)?вариант|выберите\s+ответ)",
     re.IGNORECASE,
 )
 
@@ -67,6 +84,9 @@ class ReplyDecision:
     initiated_by_us: bool
     vacancy_name: str
     employer_name: str
+    action: str = ACTION_REPLY
+    reason: str = "employer_message"
+    latest_message_text: str = ""
 
 
 class HHCLI:
@@ -209,6 +229,59 @@ def sorted_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(messages, key=message_created_at)
 
 
+def normalize_message_text(text: str) -> str:
+    """Normalize harmless formatting differences for repeated-bot detection."""
+    normalized = re.sub(r"\s+", " ", (text or "").strip().lower())
+    return normalized.strip(" .,!?:;…-")
+
+
+def repeated_employer_message_after_reply(
+    messages: list[dict[str, Any]],
+) -> bool:
+    """Detect a bot repeating the same prompt after the applicant already replied."""
+    ordered = sorted_messages(messages)
+    if len(ordered) < 3 or message_role(ordered[-1]) != EMPLOYER_ROLE:
+        return False
+
+    latest_text = normalize_message_text(message_text(ordered[-1]))
+    if not latest_text:
+        return False
+
+    for index in range(len(ordered) - 2, -1, -1):
+        item = ordered[index]
+        if message_role(item) != EMPLOYER_ROLE:
+            continue
+        if normalize_message_text(message_text(item)) != latest_text:
+            continue
+        if any(
+            message_role(between) == APPLICANT_ROLE
+            for between in ordered[index + 1 : -1]
+        ):
+            return True
+    return False
+
+
+def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
+    """Classify the latest employer turn before spending an LLM call."""
+    ordered = sorted_messages(messages)
+    if not ordered:
+        return ACTION_IGNORE, "empty_or_unordered_history"
+
+    latest = ordered[-1]
+    text = message_text(latest)
+    if message_role(latest) != EMPLOYER_ROLE:
+        return ACTION_IGNORE, "latest_not_employer"
+    if is_system_notification(text):
+        return ACTION_IGNORE, "hh_system_notification"
+    if repeated_employer_message_after_reply(ordered):
+        return ACTION_MANUAL, "repeated_after_applicant_reply"
+    if UI_ACTION_RE.search(text):
+        return ACTION_MANUAL, "ui_action_hint"
+    if "?" not in text and ACKNOWLEDGEMENT_RE.search(text):
+        return ACTION_IGNORE, "acknowledgement_without_question"
+    return ACTION_REPLY, "employer_message"
+
+
 def sanitize_reply_text(text: str) -> str:
     """Косметическая нормализация: LLM любит длинные тире, живой человек — дефис.
 
@@ -276,11 +349,13 @@ class ReplyWorker:
         hh: HHCLI,
         ai: ChatOpenAI | None,
         system_prompt: str,
+        manual_queue: ManualChatQueue | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
         self.ai = ai
         self.system_prompt = system_prompt
+        self.manual_queue = manual_queue
 
     def collect_candidate_chats(self) -> list[dict[str, Any]]:
         """Collect chats via /negotiations (/common/chats is forbidden for API tokens)."""
@@ -319,15 +394,17 @@ class ReplyWorker:
                 ordered = sorted_messages(messages)
                 if not ordered:
                     continue
-                if message_role(ordered[-1]) != EMPLOYER_ROLE:
+                latest = ordered[-1]
+                latest_id = message_id(latest)
+                if message_role(latest) != EMPLOYER_ROLE:
+                    if self.manual_queue is not None and not self.config.dry_run:
+                        self.manual_queue.resolve_chat(negotiation_id)
                     continue
-                if is_system_notification(message_text(ordered[-1])):
-                    # Служебное уведомление HH (удаление вакансии и т.п.): молчим.
-                    logger.info(
-                        "Chat %s last employer message is an HH system notification; skip",
+                if self.manual_queue is not None and not self.config.dry_run and latest_id:
+                    self.manual_queue.resolve_chat(
                         negotiation_id,
+                        keep_message_id=latest_id,
                     )
-                    continue
                 chats.append(item)
                 if len(chats) >= self.config.max_chats:
                     break
@@ -412,8 +489,6 @@ class ReplyWorker:
         latest = self._latest_message(detail)
         if latest is None or message_role(latest) != EMPLOYER_ROLE:
             return None
-        if is_system_notification(message_text(latest)):
-            return None
         latest_id = message_id(latest)
         if not latest_id:
             return None
@@ -427,6 +502,7 @@ class ReplyWorker:
         context, initiated_by_us = build_context(messages)
         if not context:
             return None
+        action, reason = classify_chat(messages)
         vacancy_name, employer_name = self._vacancy_info(chat)
         return ReplyDecision(
             chat_id=chat_id,
@@ -435,6 +511,9 @@ class ReplyWorker:
             initiated_by_us=initiated_by_us,
             vacancy_name=vacancy_name,
             employer_name=employer_name,
+            action=action,
+            reason=reason,
+            latest_message_text=message_text(latest),
         )
 
     def _generation_prompt(self, decision: ReplyDecision, correction: str = "") -> str:
@@ -535,6 +614,8 @@ class ReplyWorker:
             "sent": 0,
             "stale": 0,
             "skipped": 0,
+            "ignored": 0,
+            "manual": 0,
             "errors": 0,
         }
         candidates = self.collect_candidate_chats()
@@ -544,6 +625,31 @@ class ReplyWorker:
                 decision = self.make_decision(chat)
                 if decision is None:
                     stats["skipped"] += 1
+                    continue
+                if decision.action == ACTION_IGNORE:
+                    logger.info(
+                        "Chat %s classified IGNORE: %s",
+                        decision.chat_id,
+                        decision.reason,
+                    )
+                    stats["ignored"] += 1
+                    continue
+                if decision.action == ACTION_MANUAL:
+                    logger.warning(
+                        "Chat %s requires manual/browser handling: %s",
+                        decision.chat_id,
+                        decision.reason,
+                    )
+                    if self.manual_queue is not None and not self.config.dry_run:
+                        self.manual_queue.enqueue(
+                            chat_id=decision.chat_id,
+                            message_id=decision.expected_last_message_id,
+                            message_text=decision.latest_message_text,
+                            vacancy_name=decision.vacancy_name,
+                            employer_name=decision.employer_name,
+                            reason=decision.reason,
+                        )
+                    stats["manual"] += 1
                     continue
                 reply = self.generate_reply(decision)
                 if not reply:
