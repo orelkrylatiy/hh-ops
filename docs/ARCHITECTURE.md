@@ -6,7 +6,7 @@
 2. как один scheduled job превращается в действия по 1–10 HH-профилям;
 3. где проходят границы между deterministic logic, HH API, SQLite и LLM.
 
-Главный принцип: **LLM не является оркестратором**. Расписание, выбор профиля, фильтрация состояний, stale-check, idempotency и отправка выполняются обычным кодом. LLM используется только там, где нужен текст или распознавание капчи.
+Главный принцип: **LLM не является оркестратором**. Расписание, выбор профиля, фильтрация состояний, stale-check, retry/dedup и отправка выполняются обычным кодом. LLM используется только там, где нужен текст или распознавание капчи.
 
 ## 1. Общая схема
 
@@ -31,9 +31,11 @@ flowchart TD
 
     Profile1 --> Apply["scripts/apply.sh"]
     Profile1 --> Reply["scripts/reply.sh"]
+    Profile1 --> Cleanup["scripts/cleanup.sh"]
     Profile1 --> Boost["boost-resume"]
     ProfileN --> Apply
     ProfileN --> Reply
+    ProfileN --> Cleanup
 
     Apply --> CLI["hh-applicant-tool CLI"]
     Reply --> ReplyBootstrap["reply_iterative_ai.py"]
@@ -54,13 +56,14 @@ flowchart TD
 
 ## 2. Control plane: кто запускает automation
 
-Контейнерный `crontab` задаёт три production job:
+Контейнерный `crontab` задаёт четыре production job:
 
 | Время | Job | Entry point |
 |---|---|---|
 | 09:00 | boost резюме | `scripts/cron-job.sh boost` |
 | 09:10 | batch откликов | `scripts/cron-job.sh apply` |
 | 09:25–21:25 каждый час | ответы работодателям | `scripts/cron-job.sh reply` |
+| 22:10 | очистка rejected/discard переговоров | `scripts/cron-job.sh cleanup` |
 
 `cron-job.sh` — единая safety-граница scheduled automation. Перед запуском он проверяет `HH_AUTOMATION_MODE`:
 
@@ -68,7 +71,7 @@ flowchart TD
 off      -> ничего не делать
 dry-run  -> читать и строить preview без внешних write
 actions
-live     -> разрешить реальные apply/reply/boost
+live     -> разрешить реальные apply/reply/cleanup/boost
 ```
 
 Scheduled path не пытается интерактивно авторизовать аккаунт: нижележащий CLI запускается с `--no-auto-auth`.
