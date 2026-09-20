@@ -78,9 +78,9 @@ def _lane_args(
     args: list[str] = []
     resume_alias = str(lane.get("resume_alias") or "").strip()
     if resume_alias:
-        if resume_alias in aliases:
-            args += ["--resume-alias", resume_alias]
-        elif resume_alias == "primary" and lane.get("allow_infer_primary"):
+        if resume_alias in aliases or (
+            resume_alias == "primary" and lane.get("allow_infer_primary")
+        ):
             args += ["--resume-alias", resume_alias]
         elif lane.get("skip_if_alias_missing"):
             print(
