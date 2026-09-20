@@ -44,16 +44,17 @@ ARGS=("$@")
 case "$COMMAND" in
     apply) CMD_SCRIPT="$SCRIPT_DIR/apply.sh" ;;
     reply) CMD_SCRIPT="$SCRIPT_DIR/reply.sh" ;;
+    cleanup) CMD_SCRIPT="$SCRIPT_DIR/cleanup.sh" ;;
     daily) CMD_SCRIPT="$SCRIPT_DIR/daily.sh" ;;
     boost|update|refresh) CMD_SCRIPT="" ;;
     *)
-        echo "Unknown command: $COMMAND (apply | reply | daily | boost | update | refresh)" >&2
+        echo "Unknown command: $COMMAND (apply | reply | cleanup | daily | boost | update | refresh)" >&2
         exit 1
         ;;
 esac
 
 RUN_MODE_MARKER="utility"
-if [[ "$COMMAND" == "apply" || "$COMMAND" == "reply" || "$COMMAND" == "daily" ]]; then
+if [[ "$COMMAND" == "apply" || "$COMMAND" == "reply" || "$COMMAND" == "cleanup" || "$COMMAND" == "daily" ]]; then
     RUN_MODE_MARKER="dry-run"
     for arg in "${ARGS[@]}"; do
         [[ "$arg" == "--live" ]] && RUN_MODE_MARKER="live"
