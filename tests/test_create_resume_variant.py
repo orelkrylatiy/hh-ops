@@ -39,7 +39,18 @@ class ApiStub:
                     },
                 }
             ],
-            "education": {"level": {"id": "higher", "name": "Высшее"}},
+            "education": {
+                "level": {"id": "higher", "name": "Высшее"},
+                "primary": [
+                    {
+                        "name": "University",
+                        "organization": "CS",
+                        "result": "Computer Science",
+                        "year": 2027,
+                        "id": "readonly-education-id",
+                    }
+                ],
+            },
             "experience": [],
             "status": {"id": "published"},
             "alternate_url": "https://example.test/source-1",
@@ -143,6 +154,14 @@ def test_variant_dry_run_inherits_profile_data_without_writes(tmp_path, capsys) 
     assert output["payload"]["area"] == {"id": "3"}
     assert output["payload"]["professional_roles"] == [{"id": "96"}]
     assert "formatted" not in output["payload"]["contact"][0]["value"]
+    assert output["payload"]["education"]["primary"] == [
+        {
+            "name": "University",
+            "organization": "CS",
+            "result": "Computer Science",
+            "year": 2027,
+        }
+    ]
     assert output["payload"]["experience"][0]["company"] == "Собственные AI/automation проекты"
 
 
