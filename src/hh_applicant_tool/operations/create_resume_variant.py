@@ -299,29 +299,6 @@ def _load_variant(path: Path) -> dict[str, Any]:
     return data
 
 
-def _sanitize_source_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        if value.get("id") is not None and set(value) <= {"id", "name"}:
-            return {"id": str(value["id"])}
-        return {
-            key: _sanitize_source_value(item)
-            for key, item in value.items()
-            if key not in READ_ONLY_NESTED_KEYS and item is not None
-        }
-    if isinstance(value, list):
-        return [_sanitize_source_value(item) for item in value if item is not None]
-    return value
-
-
-def _source_payload(full_resume: dict[str, Any]) -> dict[str, Any]:
-    payload = {
-        field: _sanitize_source_value(copy.deepcopy(full_resume[field]))
-        for field in WRITABLE_SOURCE_FIELDS
-        if field in full_resume and full_resume[field] is not None
-    }
-    return _drop_nulls(payload)
-
-
 def _merge_variant(
     base_payload: dict[str, Any],
     variant: dict[str, Any],
