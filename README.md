@@ -297,6 +297,30 @@ frontend lane alias `primary` может быть временно выведе�
 несколько, но alias не сохранён, apply останавливается fail-closed и не смешивает
 воронки.
 
+## Горячие Лиды Из Чатов
+
+Hourly reply pass параллельно ищет high-precision hot leads: сначала дешёвый
+deterministic prefilter отсекает автоопросы и обычные сообщения, затем LLM
+подтверждает, что это вероятный живой рекрутер с конкретным переходом к
+созвону/интервью/контакту. Reply action при этом не меняется.
+
+Для Telegram alerts задайте в `.env`:
+
+```bash
+HOT_LEADS_ENABLED=1
+HOT_LEAD_MIN_CONFIDENCE=0.85
+HOT_LEAD_TELEGRAM_BOT_TOKEN=...
+HOT_LEAD_TELEGRAM_CHAT_ID=...
+```
+
+Просмотр локально:
+
+```bash
+hh-applicant-tool --profile-id PROFILE hot-leads
+```
+
+Подробные критерии и invariants: `docs/HOT_LEADS.md`.
+
 ## Автоответы В Чатах
 
 Preview без отправки и без вызова LLM:
