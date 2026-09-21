@@ -105,8 +105,9 @@ hh-applicant-tool boost-resume
 ./scripts/apply-profile.sh --profile <PROFILE> --dry-run
 ./scripts/apply-profile.sh --profile <PROFILE> --live
 
-# Или напрямую с AI:
-hh-applicant-tool apply-vacancies \
+# Или один explicit-resume run напрямую через safe operation:
+hh-applicant-tool --no-auto-auth --profile-id <PROFILE> apply-safe \
+  --resume-alias primary \
   --search "<запрос>" \
   --ai \
   --system-prompt prompts/cover_letter_frontend.txt \
@@ -198,20 +199,19 @@ Content-Type: application/json
 
 ```json
 {
-  "profile": "default",
+  "profile": "0555",
   "operation": "apply-vacancies",
   "auto_refresh": true,
   "apply_params": {
-    "search": "React frontend developer",
-    "force_message": true,
-    "skip_tests": true,
-    "excluded_filter": "junior|стажир|bitrix|web3|crypto|blockchain",
     "dry_run": true
   }
 }
 ```
 
-После анализа dry-run можно запускать live без `dry_run`.
+Для профиля с tracked lanes такой вызов использует `apply-profile`; search/filter/resume
+настройки принадлежат lane config и не переопределяются агентом. Для профиля без
+lanes агент обязан передать explicit `resume_id` или `resume_alias`. После
+анализа dry-run live требует `confirm_live=true`.
 
 ---
 
