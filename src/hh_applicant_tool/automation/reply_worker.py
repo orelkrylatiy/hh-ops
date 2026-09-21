@@ -801,7 +801,8 @@ class ReplyWorker:
                 if decision is None:
                     stats["skipped"] += 1
                     continue
-                self._process_hot_lead(decision, stats)
+                if decision.action == ACTION_REPLY:
+                    self._process_hot_lead(decision, stats)
                 if decision.action == ACTION_IGNORE:
                     logger.info(
                         "Chat %s classified IGNORE: %s",
