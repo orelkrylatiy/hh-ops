@@ -213,7 +213,9 @@ def build_ai_client(
         base_url=base_url,
         model=model,
         system_prompt=system_prompt,
-        temperature=(temperature if temperature is not None else float(provider.get("temperature", 0.35))),
+        temperature=(
+            temperature if temperature is not None else float(provider.get("temperature", 0.35))
+        ),
         max_completion_tokens=(
             max_completion_tokens
             if max_completion_tokens is not None
