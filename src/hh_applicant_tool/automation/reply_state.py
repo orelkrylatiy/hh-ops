@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,7 @@ class ManualChatQueue:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.executescript(_MANUAL_CHAT_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
@@ -44,7 +45,7 @@ class ManualChatQueue:
         employer_name: str,
         reason: str,
     ) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(
                 """
                 INSERT INTO manual_chat_queue (
@@ -82,7 +83,7 @@ class ManualChatQueue:
         keep_message_id: str | None = None,
     ) -> int:
         """Resolve stale manual items once the chat moved past that message."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             if keep_message_id:
                 cur = conn.execute(
                     """
@@ -106,7 +107,7 @@ class ManualChatQueue:
             return cur.rowcount
 
     def pending(self, limit: int = 100) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
