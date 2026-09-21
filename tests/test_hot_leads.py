@@ -313,3 +313,25 @@ def test_alert_stays_within_telegram_message_limit_and_normalizes_default_profil
 
     assert "Аккаунт: default" in alert
     assert len(alert) <= 3900
+
+
+def test_telegram_api_description_never_exposes_bot_token() -> None:
+    session = Mock()
+    token = "super-secret-token"
+    response = Mock()
+    response.json.return_value = {
+        "ok": False,
+        "description": f"bad request for {token}",
+    }
+    session.post.return_value = response
+    notifier = TelegramNotifier(
+        bot_token=token,
+        chat_id="123",
+        session=session,
+    )
+
+    with pytest.raises(TelegramNotificationError) as exc_info:
+        notifier.send("hello")
+
+    assert token not in str(exc_info.value)
+    assert "[redacted]" in str(exc_info.value)
