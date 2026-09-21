@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import time
-import urllib.error
 import urllib.request
 from typing import Any
 
@@ -39,11 +38,7 @@ def build_application_success_message(
     employer_name = str(employer.get("name") or "Не указан").strip()
     vacancy_url = str(vacancy.get("alternate_url") or "").strip()
 
-    selector = (
-        f"alias: {resume_alias}"
-        if resume_alias
-        else f"id: {resume_id}"
-    )
+    selector = f"alias: {resume_alias}" if resume_alias else f"id: {resume_id}"
     parts = [
         "✅ Отклик отправлен",
         f"Профиль: {profile}",
@@ -96,9 +91,9 @@ def _send_message(text: str) -> bool:
         if bool(body.get("ok")):
             return True
         logger.warning("HH Telegram sendMessage returned ok=false")
-    except (OSError, ValueError, urllib.error.URLError):
+    except (OSError, ValueError):
         # Never include the request URL in logs: it contains the bot token.
-        logger.warning("HH Telegram notification failed (%s)", "transport/error")
+        logger.warning("HH Telegram notification failed")
     _failure_cooldown_until = time.monotonic() + _FAILURE_COOLDOWN_S
     return False
 
