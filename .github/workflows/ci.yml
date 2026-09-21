@@ -58,7 +58,6 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_apply_notifications.py \
-            tests/test_apply_notifications.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
@@ -93,6 +92,7 @@ jobs:
             admin/ui_shell.py \
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
+            tests/test_apply_notifications.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
