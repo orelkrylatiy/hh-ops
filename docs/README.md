@@ -35,3 +35,5 @@
 ## API
 
 - `hhapi/openapi.yml` — snapshot HH API schema
+
+- [HOT_LEADS.md](HOT_LEADS.md) — точное определение горячего лида, deterministic prefilter, LLM confirmation, SQLite dedup и Telegram alerts.
