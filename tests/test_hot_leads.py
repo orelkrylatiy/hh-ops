@@ -268,3 +268,22 @@ def test_telegram_http_error_never_exposes_bot_token() -> None:
 
     assert "secret-token" not in str(exc_info.value)
     assert "HTTPError" in str(exc_info.value)
+
+
+
+def test_telegram_network_error_never_contains_bot_token() -> None:
+    session = Mock()
+    token = "super-secret-token"
+    session.post.side_effect = requests.ConnectionError(
+        f"failed for https://api.telegram.org/bot{token}/sendMessage"
+    )
+    notifier = TelegramNotifier(
+        bot_token=token,
+        chat_id="123",
+        session=session,
+    )
+
+    with pytest.raises(TelegramNotificationError) as exc_info:
+        notifier.send("hello")
+
+    assert token not in str(exc_info.value)
