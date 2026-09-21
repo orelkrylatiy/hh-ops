@@ -196,7 +196,7 @@ def test_telegram_notifier_sends_plain_text_without_parse_mode() -> None:
     assert payload == {
         "chat_id": "123",
         "text": "hello",
-        "disable_web_page_preview": True,
+        "link_preview_options": {"is_disabled": True},
     }
     assert "parse_mode" not in payload
     response.raise_for_status.assert_called_once()
