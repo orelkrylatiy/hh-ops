@@ -62,6 +62,7 @@ jobs:
             tests/test_hot_leads.py \
             tests/test_hot_lead_state.py \
             tests/test_hot_leads_operation.py \
+            tests/test_hot_leads_operation.py \
             tests/test_create_resume.py \
             tests/test_create_resume_variant.py \
             tests/test_resume_aliases.py \
@@ -97,6 +98,7 @@ jobs:
             tests/test_manual_chats.py \
             tests/test_hot_leads.py \
             tests/test_hot_lead_state.py \
+            tests/test_hot_leads_operation.py \
             tests/test_hot_leads_operation.py \
             tests/test_create_resume.py \
             tests/test_create_resume_variant.py \
