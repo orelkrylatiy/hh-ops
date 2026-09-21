@@ -793,7 +793,6 @@ def test_run_ignore_decision_does_not_call_ai() -> None:
     worker.generate_reply.assert_not_called()
 
 
-
 def test_hot_lead_dry_run_prefilters_without_llm_or_state_write() -> None:
     detector = Mock()
     store = Mock()
