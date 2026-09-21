@@ -125,24 +125,23 @@ fi
 MODE_FLAG="--dry-run"
 [[ "$RUN_MODE" == "live" ]] && MODE_FLAG="--live"
 
-PROFILE_ARGS=()
-if [[ -n "$PROFILE_ID" ]]; then
-    PROFILE_ARGS=(--profile "$PROFILE_ID")
-fi
+TARGET_PROFILE="${PROFILE_ID:-default}"
+PROFILE_ARGS=(--profile "$TARGET_PROFILE")
 
-echo "Daily HH pass: mode=$RUN_MODE profile=${PROFILE_ID:-default}"
+echo "Daily HH pass: mode=$RUN_MODE profile=$TARGET_PROFILE"
 
 if [[ "$WITH_BOOST" == true ]]; then
-    "$SCRIPT_DIR/all-profiles.sh" boost --live
+    hh-applicant-tool --no-auto-auth --profile-id "$TARGET_PROFILE" boost-resume
 fi
 
 if [[ "$REPLY_ONLY" == false ]]; then
-    "$SCRIPT_DIR/apply.sh" "$MODE_FLAG" \
+    # Keep manual one-shot behavior identical to cron: profile-specific resume
+    # lanes and aliases must not be bypassed by daily.sh.
+    "$SCRIPT_DIR/apply-profile.sh" --profile "$TARGET_PROFILE" "$MODE_FLAG" \
         --search "$SEARCH_QUERY" \
         --limit "$APPLY_LIMIT" \
         --pages "$APPLY_PAGES" \
-        --per-page "$APPLY_PER_PAGE" \
-        "${PROFILE_ARGS[@]}"
+        --per-page "$APPLY_PER_PAGE"
 fi
 
 if [[ "$APPLY_ONLY" == false ]]; then
