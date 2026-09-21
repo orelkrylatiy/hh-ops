@@ -29,11 +29,12 @@ flowchart TD
     Fleet --> Profile1["profile account1\nflock"]
     Fleet --> ProfileN["profile accountN\nflock"]
 
-    Profile1 --> Apply["scripts/apply.sh"]
+    Profile1 --> ApplyProfile["scripts/apply-profile.sh\nresume lane routing"]
+    ApplyProfile --> Apply["scripts/apply.sh"]
     Profile1 --> Reply["scripts/reply.sh"]
     Profile1 --> Cleanup["scripts/cleanup.sh"]
     Profile1 --> Boost["boost-resume"]
-    ProfileN --> Apply
+    ProfileN --> ApplyProfile
     ProfileN --> Reply
     ProfileN --> Cleanup
 
@@ -155,7 +156,9 @@ apply-vacancies
 
 ## 6. Apply pipeline
 
-Shell entrypoint: `scripts/apply.sh`.
+Scheduled/profile entrypoint: `scripts/apply-profile.sh`, который выбирает
+resume lanes/aliases и затем вызывает `scripts/apply.sh`. Сам `apply.sh`
+запускает safe CLI operation `apply-safe`.
 
 Ключевые величины разделены:
 
@@ -184,7 +187,8 @@ APPLY_LIMIT=100 успешных откликов
 
 ```mermaid
 flowchart TD
-    Start["apply.sh --profile X"]
+    Start["apply-profile.sh --profile X"]
+    Lanes["resume lanes / aliases"]
     Preflight["check_ai.py --purpose cover-letter"]
     CLI["hh-applicant-tool apply-vacancies"]
     Resume["GET /resumes/mine + GET /me"]
@@ -200,7 +204,7 @@ flowchart TD
     Quota{"APPLY_LIMIT reached?"}
     DB["persist vacancies / negotiations"]
 
-    Start --> Preflight --> CLI --> Resume --> Search --> Basic
+    Start --> Lanes --> Preflight --> CLI --> Resume --> Search --> Basic
     Basic -->|skip| Search
     Basic -->|pass| AIFilter
     AIFilter -->|reject| Search
@@ -230,7 +234,9 @@ Autonomous `apply.sh` передаёт `--skip-tests`: vacancy tests намер�
 
 `_build_cover_letter()` собирает контекст вакансии и резюме и вызывает `openai_cover_letter` через `ChatOpenAI`.
 
-При `AIError` конкретная vacancy не отправляется, `ai_error_count` растёт, а run в конце помечается неуспешным. **Static fallback для массовых cover letters сейчас не используется.**
+Production `apply-safe` умеет использовать настроенный
+`cover_letter_fallback.message` при provider/runtime AI failure. Если fallback
+выключен или также невалиден, vacancy/run fail-closed.
 
 ### 6.4 Отправка
 
