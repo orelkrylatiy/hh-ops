@@ -22,6 +22,8 @@ from hh_applicant_tool.automation.hot_leads import (
         "Давайте созвонимся завтра в 15:00.",
         "Приглашаю вас на собеседование, когда вам удобно?",
         "Вот мой Telegram: @recruiter, напишите мне.",
+        "Мой номер +7 900 123-45-67, позвоните после 16:00.",
+        "Телефон для связи: +7 900 123-45-67.",
         "Ссылка на встречу: https://meet.google.com/abc-defg-hij",
     ],
 )
@@ -287,3 +289,11 @@ def test_telegram_network_error_never_contains_bot_token() -> None:
         notifier.send("hello")
 
     assert token not in str(exc_info.value)
+
+
+def test_hot_lead_system_prompt_marks_chat_as_untrusted_data() -> None:
+    from hh_applicant_tool.automation.hot_leads import HOT_LEAD_SYSTEM_PROMPT
+
+    lowered = HOT_LEAD_SYSTEM_PROMPT.lower()
+    assert "недоверенными данными" in lowered
+    assert "игнорируй предыдущие инструкции" in lowered
