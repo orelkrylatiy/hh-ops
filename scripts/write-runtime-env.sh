@@ -19,6 +19,11 @@ OUTPUT_FILE="${1:-/tmp/hh-runtime.env}"
     printf 'export APPLY_HARD_FILTER_FILE=%q\n' "${APPLY_HARD_FILTER_FILE:-}"
     printf 'export EXCLUDED_FILTER=%q\n' "${EXCLUDED_FILTER:-}"
     printf 'export REPLY_CHATS=%q\n' "${REPLY_CHATS:-100}"
+    printf 'export HOT_LEADS_ENABLED=%q\n' "${HOT_LEADS_ENABLED:-1}"
+    printf 'export HOT_LEAD_MIN_CONFIDENCE=%q\n' "${HOT_LEAD_MIN_CONFIDENCE:-0.85}"
+    printf 'export HOT_LEAD_TELEGRAM_TIMEOUT=%q\n' "${HOT_LEAD_TELEGRAM_TIMEOUT:-10}"
+    # Telegram token/chat id are secrets and intentionally stay in /app/.env;
+    # cron-job.sh sources that file directly before this non-secret runtime file.
     printf 'export CLEANUP_DELETE_CHAT=%q\n' "${CLEANUP_DELETE_CHAT:-1}"
     printf 'export HH_PROFILE_PARALLELISM=%q\n' "${HH_PROFILE_PARALLELISM:-10}"
 } > "$OUTPUT_FILE"

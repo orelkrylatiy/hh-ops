@@ -7,9 +7,18 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
+from hh_applicant_tool.automation.hot_lead_state import HotLeadStore
+from hh_applicant_tool.automation.hot_leads import (
+    HotLeadDetectionError,
+    HotLeadDetector,
+    TelegramNotificationError,
+    TelegramNotifier,
+    format_hot_lead_alert,
+    prefilter_hot_lead,
+)
 from hh_applicant_tool.automation.reply_state import ManualChatQueue
 
 logger = logging.getLogger(__name__)
@@ -86,6 +95,10 @@ class HHCLIError(RuntimeError):
     """Raised when the hh-applicant-tool subprocess fails."""
 
 
+class ReplyCompleter(Protocol):
+    def complete(self, value: str, /) -> str: ...
+
+
 @dataclass(frozen=True)
 class ReplyWorkerConfig:
     profile_id: str = ""
@@ -94,6 +107,7 @@ class ReplyWorkerConfig:
     ai_retries: int = 1
     send_retries: int = 2
     send_retry_delay: float = 1.0
+    hot_leads_enabled: bool = False
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
     skip_chat_ids: tuple[str, ...] = ()
 
@@ -167,17 +181,27 @@ class HHCLI:
         return payload
 
 
-def select_ai_config(config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Return the reply provider with an explicit cover-letter fallback."""
-    for section in ("openai_reply", "openai_cover_letter"):
+def select_ai_config(
+    config: dict[str, Any],
+    sections: tuple[str, ...] = ("openai_reply", "openai_cover_letter"),
+) -> tuple[str, dict[str, Any]]:
+    """Return the first configured OpenAI-compatible provider section."""
+    for section in sections:
         value = config.get(section)
         if isinstance(value, dict) and value:
             return section, value
-    raise ValueError("configure 'openai_reply' or fallback 'openai_cover_letter'")
+    raise ValueError("configure one of: " + ", ".join(sections))
 
 
-def build_ai_client(config: dict[str, Any], system_prompt: str) -> ChatOpenAI:
-    section, provider = select_ai_config(config)
+def build_ai_client(
+    config: dict[str, Any],
+    system_prompt: str,
+    *,
+    sections: tuple[str, ...] = ("openai_reply", "openai_cover_letter"),
+    temperature: float | None = None,
+    max_completion_tokens: int | None = None,
+) -> ChatOpenAI:
+    section, provider = select_ai_config(config, sections)
     api_key = str(provider.get("api_key") or "").strip()
     base_url = str(provider.get("base_url") or "").strip()
     model = str(provider.get("model") or "").strip()
@@ -193,8 +217,14 @@ def build_ai_client(config: dict[str, Any], system_prompt: str) -> ChatOpenAI:
         base_url=base_url,
         model=model,
         system_prompt=system_prompt,
-        temperature=float(provider.get("temperature", 0.35)),
-        max_completion_tokens=int(provider.get("max_completion_tokens", 500)),
+        temperature=(
+            temperature if temperature is not None else float(provider.get("temperature", 0.35))
+        ),
+        max_completion_tokens=(
+            max_completion_tokens
+            if max_completion_tokens is not None
+            else int(provider.get("max_completion_tokens", 500))
+        ),
         rate_limit=int(provider.get("rate_limit", 30)),
         timeout=float(provider.get("timeout", 45.0)),
         max_retries=int(provider.get("max_retries", 3)),
@@ -375,15 +405,127 @@ class ReplyWorker:
         config: ReplyWorkerConfig,
         *,
         hh: HHCLI,
-        ai: ChatOpenAI | None,
+        ai: ReplyCompleter | None,
         system_prompt: str,
         manual_queue: ManualChatQueue | None = None,
+        hot_lead_detector: HotLeadDetector | None = None,
+        hot_lead_store: HotLeadStore | None = None,
+        hot_lead_notifier: TelegramNotifier | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
         self.ai = ai
         self.system_prompt = system_prompt
         self.manual_queue = manual_queue
+        self.hot_lead_detector = hot_lead_detector
+        self.hot_lead_store = hot_lead_store
+        self.hot_lead_notifier = hot_lead_notifier
+
+    def _notify_hot_event(self, event: dict[str, Any], stats: dict[str, Any]) -> None:
+        if self.config.dry_run or self.hot_lead_notifier is None or self.hot_lead_store is None:
+            return
+        try:
+            self.hot_lead_notifier.send(format_hot_lead_alert(self.config.profile_id, event))
+        except TelegramNotificationError as exc:
+            self.hot_lead_store.mark_notification_failed(
+                str(event["chat_id"]),
+                str(event["message_id"]),
+                str(exc),
+            )
+            stats["hot_notify_failed"] += 1
+            logger.warning(
+                "Hot lead Telegram notification failed for chat %s: %s",
+                event["chat_id"],
+                exc,
+            )
+            return
+        self.hot_lead_store.mark_notified(
+            str(event["chat_id"]),
+            str(event["message_id"]),
+        )
+        stats["hot_notified"] += 1
+
+    def _flush_pending_hot_notifications(self, stats: dict[str, Any]) -> None:
+        if (
+            not self.config.hot_leads_enabled
+            or self.config.dry_run
+            or self.hot_lead_store is None
+            or self.hot_lead_notifier is None
+        ):
+            return
+        for event in self.hot_lead_store.pending_notifications(limit=100):
+            self._notify_hot_event(event, stats)
+
+    def _process_hot_lead(self, decision: ReplyDecision, stats: dict[str, Any]) -> None:
+        if not self.config.hot_leads_enabled or decision.action != ACTION_REPLY:
+            return
+        prefilter = prefilter_hot_lead(decision.latest_message_text)
+        if not prefilter.candidate:
+            return
+
+        stats["hot_candidates"] += 1
+        if self.config.dry_run:
+            logger.info(
+                "DRY-RUN hot-lead candidate chat=%s signals=%s",
+                decision.chat_id,
+                ",".join(prefilter.signals),
+            )
+            return
+        if self.hot_lead_store is None or self.hot_lead_detector is None:
+            stats["hot_ai_errors"] += 1
+            logger.warning("Hot lead detection is enabled but detector/store is not configured")
+            return
+
+        existing = self.hot_lead_store.get(
+            decision.chat_id,
+            decision.expected_last_message_id,
+        )
+        if existing is not None:
+            if bool(existing.get("is_hot")) and not bool(existing.get("notified")):
+                self._notify_hot_event(existing, stats)
+            return
+
+        try:
+            evaluation = self.hot_lead_detector.evaluate(
+                context=decision.context,
+                latest_message=decision.latest_message_text,
+                vacancy_name=decision.vacancy_name,
+                employer_name=decision.employer_name,
+            )
+        except (HotLeadDetectionError, OpenAIError) as exc:
+            stats["hot_ai_errors"] += 1
+            logger.warning("Hot lead classifier failed for chat %s: %s", decision.chat_id, exc)
+            return
+
+        self.hot_lead_store.record(
+            chat_id=decision.chat_id,
+            message_id=decision.expected_last_message_id,
+            is_hot=evaluation.hot,
+            confidence=evaluation.confidence,
+            human_likelihood=evaluation.human_likelihood,
+            reason=evaluation.reason,
+            next_step=evaluation.next_step,
+            message_text=decision.latest_message_text,
+            vacancy_name=decision.vacancy_name,
+            employer_name=decision.employer_name,
+        )
+        if not evaluation.hot:
+            return
+
+        stats["hot_leads"] += 1
+        event = self.hot_lead_store.get(
+            decision.chat_id,
+            decision.expected_last_message_id,
+        )
+        if event is not None:
+            logger.warning(
+                "HOT LEAD chat=%s vacancy=%s employer=%s confidence=%.2f",
+                decision.chat_id,
+                decision.vacancy_name,
+                decision.employer_name,
+                evaluation.confidence,
+            )
+            self._notify_hot_event(event, stats)
 
     def collect_candidate_chats(self) -> list[dict[str, Any]]:
         """Collect chats via /negotiations (/common/chats is forbidden for API tokens)."""
@@ -648,7 +790,13 @@ class ReplyWorker:
             "ignored": 0,
             "manual": 0,
             "errors": 0,
+            "hot_candidates": 0,
+            "hot_leads": 0,
+            "hot_notified": 0,
+            "hot_notify_failed": 0,
+            "hot_ai_errors": 0,
         }
+        self._flush_pending_hot_notifications(stats)
         candidates = self.collect_candidate_chats()
         stats["candidates"] = len(candidates)
         for chat in candidates:
@@ -657,6 +805,8 @@ class ReplyWorker:
                 if decision is None:
                     stats["skipped"] += 1
                     continue
+                if decision.action == ACTION_REPLY:
+                    self._process_hot_lead(decision, stats)
                 if decision.action == ACTION_IGNORE:
                     logger.info(
                         "Chat %s classified IGNORE: %s",

@@ -7,6 +7,10 @@ from unittest.mock import Mock
 import pytest
 
 from hh_applicant_tool.ai.openai import OpenAIError
+from hh_applicant_tool.automation.hot_leads import (
+    HotLeadEvaluation,
+    TelegramNotificationError,
+)
 from hh_applicant_tool.automation.reply_worker import (
     ACTION_IGNORE,
     ACTION_MANUAL,
@@ -787,3 +791,219 @@ def test_run_ignore_decision_does_not_call_ai() -> None:
 
     assert stats["ignored"] == 1
     worker.generate_reply.assert_not_called()
+
+
+def test_hot_lead_dry_run_prefilters_without_llm_or_state_write() -> None:
+    detector = Mock()
+    store = Mock()
+    notifier = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=True, hot_leads_enabled=True),
+        hh=Mock(),
+        ai=None,
+        system_prompt="prompt",
+        hot_lead_detector=detector,
+        hot_lead_store=store,
+        hot_lead_notifier=notifier,
+    )
+    stats = {
+        "hot_candidates": 0,
+        "hot_leads": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+        "hot_ai_errors": 0,
+    }
+
+    worker._process_hot_lead(
+        _decision(latest_message_text="Давайте созвонимся завтра в 15:00."),
+        stats,
+    )
+
+    assert stats["hot_candidates"] == 1
+    detector.evaluate.assert_not_called()
+    store.get.assert_not_called()
+    notifier.send.assert_not_called()
+
+
+def test_hot_lead_live_records_and_notifies_once() -> None:
+    detector = Mock()
+    detector.evaluate.return_value = HotLeadEvaluation(
+        hot=True,
+        confidence=0.95,
+        human_likelihood="high",
+        reason="Живой рекрутер предлагает созвон.",
+        next_step="Согласовать время.",
+    )
+    store = Mock()
+    event = {
+        "chat_id": "chat-1",
+        "message_id": "employer-1",
+        "is_hot": 1,
+        "notified": 0,
+        "confidence": 0.95,
+        "reason": "Живой рекрутер предлагает созвон.",
+        "next_step": "Согласовать время.",
+        "message_text": "Давайте созвонимся.",
+        "vacancy_name": "Frontend developer",
+        "employer_name": "Acme",
+    }
+    store.get.side_effect = [None, event]
+    notifier = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(
+            profile_id="0555",
+            dry_run=False,
+            hot_leads_enabled=True,
+        ),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        hot_lead_detector=detector,
+        hot_lead_store=store,
+        hot_lead_notifier=notifier,
+    )
+    stats = {
+        "hot_candidates": 0,
+        "hot_leads": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+        "hot_ai_errors": 0,
+    }
+
+    worker._process_hot_lead(
+        _decision(latest_message_text="Давайте созвонимся."),
+        stats,
+    )
+
+    assert stats["hot_leads"] == 1
+    assert stats["hot_notified"] == 1
+    detector.evaluate.assert_called_once()
+    store.record.assert_called_once()
+    notifier.send.assert_called_once()
+    store.mark_notified.assert_called_once_with("chat-1", "employer-1")
+
+
+def test_existing_hot_lead_skips_second_llm_call_and_retries_notification() -> None:
+    detector = Mock()
+    store = Mock()
+    store.get.return_value = {
+        "chat_id": "chat-1",
+        "message_id": "employer-1",
+        "is_hot": 1,
+        "notified": 0,
+        "confidence": 0.93,
+        "reason": "Созвон",
+        "next_step": "Ответить",
+        "message_text": "Давайте созвонимся.",
+        "vacancy_name": "Frontend developer",
+        "employer_name": "Acme",
+    }
+    notifier = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, hot_leads_enabled=True),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        hot_lead_detector=detector,
+        hot_lead_store=store,
+        hot_lead_notifier=notifier,
+    )
+    stats = {
+        "hot_candidates": 0,
+        "hot_leads": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+        "hot_ai_errors": 0,
+    }
+
+    worker._process_hot_lead(
+        _decision(latest_message_text="Давайте созвонимся."),
+        stats,
+    )
+
+    detector.evaluate.assert_not_called()
+    store.record.assert_not_called()
+    notifier.send.assert_called_once()
+    assert stats["hot_notified"] == 1
+
+
+def test_telegram_failure_does_not_increment_reply_errors() -> None:
+    store = Mock()
+    notifier = Mock()
+    notifier.send.side_effect = TelegramNotificationError("offline")
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, hot_leads_enabled=True),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        hot_lead_store=store,
+        hot_lead_notifier=notifier,
+    )
+    stats = {
+        "errors": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+    }
+    event = {
+        "chat_id": "chat-1",
+        "message_id": "msg-1",
+        "message_text": "Давайте созвонимся.",
+    }
+
+    worker._notify_hot_event(event, stats)
+
+    assert stats["errors"] == 0
+    assert stats["hot_notify_failed"] == 1
+    store.mark_notification_failed.assert_called_once()
+
+
+def test_manual_repeated_call_question_never_reaches_hot_llm() -> None:
+    detector = Mock()
+    store = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, hot_leads_enabled=True),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        hot_lead_detector=detector,
+        hot_lead_store=store,
+    )
+    stats = {
+        "hot_candidates": 0,
+        "hot_leads": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+        "hot_ai_errors": 0,
+    }
+
+    worker._process_hot_lead(
+        _decision(
+            action=ACTION_MANUAL,
+            reason="repeated_after_applicant_reply",
+            latest_message_text="Когда вам удобно созвониться?",
+        ),
+        stats,
+    )
+
+    assert stats["hot_candidates"] == 0
+    detector.evaluate.assert_not_called()
+    store.get.assert_not_called()
+
+
+def test_manual_and_ignore_actions_never_enter_hot_lead_pipeline() -> None:
+    for action in (ACTION_MANUAL, ACTION_IGNORE):
+        worker = _live_worker(hot_leads_enabled=True)
+        worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+        worker.make_decision = Mock(
+            return_value=_decision(
+                action=action,
+                reason="ui_action_hint" if action == ACTION_MANUAL else "hh_system_notification",
+                latest_message_text="Приглашаем на интервью. Нажмите кнопку ниже.",
+            )
+        )
+        worker._process_hot_lead = Mock()
+        worker.generate_reply = Mock()
+
+        worker.run()
+
+        worker._process_hot_lead.assert_not_called()

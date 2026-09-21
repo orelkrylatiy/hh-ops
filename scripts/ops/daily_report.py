@@ -76,6 +76,7 @@ TABLE_ALLOWLIST = (
     "employers",
     "resumes",
     "manual_chat_queue",
+    "hot_lead_events",
 )
 
 
@@ -137,6 +138,11 @@ def _profile_metrics() -> dict:
             "manual": 0,
             "errors": 0,
             "fallback": 0,
+            "hot_candidates": 0,
+            "hot_leads": 0,
+            "hot_notified": 0,
+            "hot_notify_failed": 0,
+            "hot_ai_errors": 0,
         },
         "log_events": {},
         "database": {
@@ -199,7 +205,17 @@ def _parse_reply_summary(line: str) -> dict[str, int] | None:
     if not required.issubset(value):
         return None
     result: dict[str, int] = {}
-    for key in (*sorted(required), "ignored", "manual", "fallback"):
+    for key in (
+        *sorted(required),
+        "ignored",
+        "manual",
+        "fallback",
+        "hot_candidates",
+        "hot_leads",
+        "hot_notified",
+        "hot_notify_failed",
+        "hot_ai_errors",
+    ):
         raw = value.get(key, 0)
         if isinstance(raw, bool):
             raw = int(raw)
@@ -388,6 +404,11 @@ def _totals(profiles: dict[str, dict], logs: dict) -> dict:
         "replies_manual": 0,
         "reply_errors": 0,
         "reply_fallbacks": 0,
+        "hot_lead_candidates": 0,
+        "hot_leads_detected": 0,
+        "hot_leads_notified": 0,
+        "hot_lead_notify_failures": 0,
+        "hot_lead_ai_errors": 0,
         "technical_event_occurrences": sum(logs.get("events", {}).values()),
     }
     for profile in profiles.values():
@@ -405,6 +426,11 @@ def _totals(profiles: dict[str, dict], logs: dict) -> dict:
         totals["replies_manual"] += profile["reply"]["manual"]
         totals["reply_errors"] += profile["reply"]["errors"]
         totals["reply_fallbacks"] += profile["reply"]["fallback"]
+        totals["hot_lead_candidates"] += profile["reply"]["hot_candidates"]
+        totals["hot_leads_detected"] += profile["reply"]["hot_leads"]
+        totals["hot_leads_notified"] += profile["reply"]["hot_notified"]
+        totals["hot_lead_notify_failures"] += profile["reply"]["hot_notify_failed"]
+        totals["hot_lead_ai_errors"] += profile["reply"]["hot_ai_errors"]
     return totals
 
 

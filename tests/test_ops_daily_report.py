@@ -57,6 +57,30 @@ def _create_profile_db(path: pathlib.Path) -> None:
         conn.execute("INSERT INTO negotiations VALUES (987654, 555555, 'active')")
         conn.execute(
             """
+            CREATE TABLE hot_lead_events (
+                chat_id TEXT,
+                message_id TEXT,
+                message_text TEXT,
+                vacancy_name TEXT,
+                employer_name TEXT,
+                reason TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO hot_lead_events VALUES (
+                'secret-hot-chat',
+                'secret-hot-message',
+                'secret hot employer text',
+                'Secret hot vacancy',
+                'Secret hot employer',
+                'secret hot reason'
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE manual_chat_queue (
                 chat_id TEXT,
                 message_id TEXT,
@@ -98,7 +122,7 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
                 "[2026-09-09 10:00:00] HH_RUN_START profile=account1 command=reply mode=live",
                 "2026-09-09 10:00:01 [WARNING] Rejected AI reply for chat secret-chat-777",
                 "Работодатель: secret employer message that must never be exported",
-                '{"candidates":3,"planned":2,"sent":1,"stale":1,"skipped":0,"ignored":2,"manual":1,"errors":0,"fallback":1}',
+                '{"candidates":3,"planned":2,"sent":1,"stale":1,"skipped":0,"ignored":2,"manual":1,"errors":0,"fallback":1,"hot_candidates":2,"hot_leads":1,"hot_notified":1,"hot_notify_failed":0,"hot_ai_errors":0}',
                 "[2026-09-09 10:00:03] HH_RUN_END profile=account1 command=reply mode=live status=0",
                 "",
             ]
@@ -140,6 +164,9 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
     assert report["totals"]["reply_fallbacks"] == 1
     assert report["totals"]["replies_ignored"] == 2
     assert report["totals"]["replies_manual"] == 1
+    assert report["totals"]["hot_lead_candidates"] == 2
+    assert report["totals"]["hot_leads_detected"] == 1
+    assert report["totals"]["hot_leads_notified"] == 1
 
     account1 = report["profiles"]["account1"]
     assert account1["runs"]["reply"]["started"] == 1
@@ -149,6 +176,7 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
     assert account1["database"]["tables"]["vacancies"] == 1
     assert account1["database"]["tables"]["negotiations"] == 1
     assert account1["database"]["tables"]["manual_chat_queue"] == 1
+    assert account1["database"]["tables"]["hot_lead_events"] == 1
 
     account2 = report["profiles"]["account2"]
     assert account2["runs"]["apply"]["failed"] == 1
@@ -172,6 +200,12 @@ def test_daily_report_collects_metrics_without_copying_raw_data(
         "secret manual employer text",
         "Secret manual vacancy",
         "Secret manual employer",
+        "secret-hot-chat",
+        "secret-hot-message",
+        "secret hot employer text",
+        "Secret hot vacancy",
+        "Secret hot employer",
+        "secret hot reason",
     ):
         assert secret not in serialized
 

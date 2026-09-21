@@ -31,6 +31,7 @@ class ManualChatQueue:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn:
             conn.executescript(_MANUAL_CHAT_SCHEMA)
+            conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path, timeout=10)
@@ -75,6 +76,7 @@ class ManualChatQueue:
                     reason,
                 ),
             )
+            conn.commit()
 
     def resolve_chat(
         self,
@@ -104,6 +106,7 @@ class ManualChatQueue:
                     """,
                     (chat_id,),
                 )
+            conn.commit()
             return cur.rowcount
 
     def pending(self, limit: int = 100) -> list[dict[str, Any]]:
