@@ -103,6 +103,7 @@ class ReplyWorkerConfig:
     ai_retries: int = 1
     send_retries: int = 2
     send_retry_delay: float = 1.0
+    hot_leads_enabled: bool = False
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
     skip_chat_ids: tuple[str, ...] = ()
 
@@ -427,12 +428,19 @@ class ReplyWorker:
         stats["hot_notified"] += 1
 
     def _flush_pending_hot_notifications(self, stats: dict[str, Any]) -> None:
-        if self.config.dry_run or self.hot_lead_store is None or self.hot_lead_notifier is None:
+        if (
+            not self.config.hot_leads_enabled
+            or self.config.dry_run
+            or self.hot_lead_store is None
+            or self.hot_lead_notifier is None
+        ):
             return
         for event in self.hot_lead_store.pending_notifications(limit=100):
             self._notify_hot_event(event, stats)
 
     def _process_hot_lead(self, decision: ReplyDecision, stats: dict[str, Any]) -> None:
+        if not self.config.hot_leads_enabled:
+            return
         prefilter = prefilter_hot_lead(decision.latest_message_text)
         if not prefilter.candidate:
             return
