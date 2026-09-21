@@ -225,8 +225,12 @@ class TelegramNotifier:
             raise TelegramNotificationError("telegram returned invalid JSON") from exc
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             description = payload.get("description") if isinstance(payload, dict) else None
+            safe_description = str(description or "unknown error").replace(
+                self._bot_token,
+                "[redacted]",
+            )
             raise TelegramNotificationError(
-                f"telegram API rejected notification: {description or 'unknown error'}"
+                f"telegram API rejected notification: {safe_description[:300]}"
             )
 
 
