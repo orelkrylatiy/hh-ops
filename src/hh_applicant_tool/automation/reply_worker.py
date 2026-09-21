@@ -177,17 +177,27 @@ class HHCLI:
         return payload
 
 
-def select_ai_config(config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Return the reply provider with an explicit cover-letter fallback."""
-    for section in ("openai_reply", "openai_cover_letter"):
+def select_ai_config(
+    config: dict[str, Any],
+    sections: tuple[str, ...] = ("openai_reply", "openai_cover_letter"),
+) -> tuple[str, dict[str, Any]]:
+    """Return the first configured OpenAI-compatible provider section."""
+    for section in sections:
         value = config.get(section)
         if isinstance(value, dict) and value:
             return section, value
-    raise ValueError("configure 'openai_reply' or fallback 'openai_cover_letter'")
+    raise ValueError("configure one of: " + ", ".join(sections))
 
 
-def build_ai_client(config: dict[str, Any], system_prompt: str) -> ChatOpenAI:
-    section, provider = select_ai_config(config)
+def build_ai_client(
+    config: dict[str, Any],
+    system_prompt: str,
+    *,
+    sections: tuple[str, ...] = ("openai_reply", "openai_cover_letter"),
+    temperature: float | None = None,
+    max_completion_tokens: int | None = None,
+) -> ChatOpenAI:
+    section, provider = select_ai_config(config, sections)
     api_key = str(provider.get("api_key") or "").strip()
     base_url = str(provider.get("base_url") or "").strip()
     model = str(provider.get("model") or "").strip()
@@ -203,8 +213,16 @@ def build_ai_client(config: dict[str, Any], system_prompt: str) -> ChatOpenAI:
         base_url=base_url,
         model=model,
         system_prompt=system_prompt,
-        temperature=float(provider.get("temperature", 0.35)),
-        max_completion_tokens=int(provider.get("max_completion_tokens", 500)),
+        temperature=(
+            temperature
+            if temperature is not None
+            else float(provider.get("temperature", 0.35))
+        ),
+        max_completion_tokens=(
+            max_completion_tokens
+            if max_completion_tokens is not None
+            else int(provider.get("max_completion_tokens", 500))
+        ),
         rate_limit=int(provider.get("rate_limit", 30)),
         timeout=float(provider.get("timeout", 45.0)),
         max_retries=int(provider.get("max_retries", 3)),
