@@ -93,6 +93,35 @@ def env_flag(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be one of: 1/0, true/false, yes/no, on/off")
 
 
+def hot_lead_runtime_settings() -> tuple[bool, float, float | None]:
+    try:
+        enabled = env_flag("HOT_LEADS_ENABLED", True)
+    except ValueError as exc:
+        logging.warning("Hot lead detection disabled: %s", exc)
+        return False, 0.85, None
+
+    if not enabled:
+        return False, 0.85, None
+
+    try:
+        min_confidence = float(os.environ.get("HOT_LEAD_MIN_CONFIDENCE", "0.85"))
+        if not 0 <= min_confidence <= 1:
+            raise ValueError("HOT_LEAD_MIN_CONFIDENCE must be between 0 and 1")
+    except ValueError as exc:
+        logging.warning("Hot lead detection disabled: %s", exc)
+        return False, 0.85, None
+
+    try:
+        telegram_timeout = float(os.environ.get("HOT_LEAD_TELEGRAM_TIMEOUT", "10"))
+        if telegram_timeout <= 0:
+            raise ValueError("HOT_LEAD_TELEGRAM_TIMEOUT must be positive")
+    except ValueError as exc:
+        logging.warning("Hot lead Telegram disabled: %s", exc)
+        telegram_timeout = None
+
+    return True, min_confidence, telegram_timeout
+
+
 def main() -> int:
     args = parse_args()
     if args.max_chats <= 0:
@@ -110,17 +139,9 @@ def main() -> int:
     hot_lead_detector = None
     hot_lead_store = None
     hot_lead_notifier = None
-    try:
-        hot_leads_enabled = env_flag("HOT_LEADS_ENABLED", True)
-        hot_lead_min_confidence = float(os.environ.get("HOT_LEAD_MIN_CONFIDENCE", "0.85"))
-        hot_lead_telegram_timeout = float(os.environ.get("HOT_LEAD_TELEGRAM_TIMEOUT", "10"))
-        if not 0 <= hot_lead_min_confidence <= 1:
-            raise ValueError("HOT_LEAD_MIN_CONFIDENCE must be between 0 and 1")
-        if hot_lead_telegram_timeout <= 0:
-            raise ValueError("HOT_LEAD_TELEGRAM_TIMEOUT must be positive")
-    except ValueError as exc:
-        print(f"Hot lead configuration error: {exc}", file=sys.stderr)
-        return 2
+    hot_leads_enabled, hot_lead_min_confidence, hot_lead_telegram_timeout = (
+        hot_lead_runtime_settings()
+    )
 
     app_config = None
     if not dry_run:
@@ -180,6 +201,10 @@ def main() -> int:
                 logging.warning(
                     "Hot lead Telegram is disabled: configure both "
                     "HOT_LEAD_TELEGRAM_BOT_TOKEN and HOT_LEAD_TELEGRAM_CHAT_ID"
+                )
+            elif bot_token and chat_id and hot_lead_telegram_timeout is None:
+                logging.warning(
+                    "Hot lead Telegram is disabled because timeout configuration is invalid"
                 )
             elif bot_token and chat_id:
                 hot_lead_notifier = TelegramNotifier(
