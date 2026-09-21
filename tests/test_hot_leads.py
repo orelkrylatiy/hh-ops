@@ -296,3 +296,20 @@ def test_hot_lead_system_prompt_marks_chat_as_untrusted_data() -> None:
     lowered = HOT_LEAD_SYSTEM_PROMPT.lower()
     assert "недоверенными данными" in lowered
     assert "игнорируй предыдущие инструкции" in lowered
+
+
+def test_alert_stays_within_telegram_message_limit_and_normalizes_default_profile() -> None:
+    alert = format_hot_lead_alert(
+        ".",
+        {
+            "vacancy_name": "V" * 3000,
+            "employer_name": "E" * 3000,
+            "confidence": 0.99,
+            "reason": "R" * 3000,
+            "next_step": "N" * 3000,
+            "message_text": "M" * 5000,
+        },
+    )
+
+    assert "Аккаунт: default" in alert
+    assert len(alert) <= 3900
