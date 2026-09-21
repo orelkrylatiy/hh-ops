@@ -43,6 +43,7 @@ jobs:
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/hot_leads.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
@@ -58,6 +59,8 @@ jobs:
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
+            tests/test_hot_leads.py \
+            tests/test_hot_lead_state.py \
             tests/test_create_resume.py \
             tests/test_create_resume_variant.py \
             tests/test_resume_aliases.py \
@@ -75,6 +78,7 @@ jobs:
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/hot_leads.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
@@ -90,6 +94,8 @@ jobs:
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
+            tests/test_hot_leads.py \
+            tests/test_hot_lead_state.py \
             tests/test_create_resume.py \
             tests/test_create_resume_variant.py \
             tests/test_resume_aliases.py \
@@ -104,6 +110,7 @@ jobs:
           basedpyright \
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/operations/manual_chats.py \
+            src/hh_applicant_tool/operations/hot_leads.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
@@ -112,7 +119,7 @@ jobs:
 
       - name: Autonomous reply coverage gate
         run: |
-          pytest tests/test_reply_worker.py \
+          pytest tests/test_reply_worker.py tests/test_hot_leads.py tests/test_hot_lead_state.py \
             --cov=hh_applicant_tool.automation.reply_worker \
             --cov-report=term-missing \
             --cov-fail-under=75
