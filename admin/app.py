@@ -2600,43 +2600,63 @@ def agent_run(body: AgentRunRequest):
 
     # Application runs use the same safe semantics as production cron.
     # Explicit resume selector -> one apply-safe run.
-    # No selector -> tracked profile lanes are mandatory and choose resumes.
+    # No selector -> tracked profile lanes are mandatory and own search/filter
+    # configuration; agent request fields may not silently override a lane.
     extra_args = list(body.args)
     actual_operation = body.operation
     if body.operation == "apply-vacancies":
         params = body.apply_params
+        requested_param_fields: set[str] = set()
         if params:
+            requested_param_fields = set(params.model_fields_set)
             params.profile = profile
             params.confirm_live = body.confirm_live
             has_selector = bool(params.resume_id or params.resume_alias)
-            lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
-            use_profile_lanes = not has_selector and lane_file.is_file()
+        else:
+            has_selector = any(
+                arg in {"--resume-id", "--resume-alias"} for arg in extra_args
+            )
+
+        lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
+        use_profile_lanes = not has_selector and lane_file.is_file()
+
+        if params:
             _validate_apply_request(
                 params,
                 require_live_confirmation=True,
                 allow_profile_lanes=use_profile_lanes,
             )
-            extra_args = _build_apply_args(params) + extra_args
+
+        if use_profile_lanes:
+            allowed_lane_fields = {"profile", "dry_run", "confirm_live"}
+            unexpected_fields = requested_param_fields - allowed_lane_fields
+            if unexpected_fields:
+                raise HTTPException(
+                    422,
+                    "Profile lanes own search/filter/resume settings; remove "
+                    f"apply_params fields: {', '.join(sorted(unexpected_fields))}.",
+                )
+            unexpected_args = [
+                arg for arg in extra_args if arg not in {"--dry-run", "--live"}
+            ]
+            if unexpected_args:
+                raise HTTPException(
+                    422,
+                    "Profile lane runs only accept dry-run/live mode from agent args.",
+                )
+            is_dry_run = bool(params and params.dry_run) or "--dry-run" in extra_args
+            extra_args = ["--dry-run" if is_dry_run else "--live"]
+            actual_operation = "apply-profile"
         else:
-            has_selector = any(
-                arg in {"--resume-id", "--resume-alias"} for arg in extra_args
-            )
-            lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
-            use_profile_lanes = not has_selector and lane_file.is_file()
-            if not has_selector and not use_profile_lanes:
+            if not has_selector:
                 raise HTTPException(
                     422,
                     "Live/scheduled agent apply needs a resume selector or "
                     "tracked profile apply lanes.",
                 )
-
-        actual_operation = "apply-profile" if use_profile_lanes else "apply-safe"
-        if (
-            actual_operation == "apply-profile"
-            and "--dry-run" not in extra_args
-            and "--live" not in extra_args
-        ):
-            extra_args.insert(0, "--live")
+            if params:
+                extra_args = _build_apply_args(params) + extra_args
+            actual_operation = "apply-safe"
 
     req = RunRequest(
         profile=profile,
