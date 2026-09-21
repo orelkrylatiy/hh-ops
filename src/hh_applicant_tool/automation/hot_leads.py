@@ -11,33 +11,33 @@ import requests
 logger = logging.getLogger(__name__)
 
 BOT_OR_AUTOMATION_RE = re.compile(
-    r"(робот[- ]?рекрутер|бот[- ]?рекрутер|автоматическ\\w*\\s+(?:опрос|скрининг)|"
-    r"ответьте\\s+на\\s+(?:несколько\\s+)?вопрос|используем\\s+эти\\s+ответы|"
-    r"ваши\\s+ответы\\s+(?:отправлены|переданы)\\s+работодателю|"
-    r"нажм(?:ите|и)\\s+(?:на\\s+)?кноп|выбер(?:ите|и)\\s+(?:один\\s+)?вариант)",
+    r"(робот[- ]?рекрутер|бот[- ]?рекрутер|автоматическ\w*\s+(?:опрос|скрининг)|"
+    r"ответьте\s+на\s+(?:несколько\s+)?вопрос|используем\s+эти\s+ответы|"
+    r"ваши\s+ответы\s+(?:отправлены|переданы)\s+работодателю|"
+    r"нажм(?:ите|и)\s+(?:на\s+)?кноп|выбер(?:ите|и)\s+(?:один\s+)?вариант)",
     re.IGNORECASE,
 )
 
 INTERVIEW_SIGNAL_RE = re.compile(
-    r"\\b(собеседован\\w*|интервью|созвон\\w*|встреч\\w*|позвон\\w*|звонок|"
-    r"назнач\\w*\\s+(?:созвон|встреч|интервью)|давайте\\s+(?:созвонимся|встретимся|обсудим)|"
-    r"предлага\\w*\\s+(?:созвон|встреч|интервью)|приглаша\\w*\\s+на\\s+(?:интервью|собеседование|встречу))\\b",
+    r"\b(собеседован\w*|интервью|созвон\w*|встреч\w*|позвон\w*|звонок|"
+    r"назнач\w*\s+(?:созвон|встреч|интервью)|давайте\s+(?:созвонимся|встретимся|обсудим)|"
+    r"предлага\w*\s+(?:созвон|встреч|интервью)|приглаша\w*\s+на\s+(?:интервью|собеседование|встречу))\b",
     re.IGNORECASE,
 )
 
 CONTACT_SIGNAL_RE = re.compile(
-    r"(мой\\s+(?:телефон|telegram|телеграм|whatsapp|ватсап|контакт)|"
-    r"вот\\s+(?:мой\\s+)?(?:телефон|telegram|телеграм|whatsapp|ватсап|контакт)|"
-    r"пишите\\s+(?:мне\\s+)?(?:в|на)\\s+(?:telegram|телеграм|whatsapp|ватсап)|"
-    r"свяжитесь\\s+со\\s+мной|"
-    r"(?:t\\.me/|wa\\.me/|meet\\.google\\.com|zoom\\.us|teams\\.microsoft\\.com))",
+    r"(мой\s+(?:телефон|telegram|телеграм|whatsapp|ватсап|контакт)|"
+    r"вот\s+(?:мой\s+)?(?:телефон|telegram|телеграм|whatsapp|ватсап|контакт)|"
+    r"пишите\s+(?:мне\s+)?(?:в|на)\s+(?:telegram|телеграм|whatsapp|ватсап)|"
+    r"свяжитесь\s+со\s+мной|"
+    r"(?:t\.me/|wa\.me/|meet\.google\.com|zoom\.us|teams\.microsoft\.com))",
     re.IGNORECASE,
 )
 
 SCHEDULING_SIGNAL_RE = re.compile(
-    r"(когда\\s+(?:вам\\s+)?удобн\\w*\\s+(?:созвон|поговор|встрет)|"
-    r"в\\s+какое\\s+время\\s+(?:вам\\s+)?удобн\\w*|"
-    r"(?:сегодня|завтра|послезавтра)\\s+(?:в\\s+)?\\d{1,2}(?::\\d{2})?)",
+    r"(когда\s+(?:вам\s+)?удобн\w*\s+(?:созвон|поговор|встрет)|"
+    r"в\s+какое\s+время\s+(?:вам\s+)?удобн\w*|"
+    r"(?:сегодня|завтра|послезавтра)\s+(?:в\s+)?\d{1,2}(?::\d{2})?)",
     re.IGNORECASE,
 )
 
@@ -112,8 +112,8 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
     text = (raw or "").strip()
     fence = chr(96) * 3
     if text.startswith(fence):
-        text = re.sub(r"^.{3}(?:json)?\\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\\s*.{3}$", "", text)
+        text = re.sub(r"^.{3}(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*.{3}$", "", text)
     try:
         value = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -139,11 +139,11 @@ class HotLeadDetector:
         employer_name: str,
     ) -> HotLeadEvaluation:
         prompt = (
-            f"Вакансия: {vacancy_name or 'не указана'}\\n"
-            f"Компания: {employer_name or 'не указана'}\\n"
-            "История (последние сообщения):\\n"
-            + "\\n".join(context[-12:])
-            + f"\\n\\nПоследнее сообщение работодателя:\\n{latest_message}\\n"
+            f"Вакансия: {vacancy_name or 'не указана'}\n"
+            f"Компания: {employer_name or 'не указана'}\n"
+            "История (последние сообщения):\n"
+            + "\n".join(context[-12:])
+            + f"\n\nПоследнее сообщение работодателя:\n{latest_message}\n"
         )
         value = _parse_json_object(self.ai.complete(prompt))
 
@@ -234,4 +234,4 @@ def format_hot_lead_alert(profile_id: str, event: dict[str, Any]) -> str:
         lines.append(f"Следующий шаг: {event['next_step']}")
     if message:
         lines.append(f"Сообщение: {message}")
-    return "\\n".join(lines)
+    return "\n".join(lines)
