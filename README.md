@@ -22,7 +22,7 @@ LLM только там, где нужен текст
 
 ## Что Автоматизировано
 
-- отклики на вакансии через `apply-vacancies`;
+- отклики через profile-aware `apply-profile.sh` -> `apply-safe`;
 - AI-сопроводительные письма;
 - пропуск вакансий с тестовыми заданиями в autonomous path;
 - лимит именно по успешным откликам, а не по числу просмотренных вакансий;
@@ -187,10 +187,10 @@ python scripts/check_ai.py --purpose reply --profile default --probe
 
 ## Отклики
 
-Preview:
+Preview (канонический profile-aware path):
 
 ```bash
-./scripts/apply.sh \
+./scripts/apply-profile.sh \
   --profile default \
   --search 'React TypeScript developer' \
   --limit 20 \
@@ -201,7 +201,7 @@ Preview:
 Live:
 
 ```bash
-./scripts/apply.sh \
+./scripts/apply-profile.sh \
   --profile default \
   --search 'React TypeScript developer' \
   --limit 20 \
@@ -220,7 +220,9 @@ Live:
 
 Весь batch дополнительно ограничен `APPLY_RUN_TIMEOUT` (default 3600 секунд), чтобы зависший request не удерживал profile worker бесконечно.
 
-Для cover letters static fallback не используется: `AIError` пропускает конкретную vacancy и помечает run как неуспешный.
+Production `apply-safe` может использовать `cover_letter_fallback.message`
+при недоступном provider/runtime AI failure. Если fallback выключен или невалиден,
+отклик fail-closed и не отправляется.
 
 ## Создание Резюме Из Шаблона
 
@@ -296,6 +298,24 @@ frontend lane alias `primary` может быть временно выведе�
 аккаунте ровно одно опубликованное резюме. Если опубликованных резюме уже
 несколько, но alias не сохранён, apply останавливается fail-closed и не смешивает
 воронки.
+
+## Уведомления Об Успешных Откликах
+
+Каждый подтверждённый live application пишет в profile log structured event
+`HH_APPLY_SUCCESS`. Можно подключить отдельного Telegram-бота:
+
+```dotenv
+HH_NOTIFY_TELEGRAM_ENABLED=1
+HH_NOTIFY_TELEGRAM_BOT_TOKEN=...
+HH_NOTIFY_TELEGRAM_CHAT_ID=...
+```
+
+В Telegram приходит кратко: профиль, вакансия, компания, название и alias/id
+резюме, ссылка HH. Это отдельная интеграция от `HH_TELEGRAM` — контакта
+кандидата для работодателей.
+
+Dry-run уведомления не отправляет. Ошибка Telegram не отменяет уже успешный
+HH-отклик и не запускает повторную отправку.
 
 ## Автоответы В Чатах
 
