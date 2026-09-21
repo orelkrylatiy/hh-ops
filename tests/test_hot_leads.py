@@ -272,7 +272,6 @@ def test_telegram_http_error_never_exposes_bot_token() -> None:
     assert "HTTPError" in str(exc_info.value)
 
 
-
 def test_telegram_network_error_never_contains_bot_token() -> None:
     session = Mock()
     token = "super-secret-token"
