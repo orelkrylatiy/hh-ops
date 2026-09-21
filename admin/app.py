@@ -1375,11 +1375,23 @@ def run_apply_vacancies(body: RunRequest):
 def _requires_live_confirmation(op: str, cli_args: list[str]) -> bool:
     if op == "update-resumes":
         return True
-    return op in {"apply-vacancies", "reply-employers"} and "--dry-run" not in cli_args
+    return op in {
+        "apply-vacancies",
+        "apply-safe",
+        "apply-profile",
+        "reply-employers",
+    } and "--dry-run" not in cli_args
 
 
 def _operation_key(profile: str, op: str) -> tuple[str, str]:
-    return profile, op
+    # All application entrypoints mutate the same HH/profile state and must
+    # serialize against each other inside the admin process.
+    operation_group = (
+        "apply"
+        if op in {"apply-vacancies", "apply-safe", "apply-profile"}
+        else op
+    )
+    return profile, operation_group
 
 
 def _operation_history_path(profile: str) -> Path:
@@ -1497,10 +1509,19 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
             "dry_run": "--dry-run" in all_args,
         }
 
-    cli_args = ["--profile-id", profile]
-    if op != "authorize":
-        cli_args.append("--no-auto-auth")
-    cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+    if op == "apply-profile":
+        cmd = [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts" / "apply_profile.py"),
+            "--profile",
+            profile,
+            *all_args,
+        ]
+    else:
+        cli_args = ["--profile-id", profile]
+        if op != "authorize":
+            cli_args.append("--no-auto-auth")
+        cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
 
     # Функция для выполнения в потоке
     def execute_operation():
@@ -2241,6 +2262,7 @@ class ApplyFullRequest(BaseModel):
     # Поиск
     search: str = Field("", max_length=500)
     resume_id: str = Field("", max_length=256)
+    resume_alias: str = Field("", max_length=128)
     # Фильтры
     experience: str = ""          # noExperience / between1And3 / between3And6 / moreThan6
     salary: int | None = Field(None, ge=0, le=10_000_000)
@@ -2271,6 +2293,7 @@ def _validate_apply_request(
     body: ApplyFullRequest,
     *,
     require_live_confirmation: bool = False,
+    allow_profile_lanes: bool = False,
 ) -> None:
     """Validate values that need cross-field or CLI-compatible constraints."""
     _validate_profile_name(body.profile)
@@ -2309,13 +2332,15 @@ def _validate_apply_request(
             re.compile(body.excluded_filter)
         except re.error as ex:
             raise HTTPException(422, f"Invalid excluded-filter regex: {ex}") from ex
+    if body.resume_id and body.resume_alias:
+        raise HTTPException(422, "Choose resume_id or resume_alias, not both.")
     if require_live_confirmation and not body.dry_run:
         if not body.confirm_live:
             raise HTTPException(409, "Live applications require confirm_live=true.")
-        if not body.resume_id:
+        if not (body.resume_id or body.resume_alias or allow_profile_lanes):
             raise HTTPException(
                 422,
-                "Choose exactly one resume for a live application run.",
+                "Choose one resume_id/resume_alias or configure profile apply lanes.",
             )
         if body.send_email and not body.confirm_external_email:
             raise HTTPException(
@@ -2335,6 +2360,8 @@ def _build_apply_args(body: ApplyFullRequest) -> list[str]:
         args += ["--search", body.search]
     if body.resume_id:
         args += ["--resume-id", body.resume_id]
+    elif body.resume_alias:
+        args += ["--resume-alias", body.resume_alias]
     if body.experience:
         args += ["--experience", body.experience]
     if body.salary is not None:
@@ -2388,7 +2415,7 @@ def run_apply_vacancies_full(body: ApplyFullRequest):
     """Запустить автоотклики со всеми параметрами."""
     _validate_apply_request(body, require_live_confirmation=True)
     req = RunRequest(profile=body.profile, confirm_live=body.confirm_live)
-    return _run_operation("apply-vacancies", req, extra=_build_apply_args(body))
+    return _run_operation("apply-safe", req, extra=_build_apply_args(body))
 
 
 # ---------------------------------------------------------------------------
@@ -2571,21 +2598,52 @@ def agent_run(body: AgentRunRequest):
             "Нужна ручная авторизация: запустите 'python -m hh_applicant_tool auth' в терминале."
         )
 
-    # Если переданы apply_params — разворачиваем в args автоматически
+    # Application runs use the same safe semantics as production cron.
+    # Explicit resume selector -> one apply-safe run.
+    # No selector -> tracked profile lanes are mandatory and choose resumes.
     extra_args = list(body.args)
-    if body.operation == "apply-vacancies" and body.apply_params:
+    actual_operation = body.operation
+    if body.operation == "apply-vacancies":
         params = body.apply_params
-        params.profile = profile  # синхронизируем профиль
-        params.confirm_live = body.confirm_live
-        _validate_apply_request(params, require_live_confirmation=True)
-        extra_args = _build_apply_args(params) + extra_args
+        if params:
+            params.profile = profile
+            params.confirm_live = body.confirm_live
+            has_selector = bool(params.resume_id or params.resume_alias)
+            lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
+            use_profile_lanes = not has_selector and lane_file.is_file()
+            _validate_apply_request(
+                params,
+                require_live_confirmation=True,
+                allow_profile_lanes=use_profile_lanes,
+            )
+            extra_args = _build_apply_args(params) + extra_args
+        else:
+            has_selector = any(
+                arg in {"--resume-id", "--resume-alias"} for arg in extra_args
+            )
+            lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
+            use_profile_lanes = not has_selector and lane_file.is_file()
+            if not has_selector and not use_profile_lanes:
+                raise HTTPException(
+                    422,
+                    "Live/scheduled agent apply needs a resume selector or "
+                    "tracked profile apply lanes.",
+                )
+
+        actual_operation = "apply-profile" if use_profile_lanes else "apply-safe"
+        if (
+            actual_operation == "apply-profile"
+            and "--dry-run" not in extra_args
+            and "--live" not in extra_args
+        ):
+            extra_args.insert(0, "--live")
 
     req = RunRequest(
         profile=profile,
         extra_args=extra_args,
         confirm_live=body.confirm_live,
     )
-    result = _run_operation(body.operation, req)
+    result = _run_operation(actual_operation, req)
     result["refreshed_token"] = refreshed
     result["token_status"] = token["status"]
     return result
