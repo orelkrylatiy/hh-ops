@@ -214,7 +214,7 @@ class TelegramNotifier:
                 json={
                     "chat_id": self._chat_id,
                     "text": text,
-                    "disable_web_page_preview": True,
+                    "link_preview_options": {"is_disabled": True},
                 },
                 timeout=self.timeout,
             )
