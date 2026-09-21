@@ -213,11 +213,7 @@ def build_ai_client(
         base_url=base_url,
         model=model,
         system_prompt=system_prompt,
-        temperature=(
-            temperature
-            if temperature is not None
-            else float(provider.get("temperature", 0.35))
-        ),
+        temperature=(temperature if temperature is not None else float(provider.get("temperature", 0.35))),
         max_completion_tokens=(
             max_completion_tokens
             if max_completion_tokens is not None
@@ -423,9 +419,7 @@ class ReplyWorker:
         if self.config.dry_run or self.hot_lead_notifier is None or self.hot_lead_store is None:
             return
         try:
-            self.hot_lead_notifier.send(
-                format_hot_lead_alert(self.config.profile_id, event)
-            )
+            self.hot_lead_notifier.send(format_hot_lead_alert(self.config.profile_id, event))
         except TelegramNotificationError as exc:
             self.hot_lead_store.mark_notification_failed(
                 str(event["chat_id"]),
