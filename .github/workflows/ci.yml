@@ -139,6 +139,9 @@ jobs:
       - name: Admin and agent routing regression tests
         run: pytest tests/test_admin_ui_shell.py tests/test_admin_app.py
 
+      - name: HH auth and upstream compatibility tests
+        run: pytest tests/test_upstream_compat.py
+
       - name: LLM client regression tests
         run: pytest tests/test_ai_openai_retry.py tests/test_check_ai.py
 
