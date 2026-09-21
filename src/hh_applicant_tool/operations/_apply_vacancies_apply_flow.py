@@ -367,6 +367,52 @@ class ApplyVacanciesApplyFlowMixin:
                 logger.error("Ошибка при решении капчи: %s", err)
                 raise
 
+    def _record_application_success(
+        self,
+        vacancy: dict[str, Any],
+        resume: datatypes.Resume,
+    ) -> None:
+        """Persist an audit log and best-effort Telegram success notification."""
+        profile = str(getattr(self.tool, "profile_id", None) or "default")
+        if profile == ".":
+            profile = "default"
+        resume_id = str(resume.get("id") or "")
+        resume_title = str(resume.get("title") or "Без названия")
+        resume_alias = getattr(self, "resume_alias", None)
+        vacancy_id = str(vacancy.get("id") or "")
+        employer = vacancy.get("employer") or {}
+
+        logger.info(
+            "HH_APPLY_SUCCESS profile=%s vacancy_id=%s resume_id=%s "
+            "resume_alias=%s vacancy=%r employer=%r",
+            profile,
+            vacancy_id,
+            resume_id,
+            resume_alias or "",
+            str(vacancy.get("name") or ""),
+            str(employer.get("name") or ""),
+        )
+
+        try:
+            from ..notifications.telegram import notify_application_success
+
+            notify_application_success(
+                profile=profile,
+                vacancy=vacancy,
+                resume_title=resume_title,
+                resume_id=resume_id,
+                resume_alias=resume_alias,
+            )
+        except Exception:
+            # Observability must never turn a confirmed HH application into
+            # a failed batch or trigger a duplicate application retry.
+            logger.warning(
+                "HH_APPLY_NOTIFY_FAILED profile=%s vacancy_id=%s",
+                profile,
+                vacancy_id,
+                exc_info=True,
+            )
+
     def _send_vacancy_email_if_needed(
         self,
         vacancy: dict[str, Any],
@@ -496,6 +542,8 @@ class ApplyVacanciesApplyFlowMixin:
                 do_apply = result.should_continue
                 if result.accepted:
                     self.responses_sent += 1
+                    if not self.dry_run:
+                        self._record_application_success(vacancy, resume)
                     self._send_vacancy_email_if_needed(
                         vacancy,
                         employer_id,

@@ -14,6 +14,7 @@ import os
 import platform
 import re
 import secrets
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -1369,17 +1370,29 @@ def run_apply_vacancies(body: RunRequest):
         args.append("--dry-run")
     if body.response_delay and body.response_delay != f"{constants.RESPONSE_DELAY_MIN}-{constants.RESPONSE_DELAY_MAX}":
         args.extend(["--response-delay", body.response_delay])
-    return _run_operation("apply-vacancies", body, extra=args)
+    return _run_operation("apply-safe", body, extra=args)
 
 
 def _requires_live_confirmation(op: str, cli_args: list[str]) -> bool:
     if op == "update-resumes":
         return True
-    return op in {"apply-vacancies", "reply-employers"} and "--dry-run" not in cli_args
+    return op in {
+        "apply-vacancies",
+        "apply-safe",
+        "apply-profile",
+        "reply-employers",
+    } and "--dry-run" not in cli_args
 
 
 def _operation_key(profile: str, op: str) -> tuple[str, str]:
-    return profile, op
+    # All application entrypoints mutate the same HH/profile state and must
+    # serialize against each other inside the admin process.
+    operation_group = (
+        "apply"
+        if op in {"apply-vacancies", "apply-safe", "apply-profile"}
+        else op
+    )
+    return profile, operation_group
 
 
 def _operation_history_path(profile: str) -> Path:
@@ -1469,6 +1482,30 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
     profile = _validate_profile_name(body.profile)
     extra = extra or []
     all_args = [*extra, *body.extra_args]
+    operation_key = _operation_key(profile, op)
+    flock_path: str | None = None
+    profile_lock: Path | None = None
+    bash_path: str | None = None
+    if op == "apply-profile":
+        bash_path = shutil.which("bash")
+        if not bash_path:
+            raise HTTPException(
+                503,
+                "bash is required for profile-lane application runs.",
+            )
+    if operation_key[1] == "apply" and os.name != "nt":
+        flock_path = shutil.which("flock")
+        if not flock_path:
+            raise HTTPException(
+                503,
+                "flock is required for cross-process application locking.",
+            )
+        lock_dir = Path(
+            os.getenv("HH_PROFILES_LOCK_DIR", "/tmp/hh-profile-locks")
+        )
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        profile_lock = lock_dir / f"{profile}.lock"
+
     if _requires_live_confirmation(op, all_args) and not body.confirm_live:
         raise HTTPException(
             409,
@@ -1477,8 +1514,6 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
 
     # Генерируем уникальный ID для операции
     op_id = str(uuid.uuid4())[:8]
-    operation_key = _operation_key(profile, op)
-
     with operations_lock:
         existing_id = active_operations.get(operation_key)
         if existing_id:
@@ -1497,10 +1532,30 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
             "dry_run": "--dry-run" in all_args,
         }
 
-    cli_args = ["--profile-id", profile]
-    if op != "authorize":
-        cli_args.append("--no-auto-auth")
-    cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+    if op == "apply-profile":
+        assert bash_path is not None
+        cmd = [
+            bash_path,
+            str(PROJECT_ROOT / "scripts" / "apply-profile.sh"),
+            "--profile",
+            profile,
+            *all_args,
+        ]
+    else:
+        cli_args = ["--profile-id", profile]
+        if op != "authorize":
+            cli_args.append("--no-auto-auth")
+        cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+
+    if flock_path and profile_lock:
+        cmd = [
+            flock_path,
+            "-n",
+            "-E",
+            "75",
+            str(profile_lock),
+            *cmd,
+        ]
 
     # Функция для выполнения в потоке
     def execute_operation():
@@ -1509,6 +1564,8 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
             env["CONFIG_DIR"] = str(_config_root())
+            if op == "apply-profile" and flock_path and profile_lock:
+                env["HH_PROFILE_LOCK_HELD"] = "1"
             print(f"DEBUG: Starting operation {op_id}: {op} for profile {profile}")
 
             # Используем Popen чтобы можно было отменить процесс.
@@ -2241,6 +2298,7 @@ class ApplyFullRequest(BaseModel):
     # Поиск
     search: str = Field("", max_length=500)
     resume_id: str = Field("", max_length=256)
+    resume_alias: str = Field("", max_length=128)
     # Фильтры
     experience: str = ""          # noExperience / between1And3 / between3And6 / moreThan6
     salary: int | None = Field(None, ge=0, le=10_000_000)
@@ -2271,6 +2329,7 @@ def _validate_apply_request(
     body: ApplyFullRequest,
     *,
     require_live_confirmation: bool = False,
+    allow_profile_lanes: bool = False,
 ) -> None:
     """Validate values that need cross-field or CLI-compatible constraints."""
     _validate_profile_name(body.profile)
@@ -2309,13 +2368,15 @@ def _validate_apply_request(
             re.compile(body.excluded_filter)
         except re.error as ex:
             raise HTTPException(422, f"Invalid excluded-filter regex: {ex}") from ex
+    if body.resume_id and body.resume_alias:
+        raise HTTPException(422, "Choose resume_id or resume_alias, not both.")
     if require_live_confirmation and not body.dry_run:
         if not body.confirm_live:
             raise HTTPException(409, "Live applications require confirm_live=true.")
-        if not body.resume_id:
+        if not (body.resume_id or body.resume_alias or allow_profile_lanes):
             raise HTTPException(
                 422,
-                "Choose exactly one resume for a live application run.",
+                "Choose one resume_id/resume_alias or configure profile apply lanes.",
             )
         if body.send_email and not body.confirm_external_email:
             raise HTTPException(
@@ -2335,6 +2396,8 @@ def _build_apply_args(body: ApplyFullRequest) -> list[str]:
         args += ["--search", body.search]
     if body.resume_id:
         args += ["--resume-id", body.resume_id]
+    elif body.resume_alias:
+        args += ["--resume-alias", body.resume_alias]
     if body.experience:
         args += ["--experience", body.experience]
     if body.salary is not None:
@@ -2388,7 +2451,7 @@ def run_apply_vacancies_full(body: ApplyFullRequest):
     """Запустить автоотклики со всеми параметрами."""
     _validate_apply_request(body, require_live_confirmation=True)
     req = RunRequest(profile=body.profile, confirm_live=body.confirm_live)
-    return _run_operation("apply-vacancies", req, extra=_build_apply_args(body))
+    return _run_operation("apply-safe", req, extra=_build_apply_args(body))
 
 
 # ---------------------------------------------------------------------------
@@ -2571,21 +2634,72 @@ def agent_run(body: AgentRunRequest):
             "Нужна ручная авторизация: запустите 'python -m hh_applicant_tool auth' в терминале."
         )
 
-    # Если переданы apply_params — разворачиваем в args автоматически
+    # Application runs use the same safe semantics as production cron.
+    # Explicit resume selector -> one apply-safe run.
+    # No selector -> tracked profile lanes are mandatory and own search/filter
+    # configuration; agent request fields may not silently override a lane.
     extra_args = list(body.args)
-    if body.operation == "apply-vacancies" and body.apply_params:
+    actual_operation = body.operation
+    if body.operation == "apply-vacancies":
         params = body.apply_params
-        params.profile = profile  # синхронизируем профиль
-        params.confirm_live = body.confirm_live
-        _validate_apply_request(params, require_live_confirmation=True)
-        extra_args = _build_apply_args(params) + extra_args
+        requested_param_fields: set[str] = set()
+        if params:
+            requested_param_fields = set(params.model_fields_set)
+            params.profile = profile
+            params.confirm_live = body.confirm_live
+            has_selector = bool(params.resume_id or params.resume_alias)
+        else:
+            has_selector = any(
+                arg in {"--resume-id", "--resume-alias"} for arg in extra_args
+            )
+
+        lane_file = PROJECT_ROOT / "rules" / "apply-lanes" / f"{profile}.json"
+        use_profile_lanes = not has_selector and lane_file.is_file()
+
+        if params:
+            _validate_apply_request(
+                params,
+                require_live_confirmation=True,
+                allow_profile_lanes=use_profile_lanes,
+            )
+
+        if use_profile_lanes:
+            allowed_lane_fields = {"profile", "dry_run", "confirm_live"}
+            unexpected_fields = requested_param_fields - allowed_lane_fields
+            if unexpected_fields:
+                raise HTTPException(
+                    422,
+                    "Profile lanes own search/filter/resume settings; remove "
+                    f"apply_params fields: {', '.join(sorted(unexpected_fields))}.",
+                )
+            unexpected_args = [
+                arg for arg in extra_args if arg not in {"--dry-run", "--live"}
+            ]
+            if unexpected_args:
+                raise HTTPException(
+                    422,
+                    "Profile lane runs only accept dry-run/live mode from agent args.",
+                )
+            is_dry_run = bool(params and params.dry_run) or "--dry-run" in extra_args
+            extra_args = ["--dry-run" if is_dry_run else "--live"]
+            actual_operation = "apply-profile"
+        else:
+            if not has_selector:
+                raise HTTPException(
+                    422,
+                    "Live/scheduled agent apply needs a resume selector or "
+                    "tracked profile apply lanes.",
+                )
+            if params:
+                extra_args = _build_apply_args(params) + extra_args
+            actual_operation = "apply-safe"
 
     req = RunRequest(
         profile=profile,
         extra_args=extra_args,
         confirm_live=body.confirm_live,
     )
-    result = _run_operation(body.operation, req)
+    result = _run_operation(actual_operation, req)
     result["refreshed_token"] = refreshed
     result["token_status"] = token["status"]
     return result

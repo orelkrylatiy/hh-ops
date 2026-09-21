@@ -42,6 +42,8 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_apply_flow.py \
+            src/hh_applicant_tool/notifications/telegram.py \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
@@ -55,6 +57,7 @@ jobs:
             admin/ui_shell.py \
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
+            tests/test_apply_notifications.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
@@ -74,6 +77,8 @@ jobs:
             src/hh_applicant_tool/automation \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_apply_flow.py \
+            src/hh_applicant_tool/notifications/telegram.py \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
@@ -87,6 +92,7 @@ jobs:
             admin/ui_shell.py \
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
+            tests/test_apply_notifications.py \
             tests/test_reply_worker.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
@@ -108,6 +114,7 @@ jobs:
             src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
             src/hh_applicant_tool/utils/resume_aliases.py \
+            src/hh_applicant_tool/notifications/telegram.py \
             scripts/apply_profile.py
 
       - name: Autonomous reply coverage gate
@@ -117,8 +124,8 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=75
 
-      - name: Cover-letter fallback regression tests
-        run: pytest tests/test_apply_safe.py
+      - name: Application safety regression tests
+        run: pytest tests/test_apply_safe.py tests/test_apply_vacancies_safety.py tests/test_apply_notifications.py
 
       - name: Resume creation regression tests
         run: |
@@ -129,8 +136,11 @@ jobs:
             tests/test_apply_profile.py \
             tests/test_resume_md.py
 
-      - name: Admin UI shell regression tests
-        run: pytest tests/test_admin_ui_shell.py
+      - name: Admin and agent routing regression tests
+        run: pytest tests/test_admin_ui_shell.py tests/test_admin_app.py
+
+      - name: HH auth and upstream compatibility tests
+        run: pytest tests/test_upstream_compat.py
 
       - name: LLM client regression tests
         run: pytest tests/test_ai_openai_retry.py tests/test_check_ai.py
@@ -282,6 +292,9 @@ jobs:
           TZ=Europe/Tallinn \
           HH_NAME='Test User' \
           HH_TELEGRAM='@test_user' \
+          HH_NOTIFY_TELEGRAM_ENABLED=1 \
+          HH_NOTIFY_TELEGRAM_BOT_TOKEN='test-bot-token' \
+          HH_NOTIFY_TELEGRAM_CHAT_ID='-100123' \
           SEARCH_QUERY='React TypeScript developer' \
           APPLY_LIMIT=17 \
           APPLY_PER_PAGE=42 \
@@ -293,12 +306,16 @@ jobs:
             bash scripts/write-runtime-env.sh "$runtime_env"
 
           # shellcheck disable=SC1090
+          test "$(stat -c '%a' "$runtime_env")" = 600
           source "$runtime_env"
           test "$HH_AUTOMATION_MODE" = live
           test "$CONFIG_DIR" = /tmp/hh-config
           test "$TZ" = Europe/Tallinn
           test "$HH_NAME" = 'Test User'
           test "$HH_TELEGRAM" = '@test_user'
+          test "$HH_NOTIFY_TELEGRAM_ENABLED" = 1
+          test "$HH_NOTIFY_TELEGRAM_BOT_TOKEN" = 'test-bot-token'
+          test "$HH_NOTIFY_TELEGRAM_CHAT_ID" = '-100123'
           test "$SEARCH_QUERY" = 'React TypeScript developer'
           test "$APPLY_LIMIT" = 17
           test "$APPLY_PER_PAGE" = 42

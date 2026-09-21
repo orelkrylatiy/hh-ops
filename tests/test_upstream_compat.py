@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import html
 import json
 from http.cookiejar import Cookie, CookieJar
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from hh_applicant_tool.main import HHApplicantTool
 from hh_applicant_tool.operations.apply_vacancies import Operation as ApplyOperation
@@ -113,6 +115,126 @@ def test_authorize_supports_current_magritte_fields() -> None:
     assert "magritte-phone-input" in AuthorizeOperation.SEL_PHONE_INPUT
     assert "applicant-login-input-email" in AuthorizeOperation.SEL_EMAIL_INPUT
     assert AuthorizeOperation._national_phone("+7 999 123-45-67") == "9991234567"
+
+
+class _AuthLocator:
+    def __init__(self, *, count: int = 1) -> None:
+        self._count = count
+        self.clicked: list[bool] = []
+        self.filled: list[str] = []
+        self.pressed: list[str] = []
+
+    async def count(self) -> int:
+        return self._count
+
+    @property
+    def first(self):
+        return self
+
+    async def click(self, *, force: bool = False) -> None:
+        self.clicked.append(force)
+
+    async def fill(self, value: str) -> None:
+        self.filled.append(value)
+
+    async def press(self, key: str) -> None:
+        self.pressed.append(key)
+
+
+class _AuthPage:
+    def __init__(self, selectors: dict[str, _AuthLocator]) -> None:
+        self.selectors = selectors
+        self.waited: list[str] = []
+        self.fallback_fills: list[tuple[str, str]] = []
+
+    async def wait_for_selector(self, selector: str, **_kwargs):
+        self.waited.append(selector)
+        return self.selectors.get(selector)
+
+    def locator(self, selector: str) -> _AuthLocator:
+        return self.selectors.setdefault(selector, _AuthLocator(count=0))
+
+    async def fill(self, selector: str, value: str) -> None:
+        self.fallback_fills.append((selector, value))
+
+
+def _authorize_operation() -> AuthorizeOperation:
+    operation = AuthorizeOperation()
+    operation._args = SimpleNamespace(
+        no_headless=True,
+        manual=False,
+        use_kitty=False,
+        use_sixel=False,
+    )
+    return operation
+
+
+def test_authorize_fills_current_email_field() -> None:
+    operation = _authorize_operation()
+    email_tab = _AuthLocator()
+    email_input = _AuthLocator()
+    page = _AuthPage(
+        {
+            operation.SEL_EMAIL_TAB: email_tab,
+            operation.SEL_EMAIL_INPUT: email_input,
+            operation.SEL_PHONE_INPUT: _AuthLocator(count=1),
+        }
+    )
+
+    asyncio.run(operation._fill_username(page, "person@example.com"))
+
+    assert email_tab.clicked == [True]
+    assert email_input.filled == ["person@example.com"]
+    assert page.fallback_fills == []
+
+
+def test_authorize_fills_current_phone_field_without_country_prefix() -> None:
+    operation = _authorize_operation()
+    phone_input = _AuthLocator()
+    page = _AuthPage(
+        {
+            operation.SEL_EMAIL_TAB: _AuthLocator(count=0),
+            operation.SEL_EMAIL_INPUT: _AuthLocator(count=0),
+            operation.SEL_PHONE_INPUT: phone_input,
+        }
+    )
+
+    asyncio.run(operation._fill_username(page, "+7 999 123-45-67"))
+
+    assert phone_input.filled == ["9991234567"]
+
+
+def test_authorize_password_flow_submits_current_password_field() -> None:
+    operation = _authorize_operation()
+    expand = _AuthLocator()
+    password = _AuthLocator()
+    page = _AuthPage(
+        {
+            operation.SEL_EXPAND_PASSWORD: expand,
+            operation.SEL_PASSWORD_INPUT: password,
+        }
+    )
+    operation._handle_captcha = AsyncMock()
+
+    asyncio.run(operation._direct_login(page, "secret-password"))
+
+    assert expand.clicked == [True]
+    operation._handle_captcha.assert_awaited_once_with(page)
+    assert password.filled == ["secret-password"]
+    assert password.pressed == ["Enter"]
+
+
+def test_authorize_captcha_without_interactive_renderer_fails_closed() -> None:
+    operation = _authorize_operation()
+    captcha = AsyncMock()
+    page = _AuthPage({operation.SEL_CAPTCHA_IMAGE: captcha})
+
+    try:
+        asyncio.run(operation._handle_captcha(page))
+    except RuntimeError as ex:
+        assert "Требуется ввод капчи" in str(ex)
+    else:
+        raise AssertionError("captcha must not be silently bypassed")
 
 
 def test_apply_parser_accepts_work_format() -> None:

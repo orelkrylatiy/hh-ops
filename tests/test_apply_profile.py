@@ -238,3 +238,23 @@ def test_tracked_0555_lane_config_is_valid() -> None:
     assert lanes[0]["resume_alias"] == "primary"
     assert all(lane.get("resume_alias") == "ai-engineer" for lane in lanes[1:])
     assert all(lane.get("ai_filter") == "light" for lane in lanes[1:])
+
+
+def test_daily_script_uses_profile_lane_runner() -> None:
+    root = Path(__file__).resolve().parents[1]
+    daily = (root / "scripts" / "daily.sh").read_text(encoding="utf-8")
+
+    assert '"$SCRIPT_DIR/apply-profile.sh" --profile "$TARGET_PROFILE"' in daily
+    assert '"$SCRIPT_DIR/apply.sh" "$MODE_FLAG"' not in daily
+    assert "hh-applicant-tool --no-auto-auth --profile-id" in daily
+
+
+def test_apply_profile_shell_self_locks_direct_runs() -> None:
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "apply-profile.sh").read_text(encoding="utf-8")
+    fleet = (root / "scripts" / "all-profiles.sh").read_text(encoding="utf-8")
+
+    assert 'HH_PROFILE_LOCK_HELD:-0' in script
+    assert "flock -n 9" in script
+    assert "exit 75" in script
+    assert "HH_PROFILE_LOCK_HELD=1 bash" in fleet

@@ -3,8 +3,8 @@
 Проект не требует отдельного LLM-агента для ежедневной работы. Оркестрация детерминирована:
 
 ```text
-cron -> cron-job.sh -> all-profiles.sh -> apply.sh / reply.sh
-                                      -> hh-applicant-tool / ReplyWorker
+cron -> cron-job.sh -> all-profiles.sh -> apply-profile.sh / reply.sh
+                                      -> apply.sh -> apply-safe / ReplyWorker
                                       -> HH API
                                       -> LLM только для текста
 ```
@@ -81,15 +81,14 @@ APPLY_PER_PAGE=50
 
 То есть worker может просмотреть до 1000 вакансий и закончить раньше, когда реально достигнут лимит успешных откликов.
 
-Live отклики требуют рабочий `openai_cover_letter`. Preflight:
-
-```bash
-python scripts/check_ai.py --purpose cover-letter
-```
+Перед batch `apply.sh` проверяет `openai_cover_letter`, но production command
+использует `apply-safe`: если provider не инициализируется или runtime generation
+падает, может использоваться profile-configured `cover_letter_fallback.message`.
+Fallback можно явно выключить в config.
 
 Autonomous path использует `--skip-tests`: вакансии с тестовыми заданиями не решаются автоматически.
-
-При `AIError` во время cover-letter generation конкретная vacancy пропускается, `ai_error_count` увеличивается, а run в конце помечается неуспешным. Static fallback для массовых cover letters не используется.
+Vacancy с внешним `response_url` тоже пропускается fail-closed; generic browser
+form filling для сторонних сайтов не входит в production path.
 
 ## Как Работают Автоответы
 
@@ -199,6 +198,17 @@ HH_PROFILE_PARALLELISM=10
 
 **Глобального fleet lock в `cron-job.sh` нет.** Это намеренно: один занятый аккаунт не должен останавливать остальные.
 
+## Авторизация И Граница Автономности
+
+Scheduled/admin background paths запускаются с `--no-auto-auth`: они никогда не
+ждут stdin. Access token автоматически refresh'ится при наличии refresh token,
+включая один retry после HH 403. Если refresh credentials потеряны, run
+останавливается и требует human-assisted `authorize`.
+
+Playwright используется для первичной HH OAuth-авторизации, но SMS/email code и
+captcha могут требовать человека. Поэтому "автономный" здесь означает работу
+после валидной initial authorization/refresh chain, а не обход login challenges.
+
 ## Fail-closed / Fail-safe Правила
 
 Live worker прекращает или пропускает действие при:
@@ -212,6 +222,21 @@ Live worker прекращает или пропускает действие п
 - ошибке отправки после retries/read-back.
 
 Исключение из полного fail-closed поведения — специально настроенный **reply runtime fallback** после `OpenAIError`. Он не обходит stale-check, humanizer или retry/dedup safeguards.
+
+## Application Success Observability
+
+Каждый подтверждённый live application пишет structured event
+`HH_APPLY_SUCCESS`. Опционально после него отправляется короткое Telegram
+уведомление с profile, vacancy/company и выбранным resume:
+
+```dotenv
+HH_NOTIFY_TELEGRAM_ENABLED=1
+HH_NOTIFY_TELEGRAM_BOT_TOKEN=...
+HH_NOTIFY_TELEGRAM_CHAT_ID=...
+```
+
+Telegram failure не меняет результат HH application и не вызывает повторный POST.
+Dry-run таких success notifications не создаёт.
 
 ## Dry-run
 

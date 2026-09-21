@@ -16,7 +16,7 @@
 | `all-profiles.sh` | запуск операции по всем профилям с per-profile lock |
 | `cron-job.sh` | safety gate `off/dry-run/live` для cron |
 | `setup-cron.sh` | установка канонического host-cron |
-| `write-runtime-env.sh` | сохранение non-secret runtime knobs для cron |
+| `write-runtime-env.sh` | shell-safe runtime env для cron (0600; может содержать bot token) |
 | `check_ai.py` | проверка LLM-конфига |
 | `check.sh` | ручная диагностика аккаунта |
 

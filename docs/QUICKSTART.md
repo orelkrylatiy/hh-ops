@@ -49,10 +49,10 @@ hh-applicant-tool boost-resume
 
 ```bash
 # Dry-run сначала!
-./scripts/apply.sh --dry-run
+./scripts/apply-profile.sh --profile <PROFILE> --dry-run
 
-# Если всё ок — запуск
-./scripts/apply.sh
+# Если всё ок — explicit live
+./scripts/apply-profile.sh --profile <PROFILE> --live
 ```
 
 **Варианты поиска:**
@@ -64,10 +64,10 @@ hh-applicant-tool boost-resume
 
 ```bash
 # Шаблонное сообщение (быстро)
-./scripts/reply.sh --dry-run
+./scripts/reply.sh --profile <PROFILE> --dry-run
 
-# Интерактивный режим (персонально)
-hh-applicant-tool reply-employers
+# Реальная bounded отправка
+./scripts/reply.sh --profile <PROFILE> --live
 ```
 
 ---
@@ -86,7 +86,7 @@ hh-applicant-tool reply-employers
 ## ⚠️ Важно
 
 1. **Всегда упоминать Telegram `${HH_TELEGRAM}`** в ответах
-2. **Dry-run перед live** запуском откликов
+2. **Dry-run перед explicit `--live`** запуском откликов
 3. **Исключать:** junior, стажёры, bitrix, web3, crypto, blockchain
 4. **Лимит HH:** ~100-150 откликов в сутки
 
