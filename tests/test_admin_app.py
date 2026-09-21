@@ -508,10 +508,7 @@ def test_agent_apply_uses_profile_lanes_when_resume_not_explicit(tmp_path, monke
             "profile": "0555",
             "operation": "apply-vacancies",
             "confirm_live": True,
-            "apply_params": {
-                "search": "AI Engineer",
-                "max_responses": 5,
-            },
+            "apply_params": {},
         },
     )
 
@@ -521,6 +518,26 @@ def test_agent_apply_uses_profile_lanes_when_resume_not_explicit(tmp_path, monke
     assert "--live" in captured["extra"]
     assert "--resume-id" not in captured["extra"]
     assert "--resume-alias" not in captured["extra"]
+
+
+def test_agent_lane_apply_rejects_request_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    client = TestClient(admin_app.app)
+    client.post("/api/profiles", json={"profile": "0555"})
+    _write_valid_agent_token(tmp_path / "0555" / "config.json")
+
+    response = client.post(
+        "/api/agent/run",
+        json={
+            "profile": "0555",
+            "operation": "apply-vacancies",
+            "confirm_live": True,
+            "apply_params": {"search": "Override lane search"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Profile lanes own search/filter/resume settings" in response.json()["detail"]
 
 
 def test_agent_apply_with_explicit_resume_uses_apply_safe(tmp_path, monkeypatch):
@@ -607,6 +624,56 @@ def test_full_apply_endpoint_uses_apply_safe(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert captured["op"] == "apply-safe"
     assert "--dry-run" in captured["extra"]
+
+
+def test_admin_apply_uses_same_cross_process_lock_as_cron(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeProcess:
+        pid = 123
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            del timeout
+            return "", ""
+
+        def poll(self):
+            return self.returncode
+
+    class SyncThread:
+        def __init__(self, target, daemon=None):
+            del daemon
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setenv("HH_PROFILES_LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(admin_app.shutil, "which", lambda name: "/usr/bin/flock")
+    monkeypatch.setattr(admin_app.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(admin_app.threading, "Thread", SyncThread)
+    admin_app.running_operations.clear()
+    admin_app.active_operations.clear()
+
+    admin_app._run_operation(
+        "apply-safe",
+        admin_app.RunRequest(
+            profile="default",
+            confirm_live=True,
+            extra_args=["--resume-id", "resume-1"],
+        ),
+    )
+
+    cmd = captured["cmd"]
+    assert cmd[:4] == ["/usr/bin/flock", "-n", "-E", "75"]
+    assert str(tmp_path / "locks" / "default.lock") in cmd
+    assert "apply-safe" in cmd
+    assert "--no-auto-auth" in cmd
 
 
 def test_application_operation_keys_share_one_admin_lock():
