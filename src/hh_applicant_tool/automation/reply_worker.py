@@ -7,7 +7,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.automation.hot_lead_state import HotLeadStore
@@ -93,6 +93,10 @@ def is_system_notification(text: str) -> bool:
 
 class HHCLIError(RuntimeError):
     """Raised when the hh-applicant-tool subprocess fails."""
+
+
+class ReplyCompleter(Protocol):
+    def complete(self, message: str) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -401,7 +405,7 @@ class ReplyWorker:
         config: ReplyWorkerConfig,
         *,
         hh: HHCLI,
-        ai: ChatOpenAI | None,
+        ai: ReplyCompleter | None,
         system_prompt: str,
         manual_queue: ManualChatQueue | None = None,
         hot_lead_detector: HotLeadDetector | None = None,
