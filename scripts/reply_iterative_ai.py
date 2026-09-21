@@ -113,8 +113,11 @@ def main() -> int:
     try:
         hot_leads_enabled = env_flag("HOT_LEADS_ENABLED", True)
         hot_lead_min_confidence = float(os.environ.get("HOT_LEAD_MIN_CONFIDENCE", "0.85"))
+        hot_lead_telegram_timeout = float(os.environ.get("HOT_LEAD_TELEGRAM_TIMEOUT", "10"))
         if not 0 <= hot_lead_min_confidence <= 1:
             raise ValueError("HOT_LEAD_MIN_CONFIDENCE must be between 0 and 1")
+        if hot_lead_telegram_timeout <= 0:
+            raise ValueError("HOT_LEAD_TELEGRAM_TIMEOUT must be positive")
     except ValueError as exc:
         print(f"Hot lead configuration error: {exc}", file=sys.stderr)
         return 2
@@ -127,7 +130,13 @@ def main() -> int:
             fallback_config = load_reply_fallback_config(app_config)
             ai = FallbackChatAI(primary_ai, fallback_config)
             if hot_leads_enabled:
-                hot_ai = build_ai_client(app_config, HOT_LEAD_SYSTEM_PROMPT)
+                hot_ai = build_ai_client(
+                    app_config,
+                    HOT_LEAD_SYSTEM_PROMPT,
+                    sections=("openai_hot_lead", "openai_reply", "openai_cover_letter"),
+                    temperature=0.0,
+                    max_completion_tokens=300,
+                )
                 hot_lead_detector = HotLeadDetector(
                     hot_ai,
                     min_confidence=hot_lead_min_confidence,
@@ -154,7 +163,7 @@ def main() -> int:
                 hot_lead_notifier = TelegramNotifier(
                     bot_token=bot_token,
                     chat_id=chat_id,
-                    timeout=float(os.environ.get("HOT_LEAD_TELEGRAM_TIMEOUT", "10")),
+                    timeout=hot_lead_telegram_timeout,
                 )
 
     worker = ReplyWorker(
