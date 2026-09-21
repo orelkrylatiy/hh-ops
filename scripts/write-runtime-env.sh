@@ -5,6 +5,7 @@
 set -euo pipefail
 
 OUTPUT_FILE="${1:-/tmp/hh-runtime.env}"
+umask 077
 
 {
     printf 'export HH_AUTOMATION_MODE=%q\n' "${HH_AUTOMATION_MODE:-off}"
@@ -26,3 +27,4 @@ OUTPUT_FILE="${1:-/tmp/hh-runtime.env}"
     printf 'export CLEANUP_DELETE_CHAT=%q\n' "${CLEANUP_DELETE_CHAT:-1}"
     printf 'export HH_PROFILE_PARALLELISM=%q\n' "${HH_PROFILE_PARALLELISM:-10}"
 } > "$OUTPUT_FILE"
+chmod 0600 "$OUTPUT_FILE"
