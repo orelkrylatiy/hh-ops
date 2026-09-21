@@ -988,3 +988,22 @@ def test_manual_repeated_call_question_never_reaches_hot_llm() -> None:
     assert stats["hot_candidates"] == 0
     detector.evaluate.assert_not_called()
     store.get.assert_not_called()
+
+
+def test_manual_and_ignore_actions_never_enter_hot_lead_pipeline() -> None:
+    for action in (ACTION_MANUAL, ACTION_IGNORE):
+        worker = _live_worker(hot_leads_enabled=True)
+        worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+        worker.make_decision = Mock(
+            return_value=_decision(
+                action=action,
+                reason="ui_action_hint" if action == ACTION_MANUAL else "hh_system_notification",
+                latest_message_text="Приглашаем на интервью. Нажмите кнопку ниже.",
+            )
+        )
+        worker._process_hot_lead = Mock()
+        worker.generate_reply = Mock()
+
+        worker.run()
+
+        worker._process_hot_lead.assert_not_called()
