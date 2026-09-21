@@ -1370,7 +1370,7 @@ def run_apply_vacancies(body: RunRequest):
         args.append("--dry-run")
     if body.response_delay and body.response_delay != f"{constants.RESPONSE_DELAY_MIN}-{constants.RESPONSE_DELAY_MAX}":
         args.extend(["--response-delay", body.response_delay])
-    return _run_operation("apply-vacancies", body, extra=args)
+    return _run_operation("apply-safe", body, extra=args)
 
 
 def _requires_live_confirmation(op: str, cli_args: list[str]) -> bool:
