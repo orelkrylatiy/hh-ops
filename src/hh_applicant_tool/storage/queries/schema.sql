@@ -175,10 +175,31 @@ CREATE TABLE IF NOT EXISTS manual_chat_queue (
     PRIMARY KEY (chat_id, message_id)
 );
 
+/* ===================== hot lead events ===================== */
+CREATE TABLE IF NOT EXISTS hot_lead_events (
+    chat_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    is_hot INTEGER NOT NULL,
+    confidence REAL NOT NULL,
+    human_likelihood TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    next_step TEXT NOT NULL DEFAULT '',
+    message_text TEXT NOT NULL,
+    vacancy_name TEXT,
+    employer_name TEXT,
+    notified INTEGER NOT NULL DEFAULT 0,
+    notification_attempts INTEGER NOT NULL DEFAULT 0,
+    last_notification_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chat_id, message_id)
+);
+
 /* ===================== ИНДЕКСЫ ===================== */
 CREATE INDEX IF NOT EXISTS idx_emp_site_upd ON employer_sites(updated_at);
 CREATE INDEX IF NOT EXISTS idx_skipped_vac_resume ON skipped_vacancies(resume_id, vacancy_id);
 CREATE INDEX IF NOT EXISTS idx_manual_chat_queue_status ON manual_chat_queue(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_hot_lead_pending ON hot_lead_events(is_hot, notified, updated_at);
 
 /* ===================== ТРИГГЕРЫ ===================== */
 CREATE TRIGGER IF NOT EXISTS trg_employer_sites_updated
