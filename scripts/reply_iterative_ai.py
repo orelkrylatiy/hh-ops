@@ -17,15 +17,15 @@ import os
 import sys
 from pathlib import Path
 
-from hh_applicant_tool.automation.reply_fallback import (
-    FallbackChatAI,
-    load_reply_fallback_config,
-)
 from hh_applicant_tool.automation.hot_lead_state import HotLeadStore
 from hh_applicant_tool.automation.hot_leads import (
     HOT_LEAD_SYSTEM_PROMPT,
     HotLeadDetector,
     TelegramNotifier,
+)
+from hh_applicant_tool.automation.reply_fallback import (
+    FallbackChatAI,
+    load_reply_fallback_config,
 )
 from hh_applicant_tool.automation.reply_state import ManualChatQueue
 from hh_applicant_tool.automation.reply_worker import (
