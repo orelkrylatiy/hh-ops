@@ -14,6 +14,7 @@ import os
 import platform
 import re
 import secrets
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -1481,6 +1482,22 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
     profile = _validate_profile_name(body.profile)
     extra = extra or []
     all_args = [*extra, *body.extra_args]
+    operation_key = _operation_key(profile, op)
+    flock_path: str | None = None
+    profile_lock: Path | None = None
+    if operation_key[1] == "apply" and os.name != "nt":
+        flock_path = shutil.which("flock")
+        if not flock_path:
+            raise HTTPException(
+                503,
+                "flock is required for cross-process application locking.",
+            )
+        lock_dir = Path(
+            os.getenv("HH_PROFILES_LOCK_DIR", "/tmp/hh-profile-locks")
+        )
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        profile_lock = lock_dir / f"{profile}.lock"
+
     if _requires_live_confirmation(op, all_args) and not body.confirm_live:
         raise HTTPException(
             409,
@@ -1489,8 +1506,6 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
 
     # Генерируем уникальный ID для операции
     op_id = str(uuid.uuid4())[:8]
-    operation_key = _operation_key(profile, op)
-
     with operations_lock:
         existing_id = active_operations.get(operation_key)
         if existing_id:
@@ -1522,6 +1537,16 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
         if op != "authorize":
             cli_args.append("--no-auto-auth")
         cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+
+    if flock_path and profile_lock:
+        cmd = [
+            flock_path,
+            "-n",
+            "-E",
+            "75",
+            str(profile_lock),
+            *cmd,
+        ]
 
     # Функция для выполнения в потоке
     def execute_operation():
