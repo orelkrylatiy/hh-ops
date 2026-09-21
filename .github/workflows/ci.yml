@@ -57,6 +57,7 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_iterative_ai.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
             tests/test_hot_leads.py \
@@ -94,6 +95,7 @@ jobs:
             tests/test_admin_ui_shell.py \
             tests/test_apply_safe.py \
             tests/test_reply_worker.py \
+            tests/test_reply_iterative_ai.py \
             tests/test_reply_state.py \
             tests/test_manual_chats.py \
             tests/test_hot_leads.py \
@@ -119,7 +121,8 @@ jobs:
             src/hh_applicant_tool/operations/create_resume_variant.py \
             src/hh_applicant_tool/utils/resume_md.py \
             src/hh_applicant_tool/utils/resume_aliases.py \
-            scripts/apply_profile.py
+            scripts/apply_profile.py \
+            scripts/reply_iterative_ai.py
 
       - name: Autonomous reply coverage gate
         run: |
