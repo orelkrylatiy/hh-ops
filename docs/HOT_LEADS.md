@@ -77,12 +77,16 @@ Evaluated candidates are stored in the profile SQLite database in
 This has two purposes:
 
 - the same employer turn is not sent through the LLM every hourly run;
-- a confirmed hot lead is notified at most once after a successful Telegram
-  delivery.
+- after a confirmed successful Telegram response, later runs do not send the
+  same event again.
 
 If Telegram delivery fails, the row remains `notified=0`. Pending
 notifications are retried at the start of a later live reply pass even if the
-chat has already moved on.
+chat has already moved on. Telegram Bot API does not provide an application
+idempotency key for `sendMessage`, so an ambiguous network failure (Telegram
+accepted the message but the HTTP response was lost) can still produce a
+duplicate on retry. The system prefers a rare duplicate over silently losing a
+hot lead.
 
 Use:
 
