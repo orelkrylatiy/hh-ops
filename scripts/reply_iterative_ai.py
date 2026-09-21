@@ -206,7 +206,7 @@ def main() -> int:
                 logging.warning(
                     "Hot lead Telegram is disabled because timeout configuration is invalid"
                 )
-            elif bot_token and chat_id:
+            elif bot_token and chat_id and hot_lead_telegram_timeout is not None:
                 hot_lead_notifier = TelegramNotifier(
                     bot_token=bot_token,
                     chat_id=chat_id,
