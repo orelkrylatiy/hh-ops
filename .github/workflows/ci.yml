@@ -303,6 +303,7 @@ jobs:
             bash scripts/write-runtime-env.sh "$runtime_env"
 
           # shellcheck disable=SC1090
+          test "$(stat -c '%a' "$runtime_env")" = 600
           source "$runtime_env"
           test "$HH_AUTOMATION_MODE" = live
           test "$CONFIG_DIR" = /tmp/hh-config
