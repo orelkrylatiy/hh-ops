@@ -171,9 +171,9 @@ start_profile() {
                 ;;
             *)
                 if [[ ${#ARGS[@]} -gt 0 ]]; then
-                    bash "$CMD_SCRIPT" --profile "$profile" "${ARGS[@]}"
+                    HH_PROFILE_LOCK_HELD=1 bash "$CMD_SCRIPT" --profile "$profile" "${ARGS[@]}"
                 else
-                    bash "$CMD_SCRIPT" --profile "$profile"
+                    HH_PROFILE_LOCK_HELD=1 bash "$CMD_SCRIPT" --profile "$profile"
                 fi
                 ;;
         esac
