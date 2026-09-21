@@ -1555,6 +1555,8 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
             env["CONFIG_DIR"] = str(_config_root())
+            if op == "apply-profile" and flock_path and profile_lock:
+                env["HH_PROFILE_LOCK_HELD"] = "1"
             print(f"DEBUG: Starting operation {op_id}: {op} for profile {profile}")
 
             # Используем Popen чтобы можно было отменить процесс.
