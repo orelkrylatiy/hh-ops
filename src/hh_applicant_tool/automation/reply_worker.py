@@ -457,7 +457,7 @@ class ReplyWorker:
             self._notify_hot_event(event, stats)
 
     def _process_hot_lead(self, decision: ReplyDecision, stats: dict[str, Any]) -> None:
-        if not self.config.hot_leads_enabled:
+        if not self.config.hot_leads_enabled or decision.action != ACTION_REPLY:
             return
         prefilter = prefilter_hot_lead(decision.latest_message_text)
         if not prefilter.candidate:
