@@ -27,7 +27,7 @@ class Operation(BaseOperation):
         store = HotLeadStore(tool.db_path)
         payload = store.recent_hot(max(args.limit, 1))
 
-        if getattr(args, "json", False):
+        if getattr(args, "json_output", False):
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
 
