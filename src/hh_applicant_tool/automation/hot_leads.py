@@ -213,8 +213,12 @@ class TelegramNotifier:
             )
             response.raise_for_status()
             payload = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            raise TelegramNotificationError(f"telegram request failed: {exc}") from exc
+        except requests.RequestException as exc:
+            raise TelegramNotificationError(
+                f"telegram request failed: {type(exc).__name__}"
+            ) from exc
+        except ValueError as exc:
+            raise TelegramNotificationError("telegram returned invalid JSON") from exc
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             description = payload.get("description") if isinstance(payload, dict) else None
             raise TelegramNotificationError(
