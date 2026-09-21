@@ -8,6 +8,11 @@
 - инструмент выполняет повторяемые команды;
 - агент читает результаты, выбирает стратегию и помогает с переговорами.
 
+**Критично:** shell-скрипты `apply.sh`, `reply.sh`, `daily.sh` по умолчанию
+работают в dry-run. Реальные write требуют явного `--live` либо
+`HH_AUTOMATION_MODE=live` в scheduler. Обычные HH-отклики API-driven;
+произвольные внешние формы не заполняются автоматически.
+
 ---
 
 ## 🚀 Быстрый старт для агента
@@ -37,16 +42,17 @@ hh-applicant-tool call-api "/negotiations?status=active&per_page=20" 2>/dev/null
 # 1. Поднять резюме в топ (1 раз в день)
 hh-applicant-tool boost-resume
 
-# 2. Отклики с AI-письмами (dry-run → live)
-./scripts/apply.sh --dry-run   # проверить что будет отправлено
-./scripts/apply.sh              # live
+# 2. Отклики с profile-specific resume lanes (dry-run → explicit live)
+./scripts/apply-profile.sh --profile <PROFILE> --dry-run
+./scripts/apply-profile.sh --profile <PROFILE> --live
 
-# 3. Ответить работодателям (итеративный AI, 6 проходов по 50 чатов)
-./scripts/reply.sh --dry-run   # проверить
-./scripts/reply.sh              # live
+# 3. Ответить работодателям (bounded pass)
+./scripts/reply.sh --profile <PROFILE> --dry-run
+./scripts/reply.sh --profile <PROFILE> --live
 
-# Или всё сразу (резюме + отклики + ответы):
-./scripts/daily.sh
+# Или один ручной apply+reply pass:
+./scripts/daily.sh --profile <PROFILE> --dry-run
+./scripts/daily.sh --profile <PROFILE> --live
 ```
 
 ### 3. Контекст проекта
@@ -95,9 +101,9 @@ hh-applicant-tool boost-resume
 ### Отклики на вакансии
 
 ```bash
-# Рекомендуемый способ — через скрипт (AI письма)
-./scripts/apply.sh --dry-run   # сначала проверка
-./scripts/apply.sh              # live
+# Рекомендуемый способ: тот же resume-lane routing, что использует cron
+./scripts/apply-profile.sh --profile <PROFILE> --dry-run
+./scripts/apply-profile.sh --profile <PROFILE> --live
 
 # Или напрямую с AI:
 hh-applicant-tool apply-vacancies \
@@ -126,8 +132,8 @@ hh-applicant-tool apply-vacancies \
 
 ```bash
 # Рекомендуемый способ — итеративный AI-ответ (учитывает кто написал первым)
-./scripts/reply.sh --dry-run   # сначала проверка
-./scripts/reply.sh              # live (6 итераций × 50 чатов)
+./scripts/reply.sh --profile <PROFILE> --dry-run
+./scripts/reply.sh --profile <PROFILE> --live
 ```
 
 Логика `reply.sh`: пробегает по активным чатам, проверяет кто написал последним.
@@ -213,7 +219,8 @@ Content-Type: application/json
 
 | Ситуация | Действие |
 |----------|----------|
-| `whoami` не работает | Запустить `authorize` |
+| token expired, есть refresh_token | Сначала `refresh-token` / agent auto-refresh |
+| токена/refresh нет | Нужна human-assisted `authorize` |
 | Резюме не опубликовано | `update-resumes` или `boost-resume` |
 | Откликов < 50 за день | Запустить `apply-vacancies` |
 | Откликов > 100 за день | Остановить отклики |
@@ -339,17 +346,16 @@ Content-Type: application/json
 
 ## Что Пускать По Автомату
 
-Можно регулярно автоматизировать:
+Канонический scheduler может регулярно выполнять bounded apply/reply/boost/cleanup,
+если `HH_AUTOMATION_MODE=live` включён осознанно. Apply должен идти через
+`apply-profile.sh`, а reply — через deterministic classifier + stale-check/manual queue.
 
-- `refresh-token`
-- `update-resumes`
-- safe `apply-vacancies`
+Не автоматизированы и должны fail-closed:
 
-Нежелательно без review автоматизировать:
-
-- `reply-employers`
-- follow-up в старых чатах
-- новые поисковые контуры
+- первичный login при SMS/email code или captcha;
+- произвольные внешние `response_url` формы;
+- recruiter UI/button flows, классифицированные как MANUAL;
+- новый search/lane без dry-run проверки.
 
 ## Практический Контур
 
