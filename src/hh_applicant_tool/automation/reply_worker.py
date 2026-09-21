@@ -96,7 +96,7 @@ class HHCLIError(RuntimeError):
 
 
 class ReplyCompleter(Protocol):
-    def complete(self, message: str) -> str: ...
+    def complete(self, value: str, /) -> str: ...
 
 
 @dataclass(frozen=True)
