@@ -1485,6 +1485,14 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
     operation_key = _operation_key(profile, op)
     flock_path: str | None = None
     profile_lock: Path | None = None
+    bash_path: str | None = None
+    if op == "apply-profile":
+        bash_path = shutil.which("bash")
+        if not bash_path:
+            raise HTTPException(
+                503,
+                "bash is required for profile-lane application runs.",
+            )
     if operation_key[1] == "apply" and os.name != "nt":
         flock_path = shutil.which("flock")
         if not flock_path:
@@ -1525,9 +1533,10 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
         }
 
     if op == "apply-profile":
+        assert bash_path is not None
         cmd = [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "apply_profile.py"),
+            bash_path,
+            str(PROJECT_ROOT / "scripts" / "apply-profile.sh"),
             "--profile",
             profile,
             *all_args,
