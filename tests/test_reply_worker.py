@@ -956,3 +956,36 @@ def test_telegram_failure_does_not_increment_reply_errors() -> None:
     assert stats["errors"] == 0
     assert stats["hot_notify_failed"] == 1
     store.mark_notification_failed.assert_called_once()
+
+
+def test_manual_repeated_call_question_never_reaches_hot_llm() -> None:
+    detector = Mock()
+    store = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, hot_leads_enabled=True),
+        hh=Mock(),
+        ai=Mock(),
+        system_prompt="prompt",
+        hot_lead_detector=detector,
+        hot_lead_store=store,
+    )
+    stats = {
+        "hot_candidates": 0,
+        "hot_leads": 0,
+        "hot_notified": 0,
+        "hot_notify_failed": 0,
+        "hot_ai_errors": 0,
+    }
+
+    worker._process_hot_lead(
+        _decision(
+            action=ACTION_MANUAL,
+            reason="repeated_after_applicant_reply",
+            latest_message_text="Когда вам удобно созвониться?",
+        ),
+        stats,
+    )
+
+    assert stats["hot_candidates"] == 0
+    detector.evaluate.assert_not_called()
+    store.get.assert_not_called()
