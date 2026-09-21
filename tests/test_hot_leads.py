@@ -209,8 +209,10 @@ def test_telegram_notifier_wraps_network_errors() -> None:
         session=session,
     )
 
-    with pytest.raises(TelegramNotificationError, match="telegram request failed"):
+    with pytest.raises(TelegramNotificationError, match="ConnectionError") as exc_info:
         notifier.send("hello")
+
+    assert "secret-token" not in str(exc_info.value)
 
 
 def test_telegram_notifier_rejects_api_error_payload() -> None:
@@ -246,3 +248,23 @@ def test_alert_contains_profile_context_and_truncates_message() -> None:
     assert "Acme" in alert
     assert "95%" in alert
     assert len(alert) < 1400
+
+
+def test_telegram_http_error_never_exposes_bot_token() -> None:
+    session = Mock()
+    response = Mock()
+    response.raise_for_status.side_effect = requests.HTTPError(
+        "500 Server Error for url: https://api.telegram.org/botsecret-token/sendMessage"
+    )
+    session.post.return_value = response
+    notifier = TelegramNotifier(
+        bot_token="secret-token",
+        chat_id="123",
+        session=session,
+    )
+
+    with pytest.raises(TelegramNotificationError) as exc_info:
+        notifier.send("hello")
+
+    assert "secret-token" not in str(exc_info.value)
+    assert "HTTPError" in str(exc_info.value)
