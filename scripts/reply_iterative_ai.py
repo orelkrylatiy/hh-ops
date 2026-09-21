@@ -129,21 +129,43 @@ def main() -> int:
             primary_ai = build_ai_client(app_config, prompt)
             fallback_config = load_reply_fallback_config(app_config)
             ai = FallbackChatAI(primary_ai, fallback_config)
-            if hot_leads_enabled:
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"AI configuration error: {exc}", file=sys.stderr)
+            return 2
+
+        if hot_leads_enabled:
+            hot_sections = ("openai_reply", "openai_cover_letter")
+            dedicated_hot = app_config.get("openai_hot_lead")
+            if isinstance(dedicated_hot, dict) and dedicated_hot:
+                hot_sections = ("openai_hot_lead",)
+            try:
                 hot_ai = build_ai_client(
                     app_config,
                     HOT_LEAD_SYSTEM_PROMPT,
-                    sections=("openai_hot_lead", "openai_reply", "openai_cover_letter"),
+                    sections=hot_sections,
                     temperature=0.0,
                     max_completion_tokens=300,
                 )
+            except ValueError as exc:
+                if hot_sections == ("openai_hot_lead",):
+                    logging.warning(
+                        "Invalid openai_hot_lead config (%s); falling back to reply provider",
+                        exc,
+                    )
+                    hot_ai = build_ai_client(
+                        app_config,
+                        HOT_LEAD_SYSTEM_PROMPT,
+                        temperature=0.0,
+                        max_completion_tokens=300,
+                    )
+                else:
+                    logging.warning("Hot lead classifier disabled: %s", exc)
+                    hot_ai = None
+            if hot_ai is not None:
                 hot_lead_detector = HotLeadDetector(
                     hot_ai,
                     min_confidence=hot_lead_min_confidence,
                 )
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            print(f"AI configuration error: {exc}", file=sys.stderr)
-            return 2
 
     manual_queue = None
     if not dry_run:
