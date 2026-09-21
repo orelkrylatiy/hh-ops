@@ -7,8 +7,9 @@ mkdir -p /app/logs/profiles /app/config
 touch /app/logs/cron.log /app/logs/ops-daily.log
 chown -R docker:docker /app/logs /app/config
 
-# Cron has a deliberately small environment. Persist only the non-secret
-# scheduler knobs that scheduled jobs need, using shell-safe quoting.
+# Cron has a deliberately small environment. Persist the scheduler environment
+# using shell-safe quoting. The file may contain the optional notification bot
+# token, so write-runtime-env.sh creates it mode 0600.
 RUNTIME_ENV=/tmp/hh-runtime.env
 bash "$SCRIPT_DIR/scripts/write-runtime-env.sh" "$RUNTIME_ENV"
 chown docker:docker "$RUNTIME_ENV"
