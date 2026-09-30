@@ -10,6 +10,7 @@ from .repositories.resumes import ResumesRepository
 from .repositories.settings import SettingsRepository
 from .repositories.skipped_vacancies import SkippedVacanciesRepository
 from .repositories.vacancies import VacanciesRepository
+from .repositories.vacancy_links import VacancyLinksRepository
 from .utils import init_db
 
 
@@ -23,6 +24,7 @@ class StorageFacade:
     - negotiations — отклики/переписка
     - employers / employer_sites — компании и их сайты
     - vacancy_contacts — контакты из вакансий
+    - vacancy_links — ссылки/контакты из описаний вакансий (анкеты, тг, почта)
     - settings — key-value настройки (в т.ч. служебные _*)
     """
 
@@ -36,3 +38,4 @@ class StorageFacade:
         self.skipped_vacancies = SkippedVacanciesRepository(conn)
         self.vacancies = VacanciesRepository(conn)
         self.vacancy_contacts = VacancyContactsRepository(conn)
+        self.vacancy_links = VacancyLinksRepository(conn)

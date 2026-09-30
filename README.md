@@ -356,6 +356,24 @@ hh-applicant-tool --profile-id default manual-chats
 hh-applicant-tool --profile-id default manual-chats --resolve CHAT_ID
 ```
 
+## Анкеты И Контакты Из Описаний Вакансий
+
+Часть вакансий нельзя закрыть автопилотом: отклик идёт через внешнюю анкету (`response_url`), либо работодатели пишут контакты прямо в описании — Google/Yandex Forms, телеграм-чаты, почту HR, форумы. Apply-прогон вытаскивает это в таблицу `vacancy_links` локальной базы профиля:
+
+- `response_url` / `adv_response_url` — с каждой вакансии из выдачи;
+- ссылки и контакты из полного описания (form / telegram / email / phone / external) — при загрузке описания. Внутренние ссылки hh.ru отбрасываются, обёртки `hh.ru/redirect?...` разворачиваются.
+
+Посмотреть накопившееся и пройтись вручную:
+
+```bash
+hh-applicant-tool --profile-id 0555 vacancy-links             # сгруппированный список
+hh-applicant-tool --profile-id 0555 vacancy-links --kind form # только анкеты
+hh-applicant-tool --profile-id 0555 vacancy-links --csv > followups.csv
+hh-applicant-tool --profile-id 0555 vacancy-links --json      # для скриптов/агентов
+```
+
+Операция читает только локальную SQLite и не требует авторизации. В `ops/`-снапшоты эти данные по privacy-контракту не копируются.
+
 ## Humanizer
 
 Шаблоны:

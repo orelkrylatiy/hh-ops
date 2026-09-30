@@ -38,6 +38,20 @@ CREATE TABLE IF NOT EXISTS vacancy_contacts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (vacancy_id, email)
 );
+/* ===================== vacancy_links ===================== */
+-- Ссылки/контакты из описания вакансии и внешние анкеты (response_url).
+-- Нужны для ручного прохода: анкеты, телеграмы, HR-контакты из текста.
+CREATE TABLE IF NOT EXISTS vacancy_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vacancy_id INTEGER NOT NULL,
+    -- form | telegram | email | phone | external
+    kind TEXT NOT NULL DEFAULT 'external',
+    value TEXT NOT NULL,
+    -- description | response_url | adv_response_url
+    source TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (vacancy_id, value)
+);
 /* ===================== vacancies ===================== */
 CREATE TABLE IF NOT EXISTS vacancies (
     id INTEGER PRIMARY KEY,
@@ -177,6 +191,7 @@ CREATE TABLE IF NOT EXISTS manual_chat_queue (
 
 /* ===================== ИНДЕКСЫ ===================== */
 CREATE INDEX IF NOT EXISTS idx_emp_site_upd ON employer_sites(updated_at);
+CREATE INDEX IF NOT EXISTS idx_vacancy_links_vacancy ON vacancy_links(vacancy_id);
 CREATE INDEX IF NOT EXISTS idx_skipped_vac_resume ON skipped_vacancies(resume_id, vacancy_id);
 CREATE INDEX IF NOT EXISTS idx_manual_chat_queue_status ON manual_chat_queue(status, updated_at);
 

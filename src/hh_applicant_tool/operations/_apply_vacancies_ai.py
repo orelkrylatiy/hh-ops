@@ -19,6 +19,7 @@ class ApplyVacanciesAIMixin:
 
         full_vacancy = self.api_client.get(f"/vacancies/{vacancy_id}")
         self._vacancy_context_cache[vacancy_key] = full_vacancy
+        self._save_vacancy_links(full_vacancy)
         return full_vacancy
 
     def _get_full_resume(self, resume_id: str) -> dict[str, Any]:

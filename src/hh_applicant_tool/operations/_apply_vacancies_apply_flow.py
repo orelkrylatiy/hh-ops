@@ -13,6 +13,7 @@ from ..api import BadResponse, Redirect, datatypes
 from ..api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ..automation.reply_worker import AI_CLICHES, sanitize_reply_text
 from ..storage.repositories.errors import RepositoryError
+from ..utils.description_links import extract_vacancy_links, vacancy_response_link
 from ..utils.string import contains_smiley, rand_text, render_template, unescape_string
 
 logger = logging.getLogger(__package__)
@@ -104,6 +105,56 @@ class ApplyVacanciesApplyFlowMixin:
                 storage.vacancy_contacts.save(vacancy)
             except RepositoryError as ex:
                 logger.exception(ex)
+
+        self._save_vacancy_links(vacancy)
+
+    def _save_vacancy_links(self, vacancy: dict[str, Any]) -> None:
+        """Копит ссылки/контакты для ручного прохода: внешние анкеты
+        (response_url) и ссылки, телефоны, тг из описания вакансии.
+
+        Вызывается и для поисковой выдачи, и для полной вакансии из
+        _get_full_vacancy; ошибки не должны ломать отклики.
+        """
+        if getattr(self, "dry_run", False):
+            return
+        vacancy_id = vacancy.get("id")
+        if vacancy_id is None:
+            return
+
+        items: list[dict[str, str | int]] = []
+        if response_url := vacancy_response_link(vacancy):
+            items.append(
+                {
+                    "vacancy_id": int(vacancy_id),
+                    "kind": "form",
+                    "value": response_url,
+                    "source": "response_url",
+                }
+            )
+
+        if description := vacancy.get("description"):
+            items.extend(
+                {
+                    "vacancy_id": int(vacancy_id),
+                    "kind": link["kind"],
+                    "value": link["value"],
+                    "source": "description",
+                }
+                for link in extract_vacancy_links(description)
+            )
+
+        if not items:
+            return
+
+        logger.debug(
+            "Найдены ссылки/контакты в вакансии: %s (%d)",
+            vacancy.get("alternate_url", vacancy_id),
+            len(items),
+        )
+        try:
+            self.tool.storage.vacancy_links.save_batch(items)
+        except RepositoryError as ex:
+            logger.exception(ex)
 
     def _has_existing_negotiation(self, vacancy_id: str | int) -> bool:
         try:

@@ -226,13 +226,24 @@ flowchart TD
 
 Autonomous `apply.sh` передаёт `--skip-tests`: vacancy tests намеренно не решаются в массовом scheduled path.
 
-### 6.3 Cover letter
+### 6.3 Vacancy links для ручного прохода
+
+Vacancy с external `response_url` (анкета на стороне работодателя) автопилотом пропускается, а ссылки из текста описания автопилот и вовсе не читает. Чтобы такие случаи не терялись, `_save_vacancy_links()` складывает их в таблицу `vacancy_links` профиля:
+
+- `response_url` / `adv_response_url` — на каждой vacancy из поисковой выдачи (kind `form`);
+- содержимое полного описания — при первом `GET /vacancies/{id}` через `_get_full_vacancy()` (AI-фильтр или cover letter): `form` (Google/Yandex Forms, Typeform, Airtable...), `telegram` (t.me и `@handle`), `email`, `phone`, `external` (форумы и прочее).
+
+Экстрактор `utils/description_links.py` разбирает сырой HTML (обычный `strip_tags()` выбрасывает `href`), разворачивает `hh.ru/redirect?...`-обёртки и отбрасывает внутренние ссылки hh.ru. В dry-run ничего не пишется, ошибка записи не ломает рассылку.
+
+Просмотр и выгрузка для ручного прохода — `hh-applicant-tool vacancy-links` (`--kind`, `--limit`, `--csv`, глобальный `--json`). Операция читает только локальную базу и не требует авторизации. В `ops/`-снапшоты эти данные не попадают: там по privacy-контракту запрещены URLs.
+
+### 6.4 Cover letter
 
 `_build_cover_letter()` собирает контекст вакансии и резюме и вызывает `openai_cover_letter` через `ChatOpenAI`.
 
 При `AIError` конкретная vacancy не отправляется, `ai_error_count` растёт, а run в конце помечается неуспешным. **Static fallback для массовых cover letters сейчас не используется.**
 
-### 6.4 Отправка
+### 6.5 Отправка
 
 Обычный отклик:
 
@@ -430,7 +441,8 @@ HH API остаётся внешним source of truth. SQLite — локаль�
 - employers;
 - negotiations;
 - skipped vacancies;
-- vacancy contacts.
+- vacancy contacts;
+- vacancy links (анкеты/контакты из описаний для ручного прохода).
 
 `admin/app.py` работает поверх **тех же profile directories и SQLite**, а не над отдельной базой. Admin и cron — два интерфейса к одному состоянию.
 
