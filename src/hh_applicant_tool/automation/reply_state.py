@@ -29,7 +29,9 @@ class ManualChatQueue:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as conn:
+        # closing() закрывает соединение, conn-менеджер коммитит транзакцию:
+        # без коммита b35772a молча терял все записи очереди
+        with closing(self._connect()) as conn, conn:
             conn.executescript(_MANUAL_CHAT_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
@@ -45,7 +47,7 @@ class ManualChatQueue:
         employer_name: str,
         reason: str,
     ) -> None:
-        with closing(self._connect()) as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO manual_chat_queue (
@@ -83,7 +85,7 @@ class ManualChatQueue:
         keep_message_id: str | None = None,
     ) -> int:
         """Resolve stale manual items once the chat moved past that message."""
-        with closing(self._connect()) as conn:
+        with closing(self._connect()) as conn, conn:
             if keep_message_id:
                 cur = conn.execute(
                     """
