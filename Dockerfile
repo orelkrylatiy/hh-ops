@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     dos2unix \
     gettext-base \
+    # pip ставит humanizer-framework из pinned git-коммита
+    git \
     procps \
     tzdata \
     util-linux \

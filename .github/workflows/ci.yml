@@ -40,6 +40,7 @@ jobs:
         run: |
           ruff check \
             src/hh_applicant_tool/automation \
+            src/hh_applicant_tool/communication \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
@@ -72,6 +73,7 @@ jobs:
         run: |
           ruff format --check \
             src/hh_applicant_tool/automation \
+            src/hh_applicant_tool/communication \
             src/hh_applicant_tool/ai/openai.py \
             src/hh_applicant_tool/operations/apply_safe.py \
             src/hh_applicant_tool/operations/manual_chats.py \
@@ -103,6 +105,7 @@ jobs:
         run: |
           basedpyright \
             src/hh_applicant_tool/automation \
+            src/hh_applicant_tool/communication \
             src/hh_applicant_tool/operations/manual_chats.py \
             src/hh_applicant_tool/operations/create_resume.py \
             src/hh_applicant_tool/operations/create_resume_variant.py \
@@ -116,6 +119,9 @@ jobs:
             --cov=hh_applicant_tool.automation.reply_worker \
             --cov-report=term-missing \
             --cov-fail-under=75
+
+      - name: Framework shadow integration tests
+        run: pytest tests/test_communication_framework.py
 
       - name: Cover-letter fallback regression tests
         run: pytest tests/test_apply_safe.py

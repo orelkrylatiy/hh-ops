@@ -369,6 +369,24 @@ Static reply fallback проходит тот же runtime validator до отп
 
 Telegram не дописывается программно в каждый ответ. Он используется только когда это уместно по истории диалога.
 
+## Humanizer Framework (shadow)
+
+Общий communication layer живёт в отдельном репозитории [humanizer-framework](https://github.com/orelkrylatiy/humanizer-framework) и подключён как git-зависимость, запиненная на конкретный коммит (см. `pyproject.toml`). Обновление pin — только явный bump: любое изменение planner'а меняет тексты исходящих сообщений. Для локальной доработки фреймворка удобнее editable-установка: `pip install -e ../humanizer-framework`.
+
+Первый этап интеграции — shadow-режим (Stage A плана миграции из docs фреймворка). Переменная `HH_FRAMEWORK_SHADOW=1` (по умолчанию выключена) включает в `scripts/reply_iterative_ai.py` параллельную генерацию черновика ответа работодателю через фреймворк: домен `job_search`, канал `hh`, тип `chat_reply`, voice и business rules из `src/hh_applicant_tool/communication/`. Сравнение текущего и framework-ответов с plan-метаданными пишется в лог с маркером `FRAMEWORK_SHADOW`, счётчик попадает в stats как `framework_shadow`.
+
+Гарантии shadow-режима:
+
+- classifier (`IGNORE`/`MANUAL`) не вызывает фреймворк — только ветка `REPLY_TEXT`;
+- текст фреймворка никогда не отправляется и не влияет на primary path;
+- любой сбой фреймворка логируется и пропускается, отправка продолжается;
+- dry-run не делает shadow-вызовов LLM;
+- у shadow свой LLM-клиент без системного промпта (промпт строит фреймворк), static fallback в shadow не используется.
+
+Смайлы и эмодзи в hh-коммуникации запрещены на трёх уровнях: business rule в промпте адаптера, hard-валидация `forbidden_smiley` во фреймворке (для неформальных RU-каналов profi/repetit/telegram она выключена) и проверка `contains a smiley or emoji` в `reply_quality_issues`/`letter_quality_issues` основного пайплайна.
+
+Обновление pin во фреймворке: закоммитить и запушить изменения там, прогнать его тесты (`pytest`, `ruff check .`), затем поднять `rev` в `pyproject.toml` и переустановить `pip install -e .`.
+
 ## Расписание
 
 Container `crontab` по умолчанию:

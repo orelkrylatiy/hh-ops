@@ -12,6 +12,7 @@ from typing import Any
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.automation.reply_state import ManualChatQueue
 from hh_applicant_tool.communication import FrameworkShadowReplier
+from hh_applicant_tool.utils.string import contains_smiley
 
 logger = logging.getLogger(__name__)
 
@@ -176,9 +177,7 @@ class HHCLI:
                 check=False,
             )
             if result.returncode != 0:
-                details = (
-                    result.stderr.strip() or result.stdout.strip() or "unknown HH CLI error"
-                )
+                details = result.stderr.strip() or result.stdout.strip() or "unknown HH CLI error"
                 if attempt + 1 < attempts and self._is_transient(details):
                     time.sleep(3 * (attempt + 1))
                     continue
@@ -369,6 +368,8 @@ def reply_quality_issues(text: str) -> list[str]:
         issues.append("contains a placeholder")
     if any(phrase in lowered for phrase in AI_CLICHES):
         issues.append("contains an AI-style cliche")
+    if contains_smiley(normalized):
+        issues.append("contains a smiley or emoji")
     return issues
 
 

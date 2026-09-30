@@ -13,7 +13,7 @@ from ..api import BadResponse, Redirect, datatypes
 from ..api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ..automation.reply_worker import AI_CLICHES, sanitize_reply_text
 from ..storage.repositories.errors import RepositoryError
-from ..utils.string import rand_text, render_template, unescape_string
+from ..utils.string import contains_smiley, rand_text, render_template, unescape_string
 
 logger = logging.getLogger(__package__)
 
@@ -43,6 +43,8 @@ def letter_quality_issues(text: str) -> list[str]:
         issues.append("contains an unrendered placeholder")
     if any(phrase in lowered for phrase in AI_CLICHES):
         issues.append("contains an AI-style cliche")
+    if contains_smiley(normalized):
+        issues.append("contains a smiley or emoji")
     if normalized[-1] not in _LETTER_SENTENCE_ENDINGS:
         issues.append("letter looks truncated")
     return issues

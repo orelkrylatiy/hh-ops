@@ -29,6 +29,10 @@ from hh_applicant_tool.automation.reply_worker import (
     build_ai_client,
     load_json_config,
 )
+from hh_applicant_tool.communication import (
+    FrameworkShadowReplier,
+    framework_shadow_enabled,
+)
 from hh_applicant_tool.constants import CONFIG_DIR, DATABASE_FILENAME
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 
@@ -89,6 +93,7 @@ def main() -> int:
 
     prompt = load_system_prompt()
     ai = None
+    shadow_replier = None
     if not dry_run:
         try:
             app_config = load_json_config(config_path(args.profile))
@@ -98,6 +103,16 @@ def main() -> int:
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"AI configuration error: {exc}", file=sys.stderr)
             return 2
+
+        # Shadow-режим humanizer-framework: параллельный черновик, никогда не
+        # отправляется и не влияет на primary path. Отдельный клиент без
+        # системного промпта: его привозит сам framework.
+        if framework_shadow_enabled():
+            try:
+                shadow_ai = build_ai_client(app_config, system_prompt="")
+                shadow_replier = FrameworkShadowReplier(shadow_ai.complete)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                print(f"Framework shadow disabled: {exc}", file=sys.stderr)
 
     manual_queue = None
     if not dry_run:
@@ -116,9 +131,11 @@ def main() -> int:
         ai=ai,
         system_prompt=prompt,
         manual_queue=manual_queue,
+        shadow_replier=shadow_replier,
     )
     stats = worker.run()
     stats["fallback"] = ai.fallback_uses if isinstance(ai, FallbackChatAI) else 0
+    stats["framework_shadow"] = shadow_replier.comparisons if shadow_replier else 0
     print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
     return 1 if stats["errors"] else 0
 

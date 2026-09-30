@@ -9,6 +9,36 @@ def shorten(s: str, limit: int = 75, ellipsis: str = "…") -> str:
     return s[:limit] + bool(s[limit:]) * ellipsis
 
 
+# Смайлы уместны в неформальных мессенджерах, но не в текстах работодателю:
+# письма и ответы уходят массово, эмодзи там выглядят как бот/несерьёзность.
+_EMOJI_RE = re.compile("[\U0001f000-\U0001faff\u2600-\u27bf\u2b00-\u2bff\ufe0f]")
+_CLASSIC_SMILEY_RE = re.compile(r"[:;=8xX][-'^o]*[)(DPp]|[(][-'^o]*[:;=]")
+
+
+def contains_smiley(text: str) -> bool:
+    """True, если в тексте эмодзи, классический смайлик или голая скобка-улыбка.
+
+    Голая ")" без парной "(" — это «спасибо)», её и ловим; нумерация «8)»
+    (цифра перед скобкой) смайлом не считается.
+    """
+    if not text:
+        return False
+    if _EMOJI_RE.search(text) or _CLASSIC_SMILEY_RE.search(text):
+        return True
+    depth = 0
+    for index, char in enumerate(text):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                previous = text[:index].rstrip()
+                if not previous.endswith(tuple("0123456789")):
+                    return True
+            else:
+                depth -= 1
+    return False
+
+
 def rand_text(s: str) -> str:
     while (
         temp := re.sub(
@@ -47,12 +77,7 @@ def list2str(items: list[Any] | None) -> str:
 def unescape_string(text: str) -> str:
     if not text:
         return ""
-    return (
-        text.replace(r"\n", "\n")
-        .replace(r"\r", "\r")
-        .replace(r"\t", "\t")
-        .replace(r"\\", "\\")
-    )
+    return text.replace(r"\n", "\n").replace(r"\r", "\r").replace(r"\t", "\t").replace(r"\\", "\\")
 
 
 def br2nl(s: str) -> str:
