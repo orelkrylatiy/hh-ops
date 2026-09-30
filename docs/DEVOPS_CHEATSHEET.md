@@ -10,6 +10,18 @@ docker compose logs -f
 curl http://localhost:8000/health
 ```
 
+## Windows Без Docker
+
+Скрипты `scripts/*.sh` вызывают `python3`, которого нет в виндовом venv.
+После создания venv добавьте шим:
+
+```bash
+cp .venv/Scripts/python.exe .venv/Scripts/python3.exe
+```
+
+Иначе `apply.sh`/`reply.sh`/`daily.sh` падают с `python3: command not found`.
+Также `envsubst` должен быть в PATH (идёт с Git for Windows).
+
 ## Полезные Docker Команды
 
 ```bash

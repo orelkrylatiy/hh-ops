@@ -49,6 +49,22 @@ hh-applicant-tool boost-resume
 ./scripts/daily.sh
 ```
 
+### 2.1 Теневой прогон ответов (LLM без отправки)
+
+`scripts/reply_shadow.py` использует тот же reply-worker и реальную LLM, но никогда не делает POST в `/negotiations`. Показывает классификацию чатов и точный текст, который live-режим отправил бы работодателю:
+
+```bash
+export HH_NAME="Максим" HH_TELEGRAM="@maxxwway"
+
+# свежие чаты профиля: что бот ответил бы прямо сейчас
+python scripts/reply_shadow.py 5457 30
+
+# реплей: regenerate ответов для реальной истории чатов по chat_id
+python scripts/reply_shadow.py replay 5457 5590761786 5590766312
+```
+
+Полезно перед первым live-прогоном и после правок промптов.
+
 ### 3. Контекст проекта
 
 **Пользователь:** `${HH_NAME}`, Frontend-разработчик (React/TypeScript/Redux)
@@ -58,8 +74,8 @@ hh-applicant-tool boost-resume
 
 **Текущая стратегия:**
 - Откликов в день: 80-120
-- Персональные ответы работодателям с упоминанием TG
-- Исключать: junior, стажёры, bitrix, web3, crypto, blockchain
+- Персональные ответы работодателям с упоминанием TG, только когда это уместно по контексту
+- Стоп-слова фильтра: junior, стажёры, bitrix, web3, crypto, blockchain, а также go, golang, php, python, java, 1c, c++, c#, qa, devops (см. `rules/apply-hard-filter.regex`)
 - Автоподнятие резюме: ежедневно
 
 ---

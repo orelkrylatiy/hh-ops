@@ -305,6 +305,12 @@ Preview без отправки и без вызова LLM:
 ./scripts/reply.sh --profile default --chats 20 --dry-run
 ```
 
+Посмотреть реальные ответы LLM без отправки (тот же worker, но POST запрещён):
+
+```bash
+python scripts/reply_shadow.py default 30
+```
+
 Live:
 
 ```bash
