@@ -11,6 +11,7 @@ from typing import Any
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.automation.reply_state import ManualChatQueue
+from hh_applicant_tool.communication import FrameworkShadowReplier
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +119,25 @@ class HHCLI:
     commands use exactly the same token refresh and HTTP implementation.
     """
 
+    # Транзиентные сетевые сбои hh/api: соединения до api.hh.ru периодически
+    # флапают, и без ретраев падает весь прогон на первом же запросе.
+    TRANSIENT_MARKERS = (
+        "connection aborted",
+        "connection reset",
+        "timed out",
+        "timeout",
+        "max retries exceeded",
+        "remote disconnected",
+        "proxy error",
+    )
+
     def __init__(self, profile_id: str = "") -> None:
         self.profile_id = profile_id
+
+    @classmethod
+    def _is_transient(cls, details: str) -> bool:
+        lowered = details.lower()
+        return any(marker in lowered for marker in cls.TRANSIENT_MARKERS)
 
     def _base_command(self) -> list[str]:
         command = ["hh-applicant-tool", "--no-auto-auth"]
@@ -146,25 +164,35 @@ class HHCLI:
                 ["--data", json.dumps(json_data, ensure_ascii=False, separators=(",", ":"))]
             )
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        if result.returncode != 0:
-            details = result.stderr.strip() or result.stdout.strip() or "unknown HH CLI error"
-            raise HHCLIError(details)
-        if not result.stdout.strip():
-            return {}
-        try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise HHCLIError(f"invalid HH JSON: {result.stdout[:300]}") from exc
-        if not isinstance(payload, dict):
-            raise HHCLIError("HH API returned a non-object response")
-        return payload
+        # Ретраим только GET: повторный POST может задвоить сообщение,
+        # идемпотентность отправки решается в send_reply через перечитывание чата.
+        attempts = 3 if method == "GET" else 1
+        for attempt in range(attempts):
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if result.returncode != 0:
+                details = (
+                    result.stderr.strip() or result.stdout.strip() or "unknown HH CLI error"
+                )
+                if attempt + 1 < attempts and self._is_transient(details):
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise HHCLIError(details)
+            if not result.stdout.strip():
+                return {}
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                raise HHCLIError(f"invalid HH JSON: {result.stdout[:300]}") from exc
+            if not isinstance(payload, dict):
+                raise HHCLIError("HH API returned a non-object response")
+            return payload
+        raise HHCLIError("unreachable")
 
 
 def select_ai_config(config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -260,22 +288,24 @@ def normalize_message_text(text: str) -> str:
 def repeated_employer_message_after_reply(
     messages: list[dict[str, Any]],
 ) -> bool:
-    """Detect a bot repeating the same prompt after the applicant already replied."""
+    """Detect the employer repeating a message they already sent before.
+
+    Повтор вопроса — с нашим ответом между повторами или подряд, без ответа —
+    означает, что второй автоматический ответ не нужен: чат уходит в ручную
+    очередь (кнопка, анкета, недопонимание или глюк отправки).
+    """
     ordered = sorted_messages(messages)
-    if len(ordered) < 3 or message_role(ordered[-1]) != EMPLOYER_ROLE:
+    if len(ordered) < 2 or message_role(ordered[-1]) != EMPLOYER_ROLE:
         return False
 
     latest_text = normalize_message_text(message_text(ordered[-1]))
     if not latest_text:
         return False
 
-    for index in range(len(ordered) - 2, -1, -1):
-        item = ordered[index]
+    for item in ordered[:-1]:
         if message_role(item) != EMPLOYER_ROLE:
             continue
-        if normalize_message_text(message_text(item)) != latest_text:
-            continue
-        if any(message_role(between) == APPLICANT_ROLE for between in ordered[index + 1 : -1]):
+        if normalize_message_text(message_text(item)) == latest_text:
             return True
     return False
 
@@ -304,7 +334,7 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
     ):
         return ACTION_IGNORE, "questionnaire_completed"
     if repeated_employer_message_after_reply(ordered):
-        return ACTION_MANUAL, "repeated_after_applicant_reply"
+        return ACTION_MANUAL, "repeated_employer_question"
     if (
         "?" not in text
         and not QUESTION_HINT_RE.search(text)
@@ -378,12 +408,14 @@ class ReplyWorker:
         ai: ChatOpenAI | None,
         system_prompt: str,
         manual_queue: ManualChatQueue | None = None,
+        shadow_replier: FrameworkShadowReplier | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
         self.ai = ai
         self.system_prompt = system_prompt
         self.manual_queue = manual_queue
+        self.shadow_replier = shadow_replier
 
     def collect_candidate_chats(self) -> list[dict[str, Any]]:
         """Collect chats via /negotiations (/common/chats is forbidden for API tokens)."""
@@ -561,6 +593,10 @@ class ReplyWorker:
             f"Ситуация: {situation}\n\n"
             "История переписки:\n"
             + "\n".join(decision.context)
+            + "\n\nТебе доступна только эта история: в ней нет резюме целиком. "
+            "Если спрашивают про навык или опыт, которых нет в истории, честно ответь, "
+            "что такого опыта нет, одной короткой фразой, и не придумывай детали. "
+            "Не утверждай, что уже что-то сделал или отправил, если этого нет в истории."
             + "\n\nОтветь только текстом сообщения работодателю."
             + correction_text
         )
@@ -582,6 +618,7 @@ class ReplyWorker:
                 return None
             issues = reply_quality_issues(reply)
             if not issues:
+                self._run_shadow_comparison(decision, reply)
                 return reply
             logger.warning(
                 "Rejected AI reply for chat %s: %s",
@@ -592,6 +629,19 @@ class ReplyWorker:
             if attempt >= self.config.ai_retries:
                 return None
         return None
+
+    def _run_shadow_comparison(self, decision: ReplyDecision, reply: str) -> None:
+        """Log a parallel framework draft; shadow output is never sent."""
+        if self.config.dry_run or self.shadow_replier is None:
+            return
+        if decision.action != ACTION_REPLY:
+            return
+        try:
+            self.shadow_replier.compare(decision, reply)
+        except Exception as exc:
+            logger.warning(
+                "Framework shadow comparison failed for chat %s: %s", decision.chat_id, exc
+            )
 
     def is_still_current(self, decision: ReplyDecision) -> bool:
         detail = self._chat_detail(decision.chat_id)

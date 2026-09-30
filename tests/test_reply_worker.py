@@ -728,7 +728,48 @@ def test_classifier_marks_repeated_question_after_our_reply_manual() -> None:
     action, reason = classify_chat(messages)
 
     assert action == ACTION_MANUAL
-    assert reason == "repeated_after_applicant_reply"
+    assert reason == "repeated_employer_question"
+
+
+def test_classifier_marks_consecutive_duplicate_question_manual() -> None:
+    question = "Готовы ли вы к переезду?"
+    messages = [
+        _message("employer-1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
+        _message("employer-2", EMPLOYER_ROLE, question, "2026-01-01T10:05:00+0300"),
+    ]
+
+    action, reason = classify_chat(messages)
+
+    assert action == ACTION_MANUAL
+    assert reason == "repeated_employer_question"
+
+
+def test_classifier_marks_repeated_question_across_other_employer_messages() -> None:
+    question = "Какой у вас уровень английского?"
+    messages = [
+        _message("employer-1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
+        _message(
+            "employer-2", EMPLOYER_ROLE, "Расскажите про опыт работы.", "2026-01-01T10:01:00+0300"
+        ),
+        _message("employer-3", EMPLOYER_ROLE, question, "2026-01-01T10:02:00+0300"),
+    ]
+
+    action, reason = classify_chat(messages)
+
+    assert action == ACTION_MANUAL
+    assert reason == "repeated_employer_question"
+
+
+def test_classifier_different_questions_still_text_reply() -> None:
+    messages = [
+        _message("employer-1", EMPLOYER_ROLE, "Есть опыт с React?", "2026-01-01T10:00:00+0300"),
+        _message("applicant-1", APPLICANT_ROLE, "Да.", "2026-01-01T10:01:00+0300"),
+        _message(
+            "employer-2", EMPLOYER_ROLE, "Есть опыт с Node.js?", "2026-01-01T10:02:00+0300"
+        ),
+    ]
+
+    assert classify_chat(messages) == (ACTION_REPLY, "employer_message")
 
 
 def test_classifier_keeps_normal_question_as_text_reply() -> None:
