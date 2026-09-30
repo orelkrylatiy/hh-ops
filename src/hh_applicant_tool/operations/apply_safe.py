@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from ..ai.base import AIError
 from ..api import datatypes
 from ..utils.misc import expand_env_placeholders, load_prompt
-from ..utils.string import rand_text
+from ..utils.string import rand_text, render_template
 from ._apply_vacancies_apply_flow import VacancyResponseResult
 from .apply_vacancies import Namespace
 from .apply_vacancies import Operation as BaseApplyOperation
@@ -53,7 +53,9 @@ class Operation(BaseApplyOperation):
         self,
         message_placeholders: dict[str, str],
     ) -> str:
-        letter = (rand_text(self.cover_letter) % message_placeholders).strip()
+        letter = render_template(
+            rand_text(self.cover_letter), message_placeholders, "cover-letter fallback"
+        ).strip()
         if not letter:
             raise ValueError("cover-letter fallback rendered an empty message")
         return letter

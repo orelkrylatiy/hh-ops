@@ -12,7 +12,7 @@ from ..ai.base import AIError
 from ..api import BadResponse, Redirect, datatypes
 from ..api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ..storage.repositories.errors import RepositoryError
-from ..utils.string import rand_text, unescape_string
+from ..utils.string import rand_text, render_template, unescape_string
 
 logger = logging.getLogger(__package__)
 
@@ -245,7 +245,11 @@ class ApplyVacanciesApplyFlowMixin:
             logger.debug("prompt: %s", msg)
             letter = self.cover_letter_ai.complete(msg)
         else:
-            letter = rand_text(self.cover_letter) % message_placeholders
+            letter = render_template(
+                rand_text(self.cover_letter),
+                message_placeholders,
+                "сопроводительном письме",
+            )
 
         logger.debug(letter)
         return letter
@@ -394,23 +398,27 @@ class ApplyVacanciesApplyFlowMixin:
         else:
             mail_to_value = mail_to
 
-        mail_subject = (
-            rand_text(
-                self.tool.config.get("apply_mail_subject")
-                or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
-            )
-            % message_placeholders
-        )
-        mail_body = (
-            unescape_string(
-                rand_text(
-                    self.tool.config.get("apply_mail_body")
-                    or "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
-                )
-            )
-            % message_placeholders
-        )
+        # Шаблоны письма рендерим внутри try: ошибка в них
+        # не должна обрывать рассылку остальных откликов
         try:
+            mail_subject = render_template(
+                rand_text(
+                    self.tool.config.get("apply_mail_subject")
+                    or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
+                ),
+                message_placeholders,
+                "apply_mail_subject",
+            )
+            mail_body = render_template(
+                unescape_string(
+                    rand_text(
+                        self.tool.config.get("apply_mail_body")
+                        or "{Здравствуйте|Добрый день}, {прошу рассмотреть|пожалуйста рассмотрите} мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
+                    )
+                ),
+                message_placeholders,
+                "apply_mail_body",
+            )
             self._send_email(mail_to_value, mail_subject, mail_body)
             print("📧 Отправлено письмо на email по поводу вакансии", vacancy["alternate_url"])
         except Exception as ex:
@@ -462,6 +470,7 @@ class ApplyVacanciesApplyFlowMixin:
                 employer = vacancy.get("employer", {})
                 message_placeholders = {
                     "vacancy_name": vacancy.get("name", ""),
+                    "vacancy_url": vacancy.get("alternate_url") or "",
                     "employer_name": employer.get("name", ""),
                     **placeholders,
                 }
