@@ -87,14 +87,19 @@ def replay(profile: str, chat_ids: list[str]) -> int:
     )
 
     for chat_id in chat_ids:
+        # "CHAT_ID:N" отвечает на N-е сообщение работодателя, а не на последнее
+        anchor = None
+        if ":" in chat_id:
+            chat_id, _, tail = chat_id.partition(":")
+            anchor = int(tail)
         raw = call_api_retry(worker.hh, f"/negotiations/{chat_id}/messages").get("items", [])
         ordered = sorted_messages(raw)
         # Truncate history right after the last employer message, so the model
         # answers the same question the live bot already answered.
-        last_employer = max(
-            (i for i, m in enumerate(ordered) if message_role(m) == EMPLOYER_ROLE),
-            default=-1,
-        )
+        employer_indexes = [i for i, m in enumerate(ordered) if message_role(m) == EMPLOYER_ROLE]
+        if anchor is not None:
+            employer_indexes = employer_indexes[:anchor]
+        last_employer = employer_indexes[-1] if employer_indexes else -1
         history = ordered[: last_employer + 1]
         if not history:
             print(f"### {chat_id}: no employer messages")

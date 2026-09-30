@@ -61,6 +61,9 @@ python scripts/reply_shadow.py 5457 30
 
 # реплей: regenerate ответов для реальной истории чатов по chat_id
 python scripts/reply_shadow.py replay 5457 5590761786 5590766312
+
+# CHAT_ID:N — ответить на N-е сообщение работодателя в чате, а не на последнее
+python scripts/reply_shadow.py replay 5457 5590759237:2
 ```
 
 Полезно перед первым live-прогоном и после правок промптов.
