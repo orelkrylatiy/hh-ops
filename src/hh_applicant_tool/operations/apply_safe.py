@@ -7,7 +7,10 @@ from ..ai.base import AIError
 from ..api import datatypes
 from ..utils.misc import expand_env_placeholders, load_prompt
 from ..utils.string import rand_text, render_template
-from ._apply_vacancies_apply_flow import VacancyResponseResult
+from ._apply_vacancies_apply_flow import (
+    VacancyResponseResult,
+    letter_quality_issues,
+)
 from .apply_vacancies import Namespace
 from .apply_vacancies import Operation as BaseApplyOperation
 
@@ -58,6 +61,11 @@ class Operation(BaseApplyOperation):
         ).strip()
         if not letter:
             raise ValueError("cover-letter fallback rendered an empty message")
+        issues = letter_quality_issues(letter)
+        if issues:
+            # fail-open: фолбэк остаётся последним шансом откликнуться,
+            # но проблемы текста должны быть видны в логах
+            logger.warning("cover-letter fallback failed quality checks: %s", ", ".join(issues))
         return letter
 
     def _build_cover_letter(

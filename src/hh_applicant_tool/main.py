@@ -439,12 +439,12 @@ class HHApplicantTool(MegaTool):
         return ai.ChatOpenAI(
             api_key=api_key,
             model=model,
-            temperature=c.get("temperature", 0.0),
+            temperature=c.get("temperature", 0.3),
             max_completion_tokens=c.get("max_completion_tokens", 1000),
             system_prompt=system_prompt,
             base_url=base_url,
             rate_limit=c.get("rate_limit", 40),
-            timeout=c.get("timeout", 15.0),
+            timeout=c.get("timeout", 45.0),
             session=self.openai_session,
         )
 
