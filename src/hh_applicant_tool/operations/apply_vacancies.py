@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from http.cookiejar import Cookie
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -449,6 +450,7 @@ class Operation(
         )
         self._assign_args(args)
         self._resolve_resume_selector(tool)
+        self.resume_alias = self.resume_alias or ""
         if self.max_responses is not None and self.max_responses < 0:
             raise ValueError("max_responses must be a non-negative integer")
         self.responses_sent = 0
@@ -493,42 +495,109 @@ class Operation(
         captcha_ai = self.tool.get_captcha_ai()
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            # реальный Edge вместо headless-chromium: меньше палится автоматизацией
+            launch_kwargs = {
+                "headless": True,
+                "args": ["--disable-blink-features=AutomationControlled"],
+            }
+            try:
+                browser = await pw.chromium.launch(channel="msedge", **launch_kwargs)
+            except Exception:
+                browser = await pw.chromium.launch(**launch_kwargs)
             try:
                 context = await browser.new_context()
+                # без куки профиля hh редиректит капчу на логин и goto висит:
+                # подтягиваем cookies.txt профиля в контекст браузера
+                try:
+                    import http.cookiejar as _cj
+
+                    jar_path = Path(self.tool.session.cookies.filename)
+                    if jar_path.exists():
+                        jar = _cj.MozillaCookieJar(str(jar_path))
+                        jar.load(ignore_discard=True, ignore_expires=True)
+                        pw_cookies = [
+                            {
+                                "name": c.name,
+                                "value": c.value,
+                                "domain": c.domain,
+                                "path": c.path or "/",
+                                "expires": float(c.expires) if c.expires and c.expires > 0 else -1,
+                                "secure": bool(c.secure),
+                            }
+                            for c in jar
+                        ]
+                        if pw_cookies:
+                            await context.add_cookies(pw_cookies)
+                except Exception as ex:  # noqa: BLE001
+                    logger.debug("captcha context cookie load failed: %s", ex)
                 page = await context.new_page()
 
-                await page.goto(captcha_url, timeout=30000)
+                await page.goto(captcha_url, timeout=60000, wait_until="domcontentloaded")
 
-                captcha_element = await page.wait_for_selector(
-                    self.SEL_CAPTCHA_IMAGE, timeout=10000, state="visible"
-                )
+                # до 5 попыток: неверный ответ => на странице новая картинка
+                solved = False
+                for attempt in range(5):
+                    captcha_element = await page.wait_for_selector(
+                        self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
+                    )
 
-                img_bytes = await captcha_element.screenshot()
+                    img_bytes = await captcha_element.screenshot()
 
-                captcha_text = await asyncio.to_thread(
-                    captcha_ai.solve_captcha, img_bytes
-                )
+                    captcha_text = await asyncio.to_thread(
+                        captcha_ai.solve_captcha, img_bytes
+                    )
 
-                if not captcha_text:
-                    logger.error("AI не смог распознать капчу")
-                    return False
+                    if not captcha_text:
+                        logger.warning("AI не распознал капчу (попытка %d)", attempt + 1)
+                        await page.reload(timeout=60000, wait_until="domcontentloaded")
+                        continue
 
-                logger.info(f"Распознанный текст капчи: {captcha_text}")
+                    logger.info(
+                        "Распознанный текст капчи (попытка %d): %s",
+                        attempt + 1,
+                        captcha_text,
+                    )
 
-                await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
-                await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
+                    await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
+                    await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
 
-                await page.wait_for_load_state("networkidle", timeout=15000)
+                    # networkidle на hh.ru не наступает (бесконечные запросы аналитики):
+                    # ждём исчезновения инпута капчи
+                    for _ in range(6):
+                        await page.wait_for_timeout(2500)
+                        if not await page.query_selector(self.SEL_CAPTCHA_INPUT):
+                            solved = True
+                            break
+                    if solved:
+                        break
+                    logger.warning(
+                        "капча не принята (попытка %d), пробую заново", attempt + 1
+                    )
+
+                if not solved:
+                    logger.error("не смог решить капчу за 5 попыток")
 
                 cookies = await context.cookies()
                 for c in cookies:
-                    self.tool.session.cookies.set(
-                        c["name"],
-                        c["value"],
-                        domain=c.get("domain", ""),
-                        path=c.get("path", "/"),
+                    cookie = Cookie(
+                        version=0,
+                        name=c["name"],
+                        value=c["value"],
+                        port=None,
+                        port_specified=False,
+                        domain=c.get("domain", "") or "",
+                        domain_specified=bool(c.get("domain")),
+                        domain_initial_dot=str(c.get("domain", "")).startswith("."),
+                        path=c.get("path", "/") or "/",
+                        path_specified=True,
+                        secure=bool(c.get("secure")),
+                        expires=int(c.get("expires", -1) or -1),
+                        discard=False,
+                        comment=None,
+                        comment_url=None,
+                        rest={},
                     )
+                    self.tool.session.cookies.set_cookie(cookie)
 
                 return True
             finally:
@@ -593,4 +662,11 @@ class Operation(
                 except RepositoryError as e:
                     logger.warning(e)
 
-        print("📝 Отклики на вакансии разосланы!")
+        mode = "dry-run" if self.dry_run else "live"
+        logger.info(
+            "HH_APPLY_RESULT mode=%s accepted=%d",
+            mode,
+            self.responses_sent,
+        )
+        action = "запланировано" if self.dry_run else "отправлено"
+        print(f"📝 Обработка завершена: {action} откликов — {self.responses_sent}.")

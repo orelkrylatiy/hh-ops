@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -12,6 +13,9 @@ from typing import Any
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.automation.reply_state import ManualChatQueue
 from hh_applicant_tool.communication import FrameworkShadowReplier
+from hh_applicant_tool.constants import CONFIG_DIR
+from hh_applicant_tool.utils.config import resolve_profile_config_dir
+from hh_applicant_tool.utils.resume_context import load_resume_context
 from hh_applicant_tool.utils.string import contains_smiley
 
 logger = logging.getLogger(__name__)
@@ -111,6 +115,7 @@ class ReplyDecision:
     action: str = ACTION_REPLY
     reason: str = "employer_message"
     latest_message_text: str = ""
+    resume_context: str = ""
 
 
 class HHCLI:
@@ -154,9 +159,12 @@ class HHCLI:
         json_data: dict[str, Any] | None = None,
         form_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        command = [*self._base_command(), "call-api", endpoint]
+        # --method идёт ДО позиционных: argparse не матчит позиционные после
+        # опциональных в nargs="*" (endpoint, --method POST, param=... -> error).
+        command = [*self._base_command(), "call-api"]
         if method != "GET":
             command.extend(["--method", method])
+        command.append(endpoint)
         if form_params is not None:
             # call-api без --data шлёт PARAM=VALUE как form-encoded тело
             command.extend(f"{key}={value}" for key, value in form_params.items())
@@ -169,13 +177,22 @@ class HHCLI:
         # идемпотентность отправки решается в send_reply через перечитывание чата.
         attempts = 3 if method == "GET" else 1
         for attempt in range(attempts):
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                # Зависший CLI-вызов — транзиентная проблема, как и сетевые
+                # сбои: ретраим GET и отдаём HHCLIError после исчерпания.
+                details = f"HH CLI timed out after 60s: {' '.join(command)}"
+                if attempt + 1 < attempts:
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise HHCLIError(details) from exc
             if result.returncode != 0:
                 details = result.stderr.strip() or result.stdout.strip() or "unknown HH CLI error"
                 if attempt + 1 < attempts and self._is_transient(details):
@@ -417,6 +434,17 @@ class ReplyWorker:
         self.system_prompt = system_prompt
         self.manual_queue = manual_queue
         self.shadow_replier = shadow_replier
+        self.resume_aliases = self._load_resume_aliases()
+
+    def _load_resume_aliases(self) -> dict[str, str]:
+        base_dir = Path(os.environ.get("CONFIG_DIR", str(CONFIG_DIR)))
+        config_dir = resolve_profile_config_dir(base_dir, self.config.profile_id)
+        try:
+            payload = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        aliases = payload.get("resume_aliases", {}) if isinstance(payload, dict) else {}
+        return aliases if isinstance(aliases, dict) else {}
 
     def collect_candidate_chats(self) -> list[dict[str, Any]]:
         """Collect chats via /negotiations (/common/chats is forbidden for API tokens)."""
@@ -568,6 +596,21 @@ class ReplyWorker:
             return None
         action, reason = classify_chat(messages)
         vacancy_name, employer_name = self._vacancy_info(chat)
+        resume = chat.get("resume")
+        resume_id = str(resume.get("id") or "") if isinstance(resume, dict) else ""
+        resume_alias = next(
+            (
+                alias
+                for alias, configured_id in self.resume_aliases.items()
+                if str(configured_id) == resume_id
+            ),
+            None,
+        )
+        resume_context = load_resume_context(
+            resume_id=resume_id,
+            alias=resume_alias,
+            profile_id=self.config.profile_id,
+        )
         return ReplyDecision(
             chat_id=chat_id,
             expected_last_message_id=latest_id,
@@ -578,6 +621,7 @@ class ReplyWorker:
             action=action,
             reason=reason,
             latest_message_text=message_text(latest),
+            resume_context=resume_context,
         )
 
     def _generation_prompt(self, decision: ReplyDecision, correction: str = "") -> str:
@@ -588,13 +632,19 @@ class ReplyWorker:
         )
         company = decision.employer_name or "не указана"
         correction_text = f"\n\nИсправь предыдущую попытку: {correction}." if correction else ""
+        profile_text = (
+            "\n\nПрофиль кандидата для активного резюме:\n" + decision.resume_context
+            if decision.resume_context
+            else ""
+        )
         return (
             f"Вакансия: {decision.vacancy_name}\n"
             f"Компания: {company}\n"
             f"Ситуация: {situation}\n\n"
             "История переписки:\n"
             + "\n".join(decision.context)
-            + "\n\nТебе доступна только эта история: в ней нет резюме целиком. "
+            + profile_text
+            + "\n\nТебе доступна только эта история и профиль активного резюме. "
             "Если спрашивают про навык или опыт, которых нет в истории, честно ответь, "
             "что такого опыта нет, одной короткой фразой, и не придумывай детали. "
             "Не утверждай, что уже что-то сделал или отправил, если этого нет в истории."

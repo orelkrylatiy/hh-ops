@@ -33,6 +33,15 @@ RUN_MARKER_RE = re.compile(
     r"(?: mode=(?P<mode>[A-Za-z0-9._-]+))?"
     r"(?: status=(?P<status>\d+))?"
 )
+LEGACY_REPLY_MARKER_RE = re.compile(
+    r"^===== PROFILE (?P<profile>[A-Za-z0-9._-]+) (?P<kind>START|END)"
+    r"(?: (?P<date>\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2})?"
+    r"(?: status=(?P<status>\d+))? =====$"
+)
+HTTP_WRITE_RE = re.compile(
+    r"\b2\d\d POST https://api\.hh\.ru/negotiations"
+    r"(?P<messages>/[^/\s?]+/messages)?(?:[?\s]|$)"
+)
 AI_ERROR_COUNT_RE = re.compile(
     r"AI не сгенерировал письмо для (?P<count>\d+) ваканс",
     re.IGNORECASE,
@@ -40,7 +49,8 @@ AI_ERROR_COUNT_RE = re.compile(
 
 LOG_EVENT_PATTERNS: dict[str, re.Pattern[str]] = {
     "auth_error": re.compile(
-        r"\bAUTH_REQUIRED\b|not authorized|unauthorized|authorization required|HTTP 401|HTTP 403",
+        r"\bAUTH_REQUIRED\b|not authorized|unauthorized|authorization required|HTTP 401"
+        r"|bad_authorization|Требуется авторизация|token has already been refreshed",
         re.IGNORECASE,
     ),
     "ai_error": re.compile(
@@ -234,6 +244,7 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
     events: Counter[str] = Counter()
     files_by_source: Counter[str] = Counter()
     profiles: dict[str, dict] = defaultdict(_profile_metrics)
+    http_sends: dict[str, Counter[str]] = defaultdict(Counter)
     lines_for_day = 0
 
     for path in _discover_log_files(root, config_dir):
@@ -249,6 +260,7 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
 
         file_profile = _profile_from_log(path, root, config_dir)
         active_target_run: tuple[str, str] | None = None
+        active_run_failed = False
         current_date: str | None = None
 
         try:
@@ -259,11 +271,17 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
         with handle:
             for line in handle:
                 marker = RUN_MARKER_RE.match(line)
-                if marker:
-                    current_date = marker.group("date")
-                    profile_name = marker.group("profile")
-                    command = marker.group("command")
-                    kind = marker.group("kind")
+                legacy_marker = LEGACY_REPLY_MARKER_RE.match(line.strip())
+                if marker or legacy_marker:
+                    parts = (
+                        marker.groupdict()
+                        if marker
+                        else legacy_marker.groupdict() | {"command": "reply", "mode": "unknown"}
+                    )
+                    current_date = parts.get("date") or current_date
+                    profile_name = parts["profile"]
+                    command = parts["command"]
+                    kind = parts["kind"]
                     profile = profiles[profile_name]
                     bucket = _run_bucket(profile, command)
 
@@ -271,13 +289,15 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
                         lines_for_day += 1
                         if kind == "START":
                             bucket["started"] += 1
-                            mode = marker.group("mode") or "unknown"
+                            mode = parts.get("mode") or "unknown"
                             bucket["modes"][mode] = bucket["modes"].get(mode, 0) + 1
                             active_target_run = (profile_name, command)
+                            active_run_failed = False
                         elif kind == "END":
-                            if int(marker.group("status") or 0) != 0:
+                            if int(parts.get("status") or 0) != 0 or active_run_failed:
                                 bucket["failed"] += 1
                             active_target_run = None
+                            active_run_failed = False
                         elif kind == "SKIP":
                             bucket["skipped_busy"] += 1
                             active_target_run = None
@@ -300,6 +320,9 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
 
                 profile_name = active_target_run[0] if active_target_run else file_profile
                 profile = profiles[profile_name]
+                if source == "profile" and (http_write := HTTP_WRITE_RE.search(line)):
+                    operation = "reply" if http_write.group("messages") else "apply"
+                    http_sends[profile_name][operation] += 1
 
                 for event_name, pattern in LOG_EVENT_PATTERNS.items():
                     if pattern.search(line):
@@ -309,9 +332,19 @@ def _scan_logs(root: Path, config_dir: Path, target: date) -> tuple[dict, dict[s
 
                 if active_target_run is not None:
                     _apply_line_metrics(line, profile["apply"])
-                    if reply_summary := _parse_reply_summary(line):
-                        for key, value in reply_summary.items():
-                            profile["reply"][key] += value
+                if profile_name != "global" and (reply_summary := _parse_reply_summary(line)):
+                    for key, value in reply_summary.items():
+                        profile["reply"][key] += value
+                    if active_target_run and reply_summary.get("errors", 0):
+                        active_run_failed = True
+
+    # CLI stdout may be missing or truncated. HTTP acceptance is independent
+    # evidence of a live send. Use max rather than adding the two sources and
+    # double-counting the same send; keep worker-confirmed uncertain POSTs too.
+    for profile_name, counts in http_sends.items():
+        for operation in ("apply", "reply"):
+            metrics = profiles[profile_name][operation]
+            metrics["sent"] = max(metrics["sent"], counts[operation])
 
     return (
         {

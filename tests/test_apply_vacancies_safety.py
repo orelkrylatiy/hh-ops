@@ -69,6 +69,31 @@ def test_dry_run_never_posts_a_vacancy_response() -> None:
     operation.tool.api_client.post.assert_not_called()
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_empty_search_reports_zero_sent_or_planned(dry_run, capsys):
+    operation = Operation()
+    operation.dry_run = dry_run
+    operation.resume_id = None
+    operation.max_responses = None
+    operation.responses_sent = 0
+    operation.ai_error_count = 0
+    resume = {**_resume(), "status": {"id": "published"}}
+    operation.tool = SimpleNamespace(
+        get_resumes=Mock(return_value=[resume]),
+        get_me=Mock(return_value={}),
+        get_negotiations=Mock(return_value=iter([])),
+        storage=SimpleNamespace(resumes=Mock()),
+    )
+    operation._apply_resume = Mock()
+
+    operation._apply_vacancies()
+
+    output = capsys.readouterr().out
+    assert "откликов — 0" in output
+    assert ("запланировано" if dry_run else "отправлено") in output
+    assert "разосланы!" not in output
+
+
 def test_successful_non_empty_api_response_still_counts_as_an_application() -> None:
     operation = Operation()
     operation.dry_run = False

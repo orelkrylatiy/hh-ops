@@ -330,6 +330,10 @@ class ApplyVacanciesApplyFlowMixin:
             msg += context
             logger.debug("prompt: %s", msg)
             letter = sanitize_reply_text(self.cover_letter_ai.complete(msg).strip())
+            # модель часто заканчивает строкой контакта без терминальной точки,
+            # а чекер качества бракует это как "truncated"
+            if letter and letter[-1].isalnum():
+                letter += "."
             issues = letter_quality_issues(letter)
             if issues:
                 repair_msg = (
@@ -340,6 +344,8 @@ class ApplyVacanciesApplyFlowMixin:
                 )
                 try:
                     second = sanitize_reply_text(self.cover_letter_ai.complete(repair_msg).strip())
+                    if second and second[-1].isalnum():
+                        second += "."
                 except AIError as exc:
                     raise AIError(
                         f"cover letter repair failed after issues [{', '.join(issues)}]: {exc}"
@@ -351,6 +357,13 @@ class ApplyVacanciesApplyFlowMixin:
                         "cover letter failed quality checks: " + ", ".join(issues)
                     )
         else:
+            # Правило Макса (11.10.2026): отклики ходят только с AI-письмами.
+            # Заглушка без --use-ai = брак; делаем её видимой в логах, чтобы
+            # шаблонные волны больше не проходили незамеченными.
+            logger.warning(
+                "ОТКЛИК БЕЗ AI: письмо — шаблонная заглушка (запуск без --use-ai): %s",
+                vacancy.get("alternate_url", ""),
+            )
             letter = render_template(
                 rand_text(self.cover_letter),
                 message_placeholders,

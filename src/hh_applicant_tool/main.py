@@ -674,7 +674,10 @@ class HHApplicantTool(MegaTool):
                 except api.errors.Forbidden as ex:
                     request = ex.request
                     logger.error(
-                        "Требуется авторизация: %s (HTTP %s %s -> %d)",
+                        "%s: %s (HTTP %s %s -> %d)",
+                        "Требуется авторизация"
+                        if ex.is_authentication_error
+                        else "HH запретил действие",
                         ex.message,
                         request.method,
                         request.url,

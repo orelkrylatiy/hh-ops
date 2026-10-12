@@ -163,6 +163,28 @@ class TestEmployersRepository:
 class TestResumesRepository:
     """Test resume storage operations."""
 
+    def test_partial_resume_does_not_erase_known_title(
+        self, storage: StorageFacade, sample_resume_data: dict
+    ):
+        storage.resumes.save(sample_resume_data)
+        partial = {**sample_resume_data, "title": None, "status": {"id": "blocked"}}
+        storage.resumes.save(partial)
+        saved = storage.resumes.get(sample_resume_data["id"])
+        assert saved.title == sample_resume_data["title"]
+        assert saved.status_id == "blocked"
+        assert partial["title"] is None
+
+    def test_titleless_resume_does_not_abort_other_resumes_in_batch(
+        self, storage: StorageFacade, sample_resume_data: dict
+    ):
+        storage.resumes.save_batch([
+            {"id": "removed-resume", "status": {"id": "blocked"}},
+            sample_resume_data,
+        ])
+        assert storage.resumes.count_total() == 2
+        assert storage.resumes.get(sample_resume_data["id"]).title == sample_resume_data["title"]
+        assert storage.resumes.get("removed-resume").title == "Резюме без названия"
+
     def test_save_resume(
         self, storage: StorageFacade, sample_resume_data: dict
     ):

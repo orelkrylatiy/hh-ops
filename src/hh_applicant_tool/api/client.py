@@ -218,7 +218,7 @@ class OAuthClient(BaseClient):
 class ApiClient(BaseClient):
     """Клиент hh.ru REST API с автоматическим обновлением access_token.
 
-    При получении 403 Forbidden и истёкшем access_token автоматически
+    При получении OAuth-ошибки 403 автоматически
     вызывает OAuth refresh и повторяет запрос. Токен не обязателен —
     часть эндпоинтов (информация о компании, справочники) доступна публично.
     """
@@ -269,16 +269,16 @@ class ApiClient(BaseClient):
         try:
             return do_request()
         except errors.Forbidden as ex:
-            # На практике HH иногда отвечает 403 и для "непросроченного" токена.
-            # Если есть refresh_token — пробуем один раз обновить access_token
-            # и повторить запрос.
-            if not self.refresh_token:
-                raise ex
+            # HH also uses 403 for disabled chat actions. Those responses must
+            # not consume refresh tokens or replay a forbidden write.
+            if not ex.is_authentication_error or not self.refresh_token:
+                raise
             logger.info("try to refresh access_token")
             try:
                 self.refresh_access_token()
-            except Exception:
-                raise ex
+            except Exception as refresh_error:
+                logger.warning("OAuth refresh failed: %s", refresh_error)
+                raise ex from refresh_error
             return do_request()
 
     def handle_access_token(self, token: AccessToken) -> None:

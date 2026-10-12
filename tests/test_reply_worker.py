@@ -764,9 +764,7 @@ def test_classifier_different_questions_still_text_reply() -> None:
     messages = [
         _message("employer-1", EMPLOYER_ROLE, "Есть опыт с React?", "2026-01-01T10:00:00+0300"),
         _message("applicant-1", APPLICANT_ROLE, "Да.", "2026-01-01T10:01:00+0300"),
-        _message(
-            "employer-2", EMPLOYER_ROLE, "Есть опыт с Node.js?", "2026-01-01T10:02:00+0300"
-        ),
+        _message("employer-2", EMPLOYER_ROLE, "Есть опыт с Node.js?", "2026-01-01T10:02:00+0300"),
     ]
 
     assert classify_chat(messages) == (ACTION_REPLY, "employer_message")

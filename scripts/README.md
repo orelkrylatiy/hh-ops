@@ -19,6 +19,11 @@
 | `write-runtime-env.sh` | сохранение non-secret runtime knobs для cron |
 | `check_ai.py` | проверка LLM-конфига |
 | `check.sh` | ручная диагностика аккаунта |
+| `open_browsers.py` | отдельные видимые HH-браузеры с cookies каждого профиля |
+
+На Windows запусти `open-browsers.bat` из корня проекта для всех сохранённых
+профилей или `open-browsers.bat 0555 1206` для выбранных. Окна подписаны ID
+профиля. Процесс работает, пока окна открыты; cookies на диске не перезаписываются.
 
 Production использует только `crontab -> cron-job.sh -> all-profiles.sh`.
 Отдельных Python-daemon/systemd scheduler'ов нет, чтобы один аккаунт случайно

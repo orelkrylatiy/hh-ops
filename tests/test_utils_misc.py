@@ -91,6 +91,7 @@ class TestLoadPrompt:
         """Path with ~ should be expanded to home directory."""
         # Mock home directory
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         test_file = tmp_path / "prompt.txt"
         test_file.write_text("home file content", encoding="utf-8")
         result = load_prompt("~/prompt.txt")
@@ -99,6 +100,7 @@ class TestLoadPrompt:
     def test_load_prompt_at_syntax_expands_user_path(self, tmp_path: Path, monkeypatch):
         """@path with ~ should be expanded to home directory."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         test_file = tmp_path / "prompt.txt"
         test_file.write_text("home file content", encoding="utf-8")
         result = load_prompt("@~/prompt.txt")

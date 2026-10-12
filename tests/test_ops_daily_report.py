@@ -196,3 +196,55 @@ def test_daily_report_handles_empty_runtime(tmp_path: pathlib.Path) -> None:
     assert report["totals"]["runs_started"] == 0
     assert report["totals"]["replies_sent"] == 0
     assert report["totals"]["applications_sent"] == 0
+
+
+def test_http_acceptance_counts_unwrapped_sends_without_exporting_payloads(tmp_path):
+    profile = tmp_path / "config" / "account1"
+    profile.mkdir(parents=True)
+    (profile / "log.txt").write_text(
+        "2026-09-09 10:00:00 - DEBUG - 201 POST https://api.hh.ru/negotiations with params: {'message': 'secret letter'}\n"
+        "2026-09-09 10:00:01 - DEBUG - 403 POST https://api.hh.ru/negotiations/123/messages with params: {'message': 'failed'}\n"
+        "2026-09-09 10:00:02 - DEBUG - 201 POST https://api.hh.ru/negotiations/123/messages with params: {'message': 'secret reply'}\n"
+        "2026-09-10 10:00:00 - DEBUG - 201 POST https://api.hh.ru/negotiations with params: -\n",
+        encoding="utf-8",
+    )
+    report = _run_report(tmp_path)
+    assert report["totals"]["applications_sent"] == 1
+    assert report["totals"]["replies_sent"] == 1
+    serialized = json.dumps(report)
+    assert "secret letter" not in serialized
+    assert "secret reply" not in serialized
+    assert report["logs"]["events"].get("auth_error", 0) == 0
+
+
+def test_http_and_wrapper_do_not_double_count_same_send(tmp_path):
+    profile = tmp_path / "config" / "account1"
+    profile.mkdir(parents=True)
+    (profile / "log.txt").write_text(
+        "2026-09-09 10:00:00 - DEBUG - 201 POST https://api.hh.ru/negotiations with params: -\n",
+        encoding="utf-8",
+    )
+    logs = tmp_path / "logs" / "profiles"
+    logs.mkdir(parents=True)
+    (logs / "account1-apply.log").write_text(
+        "[2026-09-09 10:00:00] HH_RUN_START profile=account1 command=apply mode=live\n"
+        "📨 Отправили отклик на вакансию https://hh.ru/vacancy/123\n"
+        "[2026-09-09 10:00:01] HH_RUN_END profile=account1 command=apply mode=live status=0\n",
+        encoding="utf-8",
+    )
+    assert _run_report(tmp_path)["totals"]["applications_sent"] == 1
+
+
+def test_legacy_reply_errors_override_incorrect_success_marker(tmp_path):
+    logs = tmp_path / "logs" / "live"
+    logs.mkdir(parents=True)
+    (logs / "replies.log").write_text(
+        "===== PROFILE account1 START 2026-09-09 10:00:00 =====\n"
+        '{"candidates":3,"planned":0,"sent":0,"stale":0,"skipped":0,"manual":2,"errors":1}\n'
+        "===== PROFILE account1 END status=0 =====\n",
+        encoding="utf-8",
+    )
+    report = _run_report(tmp_path)
+    assert report["totals"]["reply_candidates"] == 3
+    assert report["totals"]["replies_manual"] == 2
+    assert report["totals"]["runs_failed"] == 1

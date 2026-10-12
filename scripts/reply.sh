@@ -81,8 +81,19 @@ if [[ ! -f "$REPLY_PROMPT_TEMPLATE" ]]; then
     echo "Reply prompt not found: $REPLY_PROMPT_TEMPLATE" >&2
     exit 1
 fi
-if ! command -v envsubst >/dev/null 2>&1; then
-    echo "envsubst is required (package gettext/gettext-base)" >&2
+# envsubst.exe портит кириллицу в переменных окружения (Максим -> ??????),
+# поэтому рендерим и запускаемся через venv-python: scripts/render_prompt.py.
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+    if [[ -f "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
+        PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
+    elif [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "Python not found: $PYTHON_BIN" >&2
     exit 1
 fi
 
@@ -92,7 +103,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-envsubst '${HH_NAME} ${HH_TELEGRAM}' < "$REPLY_PROMPT_TEMPLATE" > "$REPLY_SYSTEM_PROMPT_FILE"
+"$PYTHON_BIN" "$SCRIPT_DIR/render_prompt.py" "$REPLY_PROMPT_TEMPLATE" "$REPLY_SYSTEM_PROMPT_FILE"
 export REPLY_SYSTEM_PROMPT_FILE
 
 if [[ "$RUN_MODE" == "live" ]]; then
@@ -100,7 +111,7 @@ if [[ "$RUN_MODE" == "live" ]]; then
     if [[ -n "$PROFILE_ID" ]]; then
         CHECK_ARGS+=(--profile "$PROFILE_ID")
     fi
-    python3 "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"
+    "$PYTHON_BIN" "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"
 fi
 
 ARGS=(--max-chats "$MAX_CHATS")
@@ -113,4 +124,4 @@ if [[ -n "$PROFILE_ID" ]]; then
     ARGS+=(--profile "$PROFILE_ID")
 fi
 
-python3 "$SCRIPT_DIR/reply_iterative_ai.py" "${ARGS[@]}"
+"$PYTHON_BIN" "$SCRIPT_DIR/reply_iterative_ai.py" "${ARGS[@]}"

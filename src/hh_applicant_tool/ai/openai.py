@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 import time
 from dataclasses import KW_ONLY, dataclass, field
 from email.utils import parsedate_to_datetime
@@ -177,7 +178,10 @@ class ChatOpenAI:
         data = self._execute_with_retry(payload)
         try:
             content = data["choices"][0]["message"]["content"]
-            return content if content is not None else ""
+            if content is None:
+                return ""
+            # reasoning-модели (GLM) иногда протаскивают блок размышления в content
+            return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL).strip()
         except (KeyError, IndexError, TypeError) as ex:
             raise OpenAIError(f"Invalid response format: {ex}") from ex
 
@@ -217,7 +221,9 @@ class ChatOpenAI:
                 },
             ],
             "temperature": 0.0,
-            "max_completion_tokens": 20,
+            # У reasoning-моделей (GLM и т.п.) в лимит входит размышление:
+            # берём конфиг, иначе reasoning съедает константу и content пустой.
+            "max_completion_tokens": self.max_completion_tokens,
             "stream": False,
         }
 
@@ -225,8 +231,15 @@ class ChatOpenAI:
 
         data = self._execute_with_retry(payload)
         try:
-            captcha_text = data["choices"][0]["message"]["content"]
-            captcha_text = captcha_text.strip() if captcha_text else ""
+            message = data["choices"][0]["message"]
+            captcha_text = (message.get("content") or "").strip()
+            if not captcha_text:
+                # reasoning-модель (GLM) может оставить ответ в reasoning_content
+                reasoning = message.get("reasoning_content") or ""
+                matches = re.findall(r"[0-9A-Za-z]{4,8}", reasoning)
+                if matches:
+                    captcha_text = matches[-1]
+                    logger.debug("Капча восстановлена из reasoning_content: %s", captcha_text)
             logger.debug("Распознанный текст капчи: %s", captcha_text)
             return captcha_text
         except (KeyError, IndexError, TypeError) as ex:

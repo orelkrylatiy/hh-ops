@@ -7,6 +7,7 @@ from typing import Any
 from ..ai.base import AIError
 from ..utils import json as utils_json
 from ..utils.string import strip_tags
+from ..utils.resume_context import load_resume_context
 
 logger = logging.getLogger(__package__)
 
@@ -91,6 +92,16 @@ class ApplyVacanciesAIMixin:
                 full_resume = self._get_full_resume(resume_id)
 
                 parts: list[str] = []
+
+                personal_context = load_resume_context(
+                    config=self.tool.config,
+                    resume_id=str(resume_id),
+                    alias=getattr(self, "resume_alias", None),
+                    profile_id=getattr(self.tool, "profile_id", "") or "",
+                )
+                if personal_context:
+                    parts.append("---------- ПРОФИЛЬ КАНДИДАТА ДЛЯ ЭТОГО РЕЗЮМЕ ----------")
+                    parts.append(personal_context)
 
                 title = full_resume.get("title", "")
                 if title:

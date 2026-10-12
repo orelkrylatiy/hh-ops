@@ -37,6 +37,7 @@ def _decision(**overrides: Any) -> SimpleNamespace:
         "vacancy_name": "Frontend developer",
         "employer_name": "Acme",
         "latest_message_text": "Когда удобно созвониться?",
+        "resume_context": "",
     }
     values.update(overrides)
     return SimpleNamespace(**values)

@@ -143,7 +143,12 @@ class LimitExceeded(ClientError):
 
 
 class Forbidden(ClientError):
-    pass
+    @property
+    def is_authentication_error(self) -> bool:
+        """A forbidden chat action does not imply an invalid OAuth token."""
+        return self.has_error_type("oauth", self.data) or self.has_error_value(
+            "bad_authorization", self.data
+        )
 
 
 class CaptchaRequired(ClientError):
