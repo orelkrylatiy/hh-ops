@@ -198,25 +198,34 @@ if [[ ! -f "$SYSTEM_PROMPT" ]]; then
     echo "Cover-letter prompt not found: $SYSTEM_PROMPT" >&2
     exit 1
 fi
-if ! command -v envsubst >/dev/null 2>&1; then
-    echo "envsubst is required (package gettext/gettext-base)" >&2
-    exit 1
-fi
 
+# render_prompt.py (venv-python, UTF-8 end-to-end) вместо envsubst:
+# envsubst на Windows портит кириллицу в значениях переменных (Максим -> ??????).
 RENDERED_SYSTEM_PROMPT="$(mktemp "${TMPDIR:-/tmp}/hh-apply-prompt.XXXXXX")"
 cleanup() {
     rm -f "$RENDERED_SYSTEM_PROMPT"
 }
 trap cleanup EXIT
 
-envsubst '${HH_NAME} ${HH_TELEGRAM}' < "$SYSTEM_PROMPT" > "$RENDERED_SYSTEM_PROMPT"
+PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "venv python not found: $PYTHON_BIN" >&2
+    exit 1
+fi
+if ! "$PYTHON_BIN" "$SCRIPT_DIR/render_prompt.py" "$SYSTEM_PROMPT" "$RENDERED_SYSTEM_PROMPT"; then
+    echo "Prompt rendering failed: $SYSTEM_PROMPT" >&2
+    exit 1
+fi
 
+# Префлайт LLM обязателен: с выключенным cover_letter_fallback (fail-closed)
+# продолжать без живого ИИ нельзя — отклики без AI запрещены правилом Макса.
 CHECK_ARGS=(--purpose cover-letter)
 if [[ -n "$PROFILE_ID" ]]; then
     CHECK_ARGS+=(--profile "$PROFILE_ID")
 fi
 if ! python3 "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"; then
-    echo "Cover-letter AI preflight failed; continuing with static fallback armed" >&2
+    echo "Cover-letter AI preflight failed; refusing to run without AI" >&2
+    exit 1
 fi
 
 HH_CMD=(hh-applicant-tool --no-auto-auth)
@@ -256,6 +265,13 @@ APPLY_CMD=(
     "${AI_FILTER_ARGS[@]}"
     "${MODE_ARGS[@]}"
 )
+
+# Необязательные фильтры поиска из apply-safe (area, work-format, period, order-by,
+# response-delay...), например: APPLY_EXTRA_ARGS="--work-format remote --area 113 --period 7"
+if [[ -n "${APPLY_EXTRA_ARGS:-}" ]]; then
+    read -r -a APPLY_EXTRA <<< "$APPLY_EXTRA_ARGS"
+    APPLY_CMD+=("${APPLY_EXTRA[@]}")
+fi
 
 selector="all-published"
 [[ -n "$RESUME_ID" ]] && selector="id:$RESUME_ID"
