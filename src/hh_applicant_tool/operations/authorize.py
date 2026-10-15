@@ -303,6 +303,54 @@ class Operation(BaseOperation):
         await page.press(self.SEL_PIN_CODE_INPUT, "Enter")
         logger.debug("Форма с кодом отправлена")
 
+    def _get_captcha_ai(self):
+        try:
+            return self._tool.get_captcha_ai()
+        except Exception as ex:  # noqa: BLE001
+            logger.info("AI-распознавание капчи недоступно: %s", ex)
+            return None
+
+    async def _solve_captcha_with_ai(self, page, captcha_element) -> bool:
+        """Vision-AI-распознавание как в apply_vacancies._solve_captcha_async.
+
+        До 5 попыток: неверный ответ => hh.ru рисует новую картинку.
+        Успех — исчез инпут капчи (networkidle на hh.ru не наступает).
+        """
+        captcha_ai = self._get_captcha_ai()
+        if captcha_ai is None:
+            return False
+        for attempt in range(5):
+            captcha_text = ""
+            try:
+                img_bytes = await captcha_element.screenshot()
+                captcha_text = await asyncio.to_thread(
+                    captcha_ai.solve_captcha, img_bytes
+                )
+            except Exception as ex:  # noqa: BLE001
+                logger.warning("captcha AI failed (попытка %d): %s", attempt + 1, ex)
+            if not captcha_text:
+                logger.warning("капча не распознана (попытка %d)", attempt + 1)
+                captcha_element = await page.wait_for_selector(
+                    self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
+                )
+                continue
+            logger.info(
+                "Распознанный текст капчи (попытка %d): %s", attempt + 1, captcha_text
+            )
+            await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
+            await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
+            for _ in range(6):
+                await page.wait_for_timeout(2500)
+                if not await page.query_selector(self.SEL_CAPTCHA_INPUT):
+                    logger.info("Капча решена AI")
+                    return True
+            logger.warning("капча не принята (попытка %d), пробую заново", attempt + 1)
+            captcha_element = await page.wait_for_selector(
+                self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
+            )
+        logger.error("AI не смог решить капчу за 5 попыток")
+        return False
+
     async def _handle_captcha(self, page):
         try:
             captcha_element = await page.wait_for_selector(
@@ -312,6 +360,9 @@ class Operation(BaseOperation):
             )
         except Exception:
             logger.debug("Капчи нет, продолжаем.")
+            return
+
+        if await self._solve_captcha_with_ai(page, captcha_element):
             return
 
         args = self._args
