@@ -14,6 +14,7 @@ import requests
 from requests import Session
 
 from hh_applicant_tool.api.user_agent import generate_android_useragent
+from hh_applicant_tool.constants import ACCEPT_LANGUAGE
 
 from . import errors
 from .client_keys import (
@@ -76,6 +77,7 @@ class BaseClient:
         return {
             "User-Agent": self.user_agent,
             "X-HH-App-Active": "true",
+            "Accept-Language": ACCEPT_LANGUAGE,
         }
 
     def request(

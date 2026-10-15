@@ -16,6 +16,18 @@ DESKTOP_USER_AGENT = (
     "Chrome/153.0.0.0 Safari/537.36"
 )
 
+# Влияет на язык контента. Может проверяться антиботом hh
+# (перенесено из апстрима s3rgeym/hh-applicant-tool, коммит bf7ae74)
+ACCEPT_LANGUAGE = "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+
+# Юзер-агент для эмуляции открытия страницы капчи в мобильном виде приложения.
+# У нас капча решается через Playwright (браузер шлёт свои заголовки),
+# константа оставлена для будущего requests-флоу капчи.
+ANDROID_WEBVIEW_USERAGENT = (
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230901.001; wv) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/118.0.0.0 Mobile Safari/537.36"
+)
+
 # Admin Panel API Endpoints
 ADMIN_API_PREFIX = "/api"
 ADMIN_API_STATUS = f"{ADMIN_API_PREFIX}/status"
