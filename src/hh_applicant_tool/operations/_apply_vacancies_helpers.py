@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from ..ai.base import AIError
 from ..api.datatypes import PaginatedItems, SearchVacancy
 from ..utils.datatypes import VacancyTestsData
 from ..utils.find import find_key
@@ -47,11 +48,116 @@ class ApplyVacanciesHelpersMixin:
         tests = find_key(config, "vacancyTests")
         return tests if isinstance(tests, dict) else None
 
+    # Безопасный ответ, если обе генерации ушли в шаблонный мусор.
+    _TASK_ANSWER_FALLBACK = (
+        "Готов ответить на этот вопрос подробно на созвоне или в переписке."
+    )
+
+    # Плейсхолдеры, мета-комментарии про шаблоны и markdown — признаки ответа
+    # «ассистента», а не кандидата (баг вечерней кампании 20.10.2026).
+    _TASK_TEMPLATE_JUNK_RE = re.compile(
+        r"\[[^\]\n]{1,20}\]"  # плейсхолдеры: [сумма], [X], [город]
+        r"|подстав(ьте|ить|ит)"  # «подставьте свою сумму»
+        r"|шаблон|заготовк|вариант[аы]? ответа|вариант с цифрой|вариант без"  # мета-текст
+        r"|профиль.{0,30}не передал"
+        r"|\*\*|###|```",  # markdown-разметка
+        re.IGNORECASE,
+    )
+
+    def _looks_like_template_junk(self, text: str) -> bool:
+        return bool(self._TASK_TEMPLATE_JUNK_RE.search(text or ""))
+
+    def _build_task_answer_context(
+        self,
+        vacancy: dict[str, Any] | None,
+        resume: dict[str, Any] | None,
+    ) -> str:
+        """Профиль кандидата и вилка вакансии для промпта ответов на анкету."""
+        parts: list[str] = []
+        if resume:
+            try:
+                profile = self._analyze_resume_heavy(resume)
+            except Exception as ex:  # профиль не должен ломать отклик
+                logger.warning("Не удалось получить профиль для ответов на тест: %s", ex)
+                profile = ""
+            if profile:
+                parts.append(profile[:2500])
+
+        salary = (vacancy or {}).get("salary") or {}
+        salary_bits = []
+        if salary.get("from"):
+            salary_bits.append(f"от {salary['from']}")
+        if salary.get("to"):
+            salary_bits.append(f"до {salary['to']}")
+        if salary_bits:
+            currency = {"RUR": "рублей"}.get(salary.get("currency") or "", salary.get("currency") or "")
+            parts.append("Вилка зарплаты в вакансии: " + " ".join(salary_bits) + (f" {currency}" if currency else ""))
+        else:
+            parts.append("Вилка зарплаты в вакансии не указана.")
+        return "\n".join(parts)
+
+    def _generate_task_answer(
+        self,
+        question: str,
+        vacancy: dict[str, Any] | None,
+        resume: dict[str, Any] | None,
+    ) -> str:
+        """Ответ на открытый вопрос анкеты работодателя от лица кандидата.
+
+        Профиль и вилка входят в промпт явно: без них модель, следуя системному
+        промпту писем («профиль придёт блоком»), отвечает как ассистент —
+        плейсхолдерами и заготовками. Чекер бракует такой текст и даёт одну
+        регенерацию, при повторном браке — безопасный статический ответ.
+        """
+        context = self._build_task_answer_context(vacancy, resume)
+        prompt = (
+            "Ты — кандидат. Работодатель задал тебе вопрос в анкете вакансии. "
+            "Ответь от первого лица, 1–3 предложения, обычным текстом.\n\n"
+            f"{context}\n\n"
+            f"Вопрос работодателя: {question}\n\n"
+            "Правила:\n"
+            "- Отвечай от своего имени, как живой человек, без канцелярита.\n"
+            "- Зарплатные ожидания согласовывай с вилкой вакансии выше; "
+            "если вилки нет — «назову ожидания после обсуждения задач».\n"
+            "- Никаких плейсхолдеров вида [сумма], [X], [город] и никаких "
+            "заготовок «подставьте сами» — только конкретный готовый ответ.\n"
+            "- Без markdown, заголовков и списков. Не упоминай ИИ, "
+            "автоматизацию, ботов."
+        )
+        try:
+            answer = (self.cover_letter_ai.complete(prompt) or "").strip()
+        except AIError as ex:
+            logger.warning("AI-ответ на вопрос анкеты не удался: %s", ex)
+            return self._TASK_ANSWER_FALLBACK
+        if answer and not self._looks_like_template_junk(answer):
+            return answer
+
+        try:
+            retry_prompt = (
+                prompt
+                + "\n\nПредыдущая попытка отклонена: получился шаблон или "
+                "плейсхолдер. Ответь от первого лица конкретным готовым "
+                "ответом на основе профиля, без квадратных скобок."
+            )
+            second = (self.cover_letter_ai.complete(retry_prompt) or "").strip()
+        except AIError:
+            second = ""
+        if second and not self._looks_like_template_junk(second):
+            return second
+
+        logger.warning(
+            "Ответ на вопрос анкеты забракован чекером (шаблон/плейсхолдер), "
+            "использую безопасный фолбэк"
+        )
+        return self._TASK_ANSWER_FALLBACK
+
     def _solve_vacancy_test(
         self,
         vacancy_id: str | int,
         resume_hash: str,
         letter: str = "",
+        vacancy: dict[str, Any] | None = None,
+        resume: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         response_url = (
             "https://hh.ru/applicant/vacancy_response?"
@@ -121,11 +227,9 @@ class ApplyVacanciesHelpersMixin:
                         "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
                     )
                 elif self.cover_letter_ai:
-                    prompt = (
-                        "Дай краткий и профессиональный ответ на вопрос: "
-                        f"{question}"
+                    answer = self._generate_task_answer(
+                        question, vacancy=vacancy, resume=resume
                     )
-                    answer = self.cover_letter_ai.complete(prompt)
                 else:
                     answer = "Да"
 

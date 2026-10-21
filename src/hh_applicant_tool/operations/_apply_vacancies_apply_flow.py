@@ -378,6 +378,7 @@ class ApplyVacanciesApplyFlowMixin:
         vacancy: dict[str, Any],
         resume_id: str,
         letter: str,
+        resume: dict[str, Any] | None = None,
     ) -> VacancyResponseResult:
         logger.debug("Пробуем откликнуться на вакансию: %s", vacancy["alternate_url"])
 
@@ -395,6 +396,8 @@ class ApplyVacanciesApplyFlowMixin:
                     vacancy_id=vacancy["id"],
                     resume_hash=resume_id,
                     letter=letter,
+                    vacancy=vacancy,
+                    resume=resume,
                 )
             except ValueError as ex:
                 logger.warning(
@@ -613,7 +616,9 @@ class ApplyVacanciesApplyFlowMixin:
                     resume,
                     message_placeholders,
                 )
-                result = self._send_vacancy_response(vacancy, resume["id"], letter)
+                result = self._send_vacancy_response(
+                    vacancy, resume["id"], letter, resume=resume
+                )
                 if not isinstance(result, VacancyResponseResult):
                     # Preserve the old private-method contract for custom
                     # integrations which return a plain boolean.
