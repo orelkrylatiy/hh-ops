@@ -489,6 +489,12 @@ ADMIN_PASSWORD=...
 ## Ручной One-shot Workflow
 
 ```bash
+# Все профили: один проход откликов, затем один проход автоответов
+./scripts/all-profiles.sh daily --live
+
+# То же без реальных отправок
+./scripts/all-profiles.sh daily --dry-run
+
 # Полный preview
 ./scripts/daily.sh --profile default --dry-run
 
@@ -504,6 +510,19 @@ ADMIN_PASSWORD=...
 # Boost не выполняется автоматически этим one-shot без отдельного подтверждения
 ./scripts/daily.sh --profile default --live --with-boost
 ```
+
+Fleet-команда `daily` не включает AI-фильтр вакансий (`--ai-filter`), но сохраняет
+обычный regex hard filter и использует AI для сопроводительных писем и ответов в
+чатах.
+
+На Windows браузеры всех сохранённых HH-профилей открываются командой из корня:
+
+```bat
+open-browsers.bat
+```
+
+Чтобы открыть только выбранные профили, передай их ID, например
+`open-browsers.bat 0555 1206`.
 
 Scheduled production path использует не `daily.sh`, а отдельные `cron-job.sh apply/reply/boost`, чтобы падение одного типа работы не смешивалось с другим.
 
