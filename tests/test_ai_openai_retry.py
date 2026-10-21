@@ -14,6 +14,14 @@ from hh_applicant_tool.automation.reply_fallback import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _legacy_transport(monkeypatch):
+    """Эти тесты проверяют legacy OpenAI-транспорт (мок session.post).
+    По умолчанию complete() ходит через цепочку humanizer-framework —
+    фиксируем файл на HH_AI_LEGACY=1."""
+    monkeypatch.setenv("HH_AI_LEGACY", "1")
+
+
 def make_client(session, max_retries=2):
     return ChatOpenAI(
         api_key="test-key",

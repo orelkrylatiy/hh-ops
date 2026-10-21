@@ -22,7 +22,7 @@ prettytable = "^3.6.0"
 # Communication layer (planner/policies/validators). Pin на commit: любое
 # изменение planner'а меняет исходящие тексты, обновление только явным bump.
 # Локальная разработка фреймворка: pip install -e ../humanizer-framework
-humanizer-framework = { git = "https://github.com/orelkrylatiy/humanizer-framework.git", rev = "626a76d84792b8d9151b3e4be55feb297588c305" }
+humanizer-framework = { git = "https://github.com/orelkrylatiy/humanizer-framework.git", rev = "48e79d284973f772fcf1d5b23c9f00d19ad3576f" }
 # poetry add playwright --optional
 playwright = { version = "^1.57.0", optional = true }
 # Он не работает или устаревший

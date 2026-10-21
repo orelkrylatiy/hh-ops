@@ -1,5 +1,6 @@
 import base64
 import logging
+import os
 import re
 import time
 from dataclasses import KW_ONLY, dataclass, field
@@ -11,6 +12,26 @@ import requests
 from .base import AIError
 
 logger = logging.getLogger(__package__)
+
+
+class OpenAIError(AIError):
+    pass
+
+
+_FRAMEWORK_CHAIN = None
+
+
+def _framework_chain_provider():
+    """Цепочка humanizer-framework (OpenCode ChatGPT → GLM → OpenAI API).
+
+    Ключи фреймворк берёт сам из своего .env. Один инстанс на процесс.
+    """
+    global _FRAMEWORK_CHAIN
+    if _FRAMEWORK_CHAIN is None:
+        from humanizer_framework.providers import default_provider
+
+        _FRAMEWORK_CHAIN = default_provider()
+    return _FRAMEWORK_CHAIN
 
 
 class OpenAIError(AIError):
@@ -151,7 +172,10 @@ class ChatOpenAI:
         raise OpenAIError("OpenAI request failed after retries")
 
     def complete(self, message: str) -> str:
-        """Генерирует текст через OpenAI-совместимый API.
+        """Генерирует текст. Транспорт: цепочка humanizer-framework
+        (OpenCode ChatGPT → GLM → OpenAI API, ключи в .env фреймворка).
+        HH_AI_LEGACY=1 возвращает прежний прямой OpenAI-совместимый вызов.
+        Vision-капча (solve_captcha) всегда ходит напрямую, как раньше.
 
         Args:
             message: пользовательский промпт.
@@ -159,6 +183,9 @@ class ChatOpenAI:
         Returns:
             Текст ответа модели.
         """
+        if not os.environ.get("HH_AI_LEGACY"):
+            return self._complete_via_framework(message)
+
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
@@ -184,6 +211,23 @@ class ChatOpenAI:
             return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL).strip()
         except (KeyError, IndexError, TypeError) as ex:
             raise OpenAIError(f"Invalid response format: {ex}") from ex
+
+    def _complete_via_framework(self, message: str) -> str:
+        try:
+            provider = _framework_chain_provider()
+            messages = []
+            if self.system_prompt:
+                messages.append({"role": "system", "content": self.system_prompt})
+            messages.append({"role": "user", "content": message})
+            text = provider.generate(
+                messages,
+                temperature=self.temperature,
+                max_tokens=self.max_completion_tokens,
+            )
+        except Exception as ex:
+            raise OpenAIError(f"framework chain failed: {ex}") from ex
+        # reasoning-модели иногда протаскивают блок размышления в content
+        return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
     def solve_captcha(self, image_data: bytes) -> str:
         """Распознаёт текст на изображении капчи через vision-модель.
