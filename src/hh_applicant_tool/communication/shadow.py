@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from humanizer_framework import CommunicationFramework
+from humanizer_framework.errors import GenerationValidationError
+from humanizer_framework.models import CommunicationResult
 from humanizer_framework.providers.base import Provider
 
 from .adapter import ChatCompleteProvider, build_chat_reply_request
@@ -89,7 +91,18 @@ class FrameworkShadowReplier:
                 employer_name=decision.employer_name,
                 latest_message_text=decision.latest_message_text,
             )
-            result = self._framework.generate(request)
+            try:
+                result = self._framework.generate(request)
+            except GenerationValidationError as exc:
+                # Hard-фейл валидации — полноценный результат сравнения:
+                # фреймворк текст не отдал, но issue-коды и план известны.
+                package = self._framework.prepare(request)
+                result = CommunicationResult(
+                    text=exc.last_text or "",
+                    plan=package.plan,
+                    issues=list(exc.issues),
+                    rewritten=False,
+                )
         except Exception as exc:  # shadow must never break the send path
             logger.warning(
                 "Framework shadow generation failed for chat %s: %s",
