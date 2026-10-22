@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from typing import Any
 from unittest.mock import Mock
 
@@ -178,7 +179,9 @@ def test_build_context_sorts_real_negotiation_messages_and_ignores_unknown_roles
 
 def test_hhcli_builds_profile_command() -> None:
     assert HHCLI("account-10")._base_command() == [
-        "hh-applicant-tool",
+        sys.executable,
+        "-m",
+        "hh_applicant_tool",
         "--no-auto-auth",
         "--profile-id",
         "account-10",
@@ -203,8 +206,10 @@ def test_hhcli_call_api_formulates_negotiation_message_post(monkeypatch) -> None
 
     assert result == {"id": "sent"}
     command = run.call_args.args[0]
-    assert command[:4] == [
-        "hh-applicant-tool",
+    assert command[:6] == [
+        sys.executable,
+        "-m",
+        "hh_applicant_tool",
         "--no-auto-auth",
         "--profile-id",
         "account-1",
@@ -212,6 +217,9 @@ def test_hhcli_call_api_formulates_negotiation_message_post(monkeypatch) -> None
     assert "--method" in command
     assert "message=Привет" in command
     assert "--data" not in command
+    kwargs = run.call_args.kwargs
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["env"]["PYTHONUTF8"] == "1"
 
 
 def test_hhcli_call_api_wraps_process_and_json_errors(monkeypatch) -> None:

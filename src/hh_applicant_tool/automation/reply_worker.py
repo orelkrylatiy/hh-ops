@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -146,7 +147,10 @@ class HHCLI:
         return any(marker in lowered for marker in cls.TRANSIENT_MARKERS)
 
     def _base_command(self) -> list[str]:
-        command = ["hh-applicant-tool", "--no-auto-auth"]
+        # Планировщик не активирует venv: голое имя "hh-applicant-tool" не
+        # резолвится по PATH, и subprocess падает с WinError 2 ещё до запроса.
+        # Зовём CLI через тот же интерпретатор, что и сам воркер.
+        command = [sys.executable, "-m", "hh_applicant_tool", "--no-auto-auth"]
         if self.profile_id:
             command.extend(["--profile-id", self.profile_id])
         return command
@@ -176,14 +180,22 @@ class HHCLI:
         # Ретраим только GET: повторный POST может задвоить сообщение,
         # идемпотентность отправки решается в send_reply через перечитывание чата.
         attempts = 3 if method == "GET" else 1
+        # Дочерний CLI пишет эмодзи/кириллицу в pipe: без UTF-8-режима Python на
+        # Windows падает на charmap ещё до ответа. all-profiles.sh экспортирует
+        # PYTHONUTF8 для планировщика, но прямой запуск reply.sh проходит без
+        # него — задаём UTF-8 и ребёнку (env), и декодированию его вывода.
+        child_env = {**os.environ, "PYTHONUTF8": "1"}
         for attempt in range(attempts):
             try:
                 result = subprocess.run(
                     command,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=60,
                     check=False,
+                    env=child_env,
                 )
             except subprocess.TimeoutExpired as exc:
                 # Зависший CLI-вызов — транзиентная проблема, как и сетевые
