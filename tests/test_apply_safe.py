@@ -122,6 +122,7 @@ def test_generated_cover_letter_is_sent_as_negotiation_message() -> None:
         _vacancy(),
         "resume-1",
         "Конкретное сопроводительное письмо",
+        resume=_resume(),
     )
 
     assert result == VacancyResponseResult(should_continue=True, accepted=True)

@@ -28,6 +28,20 @@ RESUME_ID=""
 RESUME_ALIAS=""
 AI_FILTER=""
 
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+    if [[ -f "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
+        PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
+    elif [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+        PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "Python not found: $PYTHON_BIN" >&2
+    exit 1
+fi
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)
@@ -183,7 +197,7 @@ if [[ -z "$EXCLUDED_FILTER" ]]; then
     fi
 fi
 
-python3 - "$EXCLUDED_FILTER" <<'PY'
+"$PYTHON_BIN" - "$EXCLUDED_FILTER" <<'PY'
 import re
 import sys
 
@@ -207,11 +221,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-    echo "venv python not found: $PYTHON_BIN" >&2
-    exit 1
-fi
 if ! "$PYTHON_BIN" "$SCRIPT_DIR/render_prompt.py" "$SYSTEM_PROMPT" "$RENDERED_SYSTEM_PROMPT"; then
     echo "Prompt rendering failed: $SYSTEM_PROMPT" >&2
     exit 1
@@ -223,12 +232,18 @@ CHECK_ARGS=(--purpose cover-letter)
 if [[ -n "$PROFILE_ID" ]]; then
     CHECK_ARGS+=(--profile "$PROFILE_ID")
 fi
-if ! python3 "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"; then
+if ! "$PYTHON_BIN" "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"; then
     echo "Cover-letter AI preflight failed; refusing to run without AI" >&2
     exit 1
 fi
 
-HH_CMD=(hh-applicant-tool --no-auto-auth)
+HH_EXECUTABLE="hh-applicant-tool"
+if [[ -f "$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe" ]]; then
+    HH_EXECUTABLE="$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe"
+elif [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
+    HH_EXECUTABLE="$PROJECT_ROOT/.venv/bin/hh-applicant-tool"
+fi
+HH_CMD=("$HH_EXECUTABLE" --no-auto-auth)
 if [[ -n "$PROFILE_ID" ]]; then
     HH_CMD+=(--profile-id "$PROFILE_ID")
 fi

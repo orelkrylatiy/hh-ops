@@ -108,6 +108,7 @@ class Operation(BaseApplyOperation):
         vacancy: dict[str, Any],
         resume_id: str,
         letter: str,
+        resume: dict[str, Any] | None = None,
     ) -> VacancyResponseResult:
         if (self.force_message or vacancy.get("response_letter_required")) and not letter.strip():
             logger.error(
@@ -115,7 +116,12 @@ class Operation(BaseApplyOperation):
                 vacancy.get("alternate_url", vacancy.get("id")),
             )
             return VacancyResponseResult(should_continue=True, accepted=False)
-        return super()._send_vacancy_response(vacancy, resume_id, letter)
+        return super()._send_vacancy_response(
+            vacancy,
+            resume_id,
+            letter,
+            resume=resume,
+        )
 
     def run(
         self,
