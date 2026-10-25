@@ -39,7 +39,7 @@ hh-applicant-tool boost-resume
 
 # 2. Отклики с AI-письмами (dry-run → live)
 ./scripts/apply.sh --dry-run   # проверить что будет отправлено
-./scripts/apply.sh              # live
+./scripts/apply.sh              # live, email enabled by default
 
 # 3. Ответить работодателям (итеративный AI, 6 проходов по 50 чатов)
 ./scripts/reply.sh --dry-run   # проверить
