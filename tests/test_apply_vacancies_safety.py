@@ -134,9 +134,10 @@ def test_smtp_helper_defends_against_dry_run_calls() -> None:
     smtp.send_message.assert_not_called()
 
 
-def test_vacancy_email_reuses_framework_letter_and_deduplicates() -> None:
+def test_vacancy_email_reuses_framework_letter_and_deduplicates(monkeypatch, tmp_path) -> None:
     import sqlite3
 
+    monkeypatch.setenv("HH_EMAIL_LEDGER_PATH", str(tmp_path / "global.sqlite"))
     operation = Operation()
     operation.dry_run = False
     operation._args = SimpleNamespace(send_email=True)
@@ -168,9 +169,10 @@ def test_vacancy_email_reuses_framework_letter_and_deduplicates() -> None:
     assert status == "sent"
 
 
-def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch) -> None:
+def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch, tmp_path) -> None:
     import sqlite3
 
+    monkeypatch.setenv("HH_EMAIL_LEDGER_PATH", str(tmp_path / "global.sqlite"))
     gmail = Mock()
     monkeypatch.setenv("HH_GMAIL_DIR", "test-gmail-dir")
     monkeypatch.setattr(
@@ -196,6 +198,21 @@ def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch) -> None
 
     gmail.send.assert_called_once()
     operation._send_email.assert_not_called()
+
+
+def test_global_email_ledger_blocks_same_recipient_across_profiles(tmp_path) -> None:
+    from hh_applicant_tool.communication.global_email_log import GlobalEmailSendLog
+
+    path = tmp_path / "global.sqlite"
+    first = GlobalEmailSendLog(path)
+    second = GlobalEmailSendLog(path)
+
+    assert first.claim("Recruiter@Example.test", "1", "profile-a", "Subject")
+    first.mark_sent("Recruiter@Example.test")
+    assert not second.claim("recruiter@example.test", "2", "profile-b", "Subject")
+
+    first.close()
+    second.close()
 
 
 def test_max_responses_stops_after_successful_responses_only() -> None:

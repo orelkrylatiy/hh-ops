@@ -17,7 +17,9 @@ from ..api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ..automation.reply_worker import AI_CLICHES, sanitize_reply_text
 from ..communication import FrameworkWriter
 from ..communication.email_log import EmailSendLog
+from ..communication.global_email_log import GlobalEmailSendLog
 from ..communication.gmail_api import GmailAPISender
+from ..constants import CONFIG_DIR
 from ..storage.repositories.errors import RepositoryError
 from ..utils.description_links import extract_vacancy_links, vacancy_response_link
 from ..utils.string import contains_smiley, rand_text, render_template
@@ -71,6 +73,25 @@ class VacancyResponseResult:
 
 
 class ApplyVacanciesApplyFlowMixin:
+    def _global_email_log(self) -> GlobalEmailSendLog:
+        configured = os.environ.get("HH_EMAIL_LEDGER_PATH")
+        if configured:
+            return GlobalEmailSendLog(configured)
+        base_dir = getattr(self.tool, "config_dir", None) or os.environ.get(
+            "CONFIG_DIR", str(CONFIG_DIR)
+        )
+        return GlobalEmailSendLog(
+            os.path.join(str(base_dir), "global_email_sends.sqlite"),
+            legacy_root=base_dir,
+        )
+
+    def _profile_id_for_email_log(self) -> str:
+        return str(
+            getattr(self.tool, "profile_id", None)
+            or os.environ.get("HH_PROFILE_ID")
+            or "default"
+        )
+
     def _validate_email_config(self) -> None:
         if not self.args.send_email:
             return
@@ -536,6 +557,7 @@ class ApplyVacanciesApplyFlowMixin:
             resume_url = message_placeholders.get("resume_url", "").strip()
             mail_body = letter + (f"\n\nРезюме: {resume_url}" if resume_url else "")
             ledger = EmailSendLog(self.tool.db)
+            global_ledger = self._global_email_log()
             recipients = mail_to if isinstance(mail_to, list) else re.split(r"[,;]", mail_to)
             for value in recipients:
                 recipient = parseaddr(str(value).strip())[1]
@@ -543,6 +565,14 @@ class ApplyVacanciesApplyFlowMixin:
                     continue
                 vacancy_id = str(vacancy.get("id") or "")
                 if not vacancy_id or not ledger.claim(vacancy_id, recipient, mail_subject):
+                    continue
+                if not global_ledger.claim(
+                    recipient,
+                    vacancy_id,
+                    self._profile_id_for_email_log(),
+                    mail_subject,
+                ):
+                    ledger.mark_failed(vacancy_id, recipient)
                     continue
                 try:
                     gmail_dir = os.environ.get("HH_GMAIL_DIR")
@@ -552,9 +582,12 @@ class ApplyVacanciesApplyFlowMixin:
                         self._send_email(recipient, mail_subject, mail_body)
                 except Exception:
                     ledger.mark_failed(vacancy_id, recipient)
+                    global_ledger.mark_failed(recipient)
                     raise
                 ledger.mark_sent(vacancy_id, recipient)
+                global_ledger.mark_sent(recipient)
                 logger.info("Vacancy email sent: vacancy=%s recipient=%s", vacancy_id, recipient)
+            global_ledger.close()
         except Exception as ex:
             self.email_error_count = getattr(self, "email_error_count", 0) + 1
             logger.error("Ошибка отправки письма: %s", ex)
