@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
+import asyncio
 from typing import Any
 
+from ..api.errors import CaptchaRequired
 from ..ai.base import AIError
 from ..utils import json as utils_json
 from ..utils.string import strip_tags
@@ -13,12 +15,22 @@ logger = logging.getLogger(__package__)
 
 
 class ApplyVacanciesAIMixin:
+    def _get_vacancy_with_captcha_retry(self, vacancy_id: str | int) -> dict[str, Any]:
+        """Fetch vacancy details and solve HH's interstitial captcha once if needed."""
+        try:
+            return self.api_client.get(f"/vacancies/{vacancy_id}")
+        except CaptchaRequired as ex:
+            logger.warning("Требуется капча при чтении вакансии %s: %s", vacancy_id, ex.captcha_url)
+            if not ex.captcha_url or not asyncio.run(self._solve_captcha_async(ex.captcha_url)):
+                raise
+            return self.api_client.get(f"/vacancies/{vacancy_id}")
+
     def _get_full_vacancy(self, vacancy_id: str | int) -> dict[str, Any]:
         vacancy_key = str(vacancy_id)
         if vacancy_key in self._vacancy_context_cache:
             return self._vacancy_context_cache[vacancy_key]
 
-        full_vacancy = self.api_client.get(f"/vacancies/{vacancy_id}")
+        full_vacancy = self._get_vacancy_with_captcha_retry(vacancy_id)
         self._vacancy_context_cache[vacancy_key] = full_vacancy
         self._save_vacancy_links(full_vacancy)
         return full_vacancy
@@ -167,7 +179,7 @@ class ApplyVacanciesAIMixin:
 
     def _get_vacancy_key_skills(self, vacancy_id: str | int) -> str:
         try:
-            full_vacancy = self.api_client.get(f"/vacancies/{vacancy_id}")
+            full_vacancy = self._get_vacancy_with_captcha_retry(vacancy_id)
             key_skills_data = full_vacancy.get("key_skills") or []
             return ", ".join(
                 s["name"] for s in key_skills_data if s.get("name")
