@@ -9,6 +9,7 @@ from humanizer_framework import CommunicationFramework
 from humanizer_framework.models import CommunicationResult
 
 from .adapter import build_application_request, build_chat_reply_request
+from ..ai.framework_provider import opencode_provider
 
 
 class FrameworkWriter:
@@ -16,7 +17,7 @@ class FrameworkWriter:
         os.environ.setdefault(
             "HUMANIZER_ENV_FILE", str(Path(__file__).resolve().parents[3] / ".env")
         )
-        self._framework = framework or CommunicationFramework()
+        self._framework = framework or CommunicationFramework(provider=opencode_provider())
 
     def application(
         self, *, vacancy_name: str, employer_name: str, source_context: str

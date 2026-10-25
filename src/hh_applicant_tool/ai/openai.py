@@ -32,15 +32,12 @@ _FRAMEWORK_CHAIN = None
 
 
 def _framework_chain_provider():
-    """Цепочка humanizer-framework (OpenCode ChatGPT → GLM → OpenAI API).
-
-    Ключи фреймворк берёт сам из своего .env. Один инстанс на процесс.
-    """
+    """Humanizer Framework's OpenCode-only provider for text generation."""
     global _FRAMEWORK_CHAIN
     if _FRAMEWORK_CHAIN is None:
-        from humanizer_framework.providers import default_provider
+        from .framework_provider import opencode_provider
 
-        _FRAMEWORK_CHAIN = default_provider()
+        _FRAMEWORK_CHAIN = opencode_provider()
     return _FRAMEWORK_CHAIN
 
 
