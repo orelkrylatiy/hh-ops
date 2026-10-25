@@ -60,6 +60,7 @@ class ChatOpenAI:
     max_completion_tokens: int = 1000
     model: str | None = None
     rate_limit: int = 40  # запросов в минуту, 0 = отключено
+    verify_ssl: bool = True
 
     session: requests.Session = field(default_factory=requests.Session)
 
@@ -91,6 +92,7 @@ class ChatOpenAI:
                     json=payload,
                     headers=self._default_headers(),
                     timeout=self.timeout,
+                    verify=self.verify_ssl,
                 )
             finally:
                 self._previous_request_time = time.monotonic()

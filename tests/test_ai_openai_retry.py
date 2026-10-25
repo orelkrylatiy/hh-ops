@@ -55,6 +55,22 @@ def test_retries_transient_server_error(monkeypatch):
     assert session.post.call_count == 2
 
 
+def test_ssl_verification_is_forwarded_to_transport() -> None:
+    session = Mock()
+    session.post.return_value = response(200, {"choices": [{"message": {"content": "ok"}}]})
+    client = ChatOpenAI(
+        api_key="test-key",
+        base_url="https://example.test/v1/chat/completions",
+        model="test-model",
+        rate_limit=0,
+        session=session,
+        verify_ssl=False,
+    )
+
+    assert client.complete("hello") == "ok"
+    assert session.post.call_args.kwargs["verify"] is False
+
+
 def test_retries_network_error(monkeypatch):
     session = Mock()
     session.post.side_effect = [

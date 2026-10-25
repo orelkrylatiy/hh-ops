@@ -436,6 +436,17 @@ class HHApplicantTool(MegaTool):
                 config_section,
             )
     
+        verify_ssl = not (
+            purpose == "captcha"
+            and os.environ.get("HH_CAPTCHA_VERIFY_SSL", "1").strip().lower()
+            in {"0", "false", "no", "off"}
+        )
+        if not verify_ssl:
+            logger.warning(
+                "SSL certificate verification disabled for captcha AI only "
+                "(HH_CAPTCHA_VERIFY_SSL=0)"
+            )
+
         return ai.ChatOpenAI(
             api_key=api_key,
             model=model,
@@ -446,6 +457,7 @@ class HHApplicantTool(MegaTool):
             rate_limit=c.get("rate_limit", 40),
             timeout=c.get("timeout", 45.0),
             session=self.openai_session,
+            verify_ssl=verify_ssl,
         )
 
     def _cookie_value(self, name: str) -> str | None:
