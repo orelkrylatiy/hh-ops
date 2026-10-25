@@ -418,6 +418,12 @@ class HHApplicantTool(MegaTool):
                 f"API-ключ не задан. Укажите 'api_key' в секции '{config_section}' конфигурации."
             )
 
+        # Humanizer Framework's final fallback reads OPENAI_API_KEY from its
+        # environment. Profile configs already contain the provider key, so
+        # bridge it without printing or persisting the secret. An explicitly
+        # configured process environment always wins.
+        os.environ.setdefault("OPENAI_API_KEY", str(api_key))
+
         base_url = c.get("base_url")
         if not base_url:
             raise ValueError(
