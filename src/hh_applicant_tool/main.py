@@ -458,7 +458,6 @@ class HHApplicantTool(MegaTool):
             timeout=c.get("timeout", 45.0),
             session=self.openai_session,
             verify_ssl=verify_ssl,
-            legacy_transport=purpose == "vacancy_filter",
         )
 
     def _cookie_value(self, name: str) -> str | None:
