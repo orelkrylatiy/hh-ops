@@ -184,13 +184,6 @@ class ApplyVacanciesAIMixin:
             return ", ".join(
                 s["name"] for s in key_skills_data if s.get("name")
             )
-        except CaptchaRequired:
-            logger.error(
-                "CAPTCHA не пройдена для вакансии %s; останавливаю lane, "
-                "чтобы не повторять запросы к HH. Требуется ручное прохождение.",
-                vacancy_id,
-            )
-            raise
         except Exception as ex:
             logger.warning(
                 "Не удалось получить key_skills вакансии %s: %s",
