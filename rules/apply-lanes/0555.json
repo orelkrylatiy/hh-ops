@@ -12,9 +12,7 @@
       "search": "AI Engineer",
       "limit": 25,
       "pages": 12,
-      "ai_filter": "light",
-      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
-      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt"
     },
     {
       "name": "llm-engineer",
@@ -23,9 +21,7 @@
       "search": "LLM Engineer",
       "limit": 25,
       "pages": 12,
-      "ai_filter": "light",
-      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
-      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt"
     },
     {
       "name": "ai-automation",
@@ -34,9 +30,7 @@
       "search": "AI автоматизация",
       "limit": 20,
       "pages": 10,
-      "ai_filter": "light",
-      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
-      "hard_filter_file": "rules/apply-ai-hard-filter.regex"
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt"
     }
   ]
 }
