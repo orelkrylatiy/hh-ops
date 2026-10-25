@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
+from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError, _normalize_captcha_text
 from hh_applicant_tool.automation.reply_fallback import (
     DEFAULT_REPLY_FALLBACK_MESSAGE,
     FallbackChatAI,
@@ -69,6 +69,36 @@ def test_ssl_verification_is_forwarded_to_transport() -> None:
 
     assert client.complete("hello") == "ok"
     assert session.post.call_args.kwargs["verify"] is False
+
+
+def test_legacy_transport_bypasses_framework_chain(monkeypatch) -> None:
+    monkeypatch.delenv("HH_AI_LEGACY", raising=False)
+    session = Mock()
+    session.post.return_value = response(200, {"choices": [{"message": {"content": "ok"}}]})
+    client = ChatOpenAI(
+        api_key="test-key",
+        base_url="https://example.test/v1/chat/completions",
+        model="test-model",
+        rate_limit=0,
+        session=session,
+        legacy_transport=True,
+    )
+
+    assert client.complete("hello") == "ok"
+    assert session.post.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('"Ab 1-cD"', "Ab1cD"),
+        ("The answer is xY7kQ2", "xY7kQ2"),
+        ("```QwEr12```", "QwEr12"),
+        ("abc", ""),
+    ],
+)
+def test_normalize_captcha_text(raw: str, expected: str) -> None:
+    assert _normalize_captcha_text(raw) == expected
 
 
 def test_retries_network_error(monkeypatch):

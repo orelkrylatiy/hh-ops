@@ -14,6 +14,16 @@ from .base import AIError
 logger = logging.getLogger(__package__)
 
 
+def _normalize_captcha_text(value: str) -> str:
+    """Extract HH's case-sensitive 4-8 character captcha token."""
+    raw = (value or "").strip()
+    compact = re.sub(r"[^A-Za-z0-9]", "", raw)
+    if 4 <= len(compact) <= 8:
+        return compact
+    tokens = re.findall(r"[A-Za-z0-9]{4,8}", raw)
+    return tokens[-1] if tokens else ""
+
+
 class OpenAIError(AIError):
     pass
 
@@ -61,6 +71,7 @@ class ChatOpenAI:
     model: str | None = None
     rate_limit: int = 40  # запросов в минуту, 0 = отключено
     verify_ssl: bool = True
+    legacy_transport: bool = False
 
     session: requests.Session = field(default_factory=requests.Session)
 
@@ -185,7 +196,7 @@ class ChatOpenAI:
         Returns:
             Текст ответа модели.
         """
-        if not os.environ.get("HH_AI_LEGACY"):
+        if not (self.legacy_transport or os.environ.get("HH_AI_LEGACY")):
             return self._complete_via_framework(message)
 
         messages = []
@@ -248,8 +259,9 @@ class ChatOpenAI:
                 {
                     "role": "system",
                     "content": (
-                        "Ты должен распознать текст на изображении. "
-                        "Верни ТОЛЬКО текст, без каких-либо объяснений или дополнительных символов."
+                        "Ты должен распознать CAPTCHA на изображении. "
+                        "Это 4-8 латинских букв и цифр. Сохрани регистр. "
+                        "Верни только токен слитно, без пробелов, кавычек, markdown и объяснений."
                     ),
                 },
                 {
@@ -261,7 +273,7 @@ class ChatOpenAI:
                         },
                         {
                             "type": "text",
-                            "text": "Распознай текст на изображении. Верни только результат распознавания.",
+                            "text": "Распознай CAPTCHA. Верни только слитный токен из латинских букв и цифр.",
                         },
                     ],
                 },
@@ -286,6 +298,9 @@ class ChatOpenAI:
                 if matches:
                     captcha_text = matches[-1]
                     logger.debug("Капча восстановлена из reasoning_content: %s", captcha_text)
+            # Models may wrap the answer in quotes, markdown, spaces or a sentence.
+            # HH expects only the case-sensitive alphanumeric token.
+            captcha_text = _normalize_captcha_text(captcha_text)
             logger.debug("Распознанный текст капчи: %s", captcha_text)
             return captcha_text
         except (KeyError, IndexError, TypeError) as ex:
