@@ -4,12 +4,15 @@ import argparse
 import json
 import logging
 import random
+import re
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from ..ai.base import AIError
 from ..api import ApiError, datatypes
+from ..automation.reply_worker import reply_quality_issues, sanitize_reply_text
+from ..communication import FrameworkWriter
 from ..main import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.misc import load_prompt
@@ -110,32 +113,16 @@ class Operation(BaseOperation):
         self.tool = tool
         self.api_client = tool.api_client
         self.resume_id = args.resume_id
-        self.reply_message = args.reply_message or tool.config.get("reply_message")
+        self.reply_message = args.reply_message or (
+            None if args.use_ai else tool.config.get("reply_message")
+        )
         self.max_pages = args.max_pages
         self.dry_run = args.dry_run
         self.only_invitations = args.only_invitations
         self.json_output = getattr(args, "json_output", False)
 
         self.message_prompt = load_prompt(args.message_prompt)
-        self.reply_ai = None
-        if args.use_ai:
-            system_prompt = load_prompt(args.system_prompt)
-            try:
-                self.reply_ai = tool.get_reply_ai(system_prompt)
-            except ValueError:
-                logger.info(
-                    "openai_reply is not configured; trying openai_cover_letter fallback"
-                )
-                try:
-                    self.reply_ai = tool.get_cover_letter_ai(system_prompt)
-                except ValueError:
-                    pass
-
-        if self.reply_ai is None and args.use_ai:
-            logger.warning(
-                "AI запрошен (--use-ai), но ни 'openai_reply', ни 'openai_cover_letter' "
-                "не настроены в конфиге. Используются шаблонные сообщения."
-            )
+        self.reply_ai = bool(args.use_ai)
         self.period = args.period
 
         logger.debug(f"{self.reply_message = }")
@@ -330,20 +317,27 @@ class Operation(BaseOperation):
                         logger.debug(f"Template message: {send_message}")
                     elif self.reply_ai:
                         try:
-                            ai_query = self._build_ai_reply_query(
-                                vacancy_name=placeholders["vacancy_name"],
-                                resume_title=placeholders["resume_title"],
-                                message_history=message_history,
-                                resume_context=load_resume_context(
-                                    config=self.tool.config,
-                                    resume_id=str(resume.get("id") or ""),
-                                    profile_id=getattr(self.tool, "profile_id", "") or "",
-                                ),
+                            context = [re.sub(r"^\[.*?\]\s*", "", line) for line in message_history[-20:]]
+                            resume_context = load_resume_context(
+                                config=self.tool.config,
+                                resume_id=str(resume.get("id") or ""),
+                                profile_id=getattr(self.tool, "profile_id", "") or "",
                             )
-                            send_message = self.reply_ai.complete(ai_query)
+                            result = FrameworkWriter().chat_reply(
+                                context=context,
+                                initiated_by_us=bool(context and context[0].startswith("Я: ")),
+                                vacancy_name=placeholders["vacancy_name"],
+                                employer_name=placeholders["employer_name"],
+                                latest_message_text=str(last_message.get("text") or ""),
+                                resume_context=resume_context,
+                            )
+                            send_message = sanitize_reply_text(result.text.strip())
+                            issues = reply_quality_issues(send_message)
+                            if issues:
+                                raise AIError("framework reply quality failed: " + ", ".join(issues))
                             logger.debug(f"AI message: {send_message}")
                             time.sleep(1.0)
-                        except AIError as ex:
+                        except Exception as ex:
                             logger.warning(f"Ошибка AI для чата {nid}: {ex}")
                             results["errors"].append(
                                 {

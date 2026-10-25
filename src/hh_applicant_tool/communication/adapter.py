@@ -69,6 +69,7 @@ def build_chat_reply_request(
     vacancy_name: str,
     employer_name: str,
     latest_message_text: str,
+    resume_context: str = "",
     profile: str = "frontend-react",
     voice: VoiceProfile | None = None,
     language: str = "ru",
@@ -84,10 +85,40 @@ def build_chat_reply_request(
             "employer": {"name": employer_name},
             "latest_employer_message": latest_message_text,
             "initiated_by_candidate": initiated_by_us,
+            "candidate_profile": resume_context,
         },
         business_rules=CHAT_REPLY_BUSINESS_RULES,
         voice=voice or DEFAULT_CHAT_VOICE,
         language=language,
+    )
+
+
+APPLICATION_BUSINESS_RULES = [
+    "Пиши сопроводительное письмо для отклика на конкретную вакансию hh.ru.",
+    "Используй только подтвержденные факты кандидата из context. Не выдумывай опыт, проекты и достижения.",
+    "Свяжи один-два релевантных факта с задачами вакансии; не пересказывай резюме целиком.",
+    "Начни с короткого приветствия. Не обращайся к работодателю именем кандидата.",
+    "Верни только текст письма, без заголовка, подписи-заглушки и контактных данных, которых нет в context.",
+]
+
+
+def build_application_request(
+    *, vacancy_name: str, employer_name: str, source_context: str,
+    profile: str = "frontend-react", voice: VoiceProfile | None = None,
+) -> CommunicationRequest:
+    return job_search_request(
+        channel="hh",
+        message_type="application",
+        profile=profile,
+        conversation=[],
+        context={
+            "vacancy": {"name": vacancy_name},
+            "employer": {"name": employer_name},
+            "source_context": source_context,
+        },
+        business_rules=APPLICATION_BUSINESS_RULES,
+        voice=voice or DEFAULT_CHAT_VOICE,
+        language="ru",
     )
 
 

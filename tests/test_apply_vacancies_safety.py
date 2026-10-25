@@ -134,6 +134,70 @@ def test_smtp_helper_defends_against_dry_run_calls() -> None:
     smtp.send_message.assert_not_called()
 
 
+def test_vacancy_email_reuses_framework_letter_and_deduplicates() -> None:
+    import sqlite3
+
+    operation = Operation()
+    operation.dry_run = False
+    operation._args = SimpleNamespace(send_email=True)
+    operation.tool = SimpleNamespace(config={}, db=sqlite3.connect(":memory:"))
+    operation._send_email = Mock()
+    vacancy = _vacancy("1")
+    vacancy["contacts"] = {"email": "recruiter@example.test"}
+    letter = (
+        "Здравствуйте! Более пяти лет разрабатываю интерфейсы на React и TypeScript. "
+        "Работал над интерфейсами в финтехе и вижу связь этого опыта с задачами "
+        "вашей вакансии. Буду рад обсудить детали проекта."
+    )
+    placeholders = {"vacancy_name": "Frontend developer", "resume_url": "https://hh.ru/resume/1"}
+
+    for _ in range(2):
+        operation._send_vacancy_email_if_needed(
+            vacancy, None, {}, placeholders, letter
+        )
+
+    operation._send_email.assert_called_once()
+    recipient, subject, body = operation._send_email.call_args.args
+    assert recipient == "recruiter@example.test"
+    assert "Frontend developer" in subject
+    assert letter in body
+    assert "https://hh.ru/resume/1" in body
+    status = operation.tool.db.execute(
+        "SELECT status FROM vacancy_email_sends WHERE vacancy_id=?", ("1",)
+    ).fetchone()[0]
+    assert status == "sent"
+
+
+def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch) -> None:
+    import sqlite3
+
+    gmail = Mock()
+    monkeypatch.setenv("HH_GMAIL_DIR", "test-gmail-dir")
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations._apply_vacancies_apply_flow.GmailAPISender",
+        Mock(return_value=gmail),
+    )
+    operation = Operation()
+    operation.dry_run = False
+    operation._args = SimpleNamespace(send_email=True)
+    operation.tool = SimpleNamespace(config={}, db=sqlite3.connect(":memory:"))
+    operation._send_email = Mock()
+    vacancy = _vacancy("1")
+    vacancy["contacts"] = {"email": "recruiter@example.test"}
+    letter = (
+        "Здравствуйте! Более пяти лет разрабатываю интерфейсы на React и TypeScript. "
+        "Работал над интерфейсами в финтехе и вижу связь этого опыта с задачами "
+        "вашей вакансии. Буду рад обсудить детали проекта."
+    )
+
+    operation._send_vacancy_email_if_needed(
+        vacancy, None, {}, {"vacancy_name": "Frontend developer"}, letter
+    )
+
+    gmail.send.assert_called_once()
+    operation._send_email.assert_not_called()
+
+
 def test_max_responses_stops_after_successful_responses_only() -> None:
     operation = _operation_for_resume(
         [_vacancy("1"), _vacancy("2"), _vacancy("3")],

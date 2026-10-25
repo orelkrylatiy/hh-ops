@@ -15,6 +15,7 @@ from hh_applicant_tool.automation.reply_worker import (
 from hh_applicant_tool.communication import (
     CHAT_REPLY_BUSINESS_RULES,
     FrameworkShadowReplier,
+    FrameworkWriter,
     build_chat_reply_request,
     conversation_from_context,
     framework_shadow_enabled,
@@ -95,6 +96,34 @@ def test_framework_shadow_enabled_reads_env() -> None:
     assert framework_shadow_enabled({SHADOW_ENV_FLAG: "1"})
     assert framework_shadow_enabled({SHADOW_ENV_FLAG: "yes"})
     assert not framework_shadow_enabled({SHADOW_ENV_FLAG: "0"})
+
+
+def test_live_writer_generates_application_and_chat_reply() -> None:
+    letter = (
+        "Здравствуйте! Более пяти лет разрабатываю интерфейсы на React и TypeScript. "
+        "В вакансии важна работа с продуктовым интерфейсом, и этот опыт подходит "
+        "для ваших задач. Буду рад рассказать подробнее о проектах."
+    )
+
+    provider = MockProvider([letter, letter, "Да, работал с React и TypeScript."])
+    writer = FrameworkWriter(CommunicationFramework(provider=provider))
+    application = writer.application(
+        vacancy_name="Frontend developer",
+        employer_name="Acme",
+        source_context="Вакансия: Frontend developer. Резюме: пять лет React и TypeScript.",
+    )
+    reply = writer.chat_reply(
+        context=["Работодатель: Работали с React?"],
+        initiated_by_us=True,
+        vacancy_name="Frontend developer",
+        employer_name="Acme",
+        latest_message_text="Работали с React?",
+        resume_context="Пять лет React и TypeScript",
+    )
+
+    assert application.text == letter
+    assert reply.text == "Да, работал с React и TypeScript."
+    assert provider.calls
 
 
 def test_contains_smiley_detects_text_smileys_but_not_parens() -> None:
@@ -191,6 +220,38 @@ def test_worker_runs_shadow_on_healthy_reply() -> None:
     assert reply is not None
     assert len(shadow.calls) == 1
     assert shadow.calls[0][1] == reply
+
+
+def test_live_worker_sends_framework_reply_without_legacy_ai() -> None:
+    writer = Mock()
+    writer.chat_reply.return_value = SimpleNamespace(
+        text="Да, работаю с React и TypeScript.",
+        plan=SimpleNamespace(action=SimpleNamespace(value="answer")),
+        provider="mock",
+        issues=[],
+    )
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False),
+        hh=Mock(),
+        ai=None,
+        system_prompt="",
+        framework_writer=writer,
+    )
+    assert worker.generate_reply(_decision()) == "Да, работаю с React и TypeScript."
+    assert writer.chat_reply.call_args.kwargs["resume_context"] == ""
+
+
+def test_live_worker_skips_failed_framework_reply() -> None:
+    writer = Mock()
+    writer.chat_reply.side_effect = RuntimeError("provider unavailable")
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False),
+        hh=Mock(),
+        ai=None,
+        system_prompt="",
+        framework_writer=writer,
+    )
+    assert worker.generate_reply(_decision()) is None
 
 
 def test_worker_dry_run_never_calls_shadow() -> None:

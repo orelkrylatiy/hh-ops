@@ -92,14 +92,8 @@ class Operation(BaseApplyOperation):
                     return letter
                 raise AIError("cover-letter AI returned an empty message")
             except (AIError, OSError, ValueError) as exc:
-                if not self.cover_letter_fallback_enabled:
-                    raise
-                self.cover_fallback_count += 1
-                logger.warning(
-                    "HH_COVER_FALLBACK vacancy=%s reason=%s",
-                    vacancy.get("id", ""),
-                    type(exc).__name__,
-                )
+                # AI applications must not silently send a static template.
+                raise AIError(f"framework cover letter unavailable: {exc}") from exc
 
         return self._render_cover_letter_fallback(message_placeholders)
 
@@ -150,25 +144,20 @@ class Operation(BaseApplyOperation):
         )
 
         self.cover_fallback_count = 0
-        try:
-            self.cover_letter_ai = (
-                tool.get_cover_letter_ai(args.system_prompt) if args.use_ai else None
-            )
-        except (AIError, OSError, ValueError) as exc:
-            if not self.cover_letter_fallback_enabled:
-                raise
-            logger.warning(
-                "Cover-letter AI initialization failed (%s); static fallback is armed",
-                type(exc).__name__,
-            )
-            self.cover_letter_ai = None
+        self.cover_letter_ai = (
+            tool.get_cover_letter_ai("")
+            if args.use_ai and not args.skip_tests
+            else bool(args.use_ai)
+        )
 
         self.ai_filter = args.ai_filter
         self.vacancy_filter_ai = None
         self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
         self._vacancy_context_cache: dict[str, dict[str, Any]] = {}
         self.ai_error_count = 0
+        self.email_error_count = 0
 
+        self._validate_email_config()
         self._apply_vacancies()
 
         if self.cover_fallback_count:
@@ -176,10 +165,10 @@ class Operation(BaseApplyOperation):
                 "Static cover-letter fallback used for %d vacancy(s)",
                 self.cover_fallback_count,
             )
-        if self.ai_error_count:
+        if self.ai_error_count or self.email_error_count:
             logger.error(
-                "AI processing failed for %d vacancy(s); run marked unsuccessful",
-                self.ai_error_count,
+                "AI or email failed: AI=%d, email=%d; run marked unsuccessful",
+                self.ai_error_count, self.email_error_count,
             )
             return 1
         return None

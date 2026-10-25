@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
-from hh_applicant_tool.automation.reply_state import ManualChatQueue
-from hh_applicant_tool.communication import FrameworkShadowReplier
+from hh_applicant_tool.automation.reply_state import ManualChatQueue, ReplySendLog
+from hh_applicant_tool.communication import FrameworkShadowReplier, FrameworkWriter
 from hh_applicant_tool.constants import CONFIG_DIR
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 from hh_applicant_tool.utils.resume_context import load_resume_context
@@ -439,6 +439,8 @@ class ReplyWorker:
         system_prompt: str,
         manual_queue: ManualChatQueue | None = None,
         shadow_replier: FrameworkShadowReplier | None = None,
+        framework_writer: FrameworkWriter | None = None,
+        send_log: ReplySendLog | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
@@ -446,6 +448,8 @@ class ReplyWorker:
         self.system_prompt = system_prompt
         self.manual_queue = manual_queue
         self.shadow_replier = shadow_replier
+        self.framework_writer = framework_writer
+        self.send_log = send_log
         self.resume_aliases = self._load_resume_aliases()
 
     def _load_resume_aliases(self) -> dict[str, str]:
@@ -462,8 +466,9 @@ class ReplyWorker:
         """Collect chats via /negotiations (/common/chats is forbidden for API tokens)."""
         chats: list[dict[str, Any]] = []
         page = 0
+        inspected = 0
         per_page = min(max(self.config.max_chats, 1), 100)
-        while len(chats) < self.config.max_chats:
+        while inspected < self.config.max_chats:
             payload = self.hh.call_api(f"/negotiations?page={page}&per_page={per_page}")
             items = payload.get("items")
             if not isinstance(items, list) or not items:
@@ -471,6 +476,9 @@ class ReplyWorker:
             for item in items:
                 if not isinstance(item, dict):
                     continue
+                if inspected >= self.config.max_chats:
+                    break
+                inspected += 1
                 state = item.get("state")
                 if isinstance(state, dict) and state.get("id") == "discard":
                     negotiation_id = str(item.get("id") or "")
@@ -503,6 +511,11 @@ class ReplyWorker:
                 if message_role(latest) != EMPLOYER_ROLE:
                     if self.manual_queue is not None and not self.config.dry_run:
                         self.manual_queue.resolve_chat(negotiation_id)
+                    continue
+                if self.send_log is not None and latest_id and self.send_log.is_recorded(
+                    negotiation_id, latest_id
+                ):
+                    logger.info("Chat %s already answered for employer message %s", negotiation_id, latest_id)
                     continue
                 if self.manual_queue is not None and not self.config.dry_run and latest_id:
                     self.manual_queue.resolve_chat(
@@ -667,6 +680,29 @@ class ReplyWorker:
     def generate_reply(self, decision: ReplyDecision) -> str | None:
         if self.config.dry_run:
             return safe_preview_reply(decision.initiated_by_us)
+        if self.framework_writer is not None:
+            try:
+                result = self.framework_writer.chat_reply(
+                    context=decision.context,
+                    initiated_by_us=decision.initiated_by_us,
+                    vacancy_name=decision.vacancy_name,
+                    employer_name=decision.employer_name,
+                    latest_message_text=decision.latest_message_text,
+                    resume_context=decision.resume_context,
+                )
+            except Exception as exc:
+                logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
+                return None
+            reply = sanitize_reply_text(result.text.strip())
+            issues = reply_quality_issues(reply)
+            if issues:
+                logger.warning("Framework reply rejected for chat %s: %s", decision.chat_id,
+                               ", ".join(issues))
+                return None
+            logger.info("Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
+                        decision.chat_id, result.plan.action.value, result.provider,
+                        [issue.code for issue in result.issues])
+            return reply
         if self.ai is None:
             raise ValueError("AI client is required for live replies")
 
@@ -809,7 +845,16 @@ class ReplyWorker:
                     )
                     stats["stale"] += 1
                     continue
+                if self.send_log is not None and not self.send_log.claim(
+                    decision.chat_id, decision.expected_last_message_id
+                ):
+                    stats["skipped"] += 1
+                    continue
                 if self.send_reply(decision, reply):
+                    if self.send_log is not None:
+                        self.send_log.mark_sent(
+                            decision.chat_id, decision.expected_last_message_id
+                        )
                     stats["sent"] += 1
                 else:
                     stats["errors"] += 1

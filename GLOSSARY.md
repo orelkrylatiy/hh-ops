@@ -73,18 +73,14 @@ batch-отклики с AI-сопроводительными письмами, 
 
 ## LLM и humanizer
 
-- **Продакшн-текстовый слой** — свой: системные промпты `prompts/*.txt`
-  (`cover_letter_frontend`, `cover_letter_ai_engineer`, `cover_letter_simple`,
-  `reply_employer`) + runtime-валидаторы качества (см. cover letter). Модель —
-  OpenAI-compatible из `config.json` профиля (сейчас `gpt-4.1-mini`, base
-  api.openai.com; назначения cover_letter/reply/vacancy_filter/captcha-vision).
-  В `ai/openai.py` есть спец-обработка reasoning-моделей GLM.
-- **humanizer-framework (shadow)** — пакет подключён pin-ом в `pyproject.toml`
-  (adapter `communication/adapter.py`, preset `job_search_request`, VoiceProfile
-  «maxim-frontend»; `communication/shadow.py`), но используется ТОЛЬКО в shadow-режиме
-  (Stage A миграции): черновик фреймворка пишется в лог рядом с продакшн-ответом и
-  НИКОГДА не отправляется. Включатель — env `HH_FRAMEWORK_SHADOW` (в `.env` = 0,
-  т.е. сейчас выключен).
+- **humanizer-framework (live)** — закреплённая зависимость из `pyproject.toml`.
+  `CommunicationFramework()` сам выбирает провайдер, планирует и проверяет
+  сопроводительные письма (`application`) и ответы работодателям (`chat_reply`).
+  Локальные проверки качества дополнительно блокируют плохой текст. При ошибке
+  генерации отклик или ответ пропускается, статический текст не отправляется.
+- **Email вакансии** — опциональная SMTP-отправка того же проверенного письма
+  после успешного отклика (`APPLY_SEND_EMAIL=1`, профильный `smtp`). Локальная
+  таблица `vacancy_email_sends` учитывает получателей и предотвращает дубли.
 - **Ops snapshots** — агрегированные отчёты `ops/daily/*.json` / `ops/latest.json`
   (только агрегаты, без приватного).
 

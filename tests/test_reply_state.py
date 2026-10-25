@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hh_applicant_tool.automation.reply_state import ManualChatQueue
+from hh_applicant_tool.automation.reply_state import ManualChatQueue, ReplySendLog
 
 
 def test_manual_chat_queue_upserts_and_resolves(tmp_path) -> None:
@@ -48,3 +48,13 @@ def test_manual_chat_queue_keeps_current_message_when_resolving_old(tmp_path) ->
     pending = queue.pending()
 
     assert [item["message_id"] for item in pending] == ["msg-2"]
+
+
+def test_reply_send_log_blocks_same_question_but_allows_followup(tmp_path) -> None:
+    log = ReplySendLog(tmp_path / "data")
+
+    assert log.claim("chat-1", "employer-1") is True
+    log.mark_sent("chat-1", "employer-1")
+    assert log.is_recorded("chat-1", "employer-1") is True
+    assert log.claim("chat-1", "employer-1") is False
+    assert log.claim("chat-1", "employer-2") is True

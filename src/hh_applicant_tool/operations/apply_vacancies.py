@@ -466,21 +466,23 @@ class Operation(
         )
 
         self.cover_letter_ai = (
-            tool.get_cover_letter_ai(args.system_prompt)
-            if args.use_ai
-            else None
+            tool.get_cover_letter_ai("")
+            if args.use_ai and not args.skip_tests
+            else bool(args.use_ai)
         )
         self.ai_filter = args.ai_filter
         self.vacancy_filter_ai = None
         self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
         self._vacancy_context_cache: dict[str, dict[str, Any]] = {}
         self.ai_error_count = 0
+        self.email_error_count = 0
 
+        self._validate_email_config()
         self._apply_vacancies()
-        if self.ai_error_count:
+        if self.ai_error_count or self.email_error_count:
             logger.error(
-                "AI не сгенерировал письмо для %d вакансий; запуск помечен как неуспешный",
-                self.ai_error_count,
+                "Сбой генерации или email: AI=%d, email=%d; запуск помечен как неуспешный",
+                self.ai_error_count, self.email_error_count,
             )
             return 1
         return None

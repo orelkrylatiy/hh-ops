@@ -168,24 +168,21 @@ def test_reply_employers_without_resume_id_keeps_all_resumes_mode() -> None:
     assert operation.resume_id is None
 
 
-def test_reply_employers_ai_falls_back_to_cover_letter_provider() -> None:
+def test_reply_employers_ai_uses_framework_without_configured_provider() -> None:
     operation = ReplyOperation()
     tool = Mock()
     tool.api_client = Mock()
     tool.config = {}
-    tool.get_reply_ai.side_effect = ValueError("openai_reply missing")
-    fallback_ai = Mock()
-    tool.get_cover_letter_ai.return_value = fallback_ai
     operation.reply_employers = Mock()
 
     operation.run(tool, make_reply_args(use_ai=True))
 
-    assert operation.reply_ai is fallback_ai
-    tool.get_reply_ai.assert_called_once_with("system")
-    tool.get_cover_letter_ai.assert_called_once_with("system")
+    assert operation.reply_ai is True
+    tool.get_reply_ai.assert_not_called()
+    tool.get_cover_letter_ai.assert_not_called()
 
 
-def test_reply_employers_ai_missing_both_providers_fails_closed_without_crash() -> None:
+def test_reply_employers_ai_ignores_missing_legacy_providers() -> None:
     operation = ReplyOperation()
     tool = Mock()
     tool.api_client = Mock()
@@ -196,5 +193,7 @@ def test_reply_employers_ai_missing_both_providers_fails_closed_without_crash() 
 
     operation.run(tool, make_reply_args(use_ai=True))
 
-    assert operation.reply_ai is None
+    assert operation.reply_ai is True
+    tool.get_reply_ai.assert_not_called()
+    tool.get_cover_letter_ai.assert_not_called()
     operation.reply_employers.assert_called_once()

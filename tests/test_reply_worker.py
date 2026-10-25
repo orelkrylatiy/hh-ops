@@ -282,6 +282,23 @@ def test_collect_candidate_chats_only_keeps_unblocked_employer_turns() -> None:
     assert [chat["id"] for chat in chats] == ["reply-me"]
 
 
+def test_collect_candidate_chats_bounds_inspected_negotiations() -> None:
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [
+            {"id": "muted", "messaging_status": "disabled_by_employer"},
+            {"id": "later", "messaging_status": "ok"},
+        ],
+        "pages": 1,
+    }
+    worker = ReplyWorker(
+        ReplyWorkerConfig(max_chats=1), hh=hh, ai=None, system_prompt="",
+    )
+
+    assert worker.collect_candidate_chats() == []
+    hh.call_api.assert_called_once_with("/negotiations?page=0&per_page=1")
+
+
 def test_collect_resolves_pending_manual_queue_for_discarded_chat() -> None:
     hh = Mock()
     hh.call_api.return_value = {

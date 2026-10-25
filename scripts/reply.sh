@@ -14,7 +14,8 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
 fi
 
 MAX_CHATS="${REPLY_CHATS:-${CHATS:-100}}"
-REPLY_PROMPT_TEMPLATE="${REPLY_PROMPT_TEMPLATE:-$PROJECT_ROOT/prompts/reply_employer.txt}"
+ROUNDS="${REPLY_ROUNDS:-1}"
+ROUND_INTERVAL="${REPLY_ROUND_INTERVAL:-60}"
 RUN_MODE="dry-run"
 RUN_MODE_EXPLICIT=""
 PROFILE_ID="${HH_PROFILE_ID:-}"
@@ -38,6 +39,16 @@ while [[ $# -gt 0 ]]; do
             MAX_CHATS="$2"
             shift 2
             ;;
+        --rounds)
+            [[ $# -ge 2 ]] || { echo "--rounds requires 1..5" >&2; exit 2; }
+            ROUNDS="$2"
+            shift 2
+            ;;
+        --round-interval)
+            [[ $# -ge 2 ]] || { echo "--round-interval requires seconds" >&2; exit 2; }
+            ROUND_INTERVAL="$2"
+            shift 2
+            ;;
         --iterations)
             [[ $# -ge 2 ]] || { echo "--iterations requires a value" >&2; exit 2; }
             echo "Warning: --iterations is deprecated and ignored; use hourly cron instead." >&2
@@ -56,11 +67,13 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             cat <<'EOF'
-Usage: reply.sh [--dry-run|--live] [--chats N] [--profile ID]
+Usage: reply.sh [--dry-run|--live] [--chats N] [--rounds 1..5] [--round-interval SECONDS] [--profile ID]
 
   --dry-run       Inspect chats and print deterministic previews; never calls AI or sends.
   --live          Generate replies with AI and send them through /negotiations/{id}/messages.
-  --chats N       Maximum candidate chats for this cron run (default: 100).
+  --chats N       Maximum negotiations inspected per scan (default: 100).
+  --rounds N      Rescan chats N times in this run (default: 1, maximum: 5).
+  --round-interval SECONDS  Pause between scans (default: 60).
   --profile ID    HH profile id.
 EOF
             exit 0
@@ -76,13 +89,11 @@ if [[ ! "$MAX_CHATS" =~ ^[1-9][0-9]*$ ]]; then
     echo "--chats must be a positive integer: $MAX_CHATS" >&2
     exit 2
 fi
-
-if [[ ! -f "$REPLY_PROMPT_TEMPLATE" ]]; then
-    echo "Reply prompt not found: $REPLY_PROMPT_TEMPLATE" >&2
-    exit 1
+if [[ ! "$ROUNDS" =~ ^[1-5]$ || ! "$ROUND_INTERVAL" =~ ^[0-9]+$ ]]; then
+    echo "--rounds must be 1..5 and --round-interval must be non-negative" >&2
+    exit 2
 fi
-# envsubst.exe портит кириллицу в переменных окружения (Максим -> ??????),
-# поэтому рендерим и запускаемся через venv-python: scripts/render_prompt.py.
+
 if [[ -z "${PYTHON_BIN:-}" ]]; then
     if [[ -f "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
         PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
@@ -97,24 +108,11 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
-REPLY_SYSTEM_PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/hh-reply-prompt.XXXXXX")"
-cleanup() {
-    rm -f "$REPLY_SYSTEM_PROMPT_FILE"
-}
-trap cleanup EXIT
-
-"$PYTHON_BIN" "$SCRIPT_DIR/render_prompt.py" "$REPLY_PROMPT_TEMPLATE" "$REPLY_SYSTEM_PROMPT_FILE"
-export REPLY_SYSTEM_PROMPT_FILE
-
 if [[ "$RUN_MODE" == "live" ]]; then
-    CHECK_ARGS=(--purpose reply)
-    if [[ -n "$PROFILE_ID" ]]; then
-        CHECK_ARGS+=(--profile "$PROFILE_ID")
-    fi
-    "$PYTHON_BIN" "$SCRIPT_DIR/check_ai.py" "${CHECK_ARGS[@]}"
+    "$PYTHON_BIN" "$SCRIPT_DIR/check_framework.py" --purpose chat
 fi
 
-ARGS=(--max-chats "$MAX_CHATS")
+ARGS=(--max-chats "$MAX_CHATS" --rounds "$ROUNDS" --round-interval "$ROUND_INTERVAL")
 if [[ "$RUN_MODE" == "live" ]]; then
     ARGS+=(--live)
 else

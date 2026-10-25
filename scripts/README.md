@@ -10,7 +10,7 @@
 | `apply.sh` | один bounded batch откликов с optional resume alias |
 | `apply-profile.sh` | profile-specific apply lanes с legacy fallback |
 | `setup-ai-resume.sh` | dry-run/live создание AI resume variant |
-| `reply.sh` | один bounded pass по чатам |
+| `reply.sh` | до пяти ограниченных проходов по чатам |
 | `cleanup.sh` | очистка rejected/discard переговоров |
 | `daily.sh` | ручной one-shot apply + reply |
 | `all-profiles.sh` | запуск операции по всем профилям с per-profile lock |
@@ -56,7 +56,10 @@ Live creation + publish:
 
 ## Чаты
 
-`reply.sh` запускает один проход и завершается. Повторные проверки делает cron.
+`reply.sh` по умолчанию запускает один проход; повторные проверки делает cron.
+Для пяти проходов в одном запуске: `./scripts/reply.sh --live --rounds 5 --round-interval 60`.
+Каждый проход повторно читает историю и отправляет ответ только на новое последнее
+сообщение работодателя. Уже обработанное сообщение не дублируется.
 
 Classifier перед LLM делит employer-turn на:
 

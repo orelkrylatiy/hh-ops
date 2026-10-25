@@ -107,9 +107,10 @@ class ApplyVacanciesAIMixin:
                 if title:
                     parts.append(f"Должность: {title}")
 
-                if "skills" in full_resume:
+                skills_text = full_resume.get("skills") or ""
+                if skills_text:
                     parts.append("\n---------- О СЕБЕ ----------")
-                    parts.append(full_resume.get("skills", ""))
+                    parts.append(skills_text)
 
                 if "skill_set" in full_resume and full_resume["skill_set"]:
                     parts.append("\n---------- НАВЫКИ ----------")

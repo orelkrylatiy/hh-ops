@@ -30,7 +30,7 @@ LLM только там, где нужен текст
 - rule-based chat classifier: `REPLY_TEXT / IGNORE / MANUAL`;
 - SQLite-очередь ручных/button-flow чатов;
 - защита от дублей через re-read после сомнительного POST;
-- configurable runtime fallback-сообщение при недоступности LLM в reply path;
+- генерация исходящих текстов через Humanizer Framework с пропуском неудачных ответов;
 - multi-profile с bounded concurrency до 10 профилей по умолчанию и per-profile locks;
 - ежедневный cron batch откликов и почасовые проверки чатов;
 - Docker + web admin panel;
@@ -131,59 +131,19 @@ HH_PROFILE_PARALLELISM=10
 
 ## AI Конфигурация
 
-Для live-откликов нужен `openai_cover_letter`.
+Live-сопроводительные письма и ответы в чатах вызывают
+`CommunicationFramework()` без переданного провайдера. Фреймворк сам выбирает
+доступный механизм генерации. Если он не сгенерировал подходящий текст,
+сообщение не отправляется. Конфигурация `openai_cover_letter` остаётся для
+необязательного старого пути ответов на вопросы анкеты вакансии, когда
+`--skip-tests` не указан.
 
-Для reply provider selection порядок такой:
-
-```text
-openai_reply -> openai_cover_letter -> configuration error / STOP
-```
-
-После выбора provider есть отдельный runtime fallback: если `ChatOpenAI` исчерпал network/provider retries и бросил `OpenAIError`, `FallbackChatAI` может вернуть статическое `reply_fallback.message`. Это не fallback для содержательно плохого ответа модели: такой текст по-прежнему проходит humanizer и corrective generation.
-
-Пример `config.json` профиля:
-
-```json
-{
-  "openai_cover_letter": {
-    "api_key": "...",
-    "base_url": "https://api.openai.com/v1/chat/completions",
-    "model": "gpt-4o-mini",
-    "temperature": 0.35,
-    "timeout": 45
-  },
-  "openai_reply": {
-    "api_key": "...",
-    "base_url": "https://api.openai.com/v1/chat/completions",
-    "model": "gpt-4o-mini",
-    "temperature": 0.35,
-    "timeout": 45,
-    "max_retries": 3
-  },
-  "reply_fallback": {
-    "enabled": true,
-    "message": "Здравствуйте! Спасибо за сообщение. Я разработчик, вакансия мне интересна. Готов обсудить задачи, формат работы и ответить на вопросы."
-  }
-}
-```
-
-Подойдёт любой OpenAI-compatible provider, включая OpenRouter и OpenAI-compatible режим Ollama.
-
-Static preflight:
+Проверка реальной генерации без отправки работодателям:
 
 ```bash
-python scripts/check_ai.py --purpose cover-letter --profile default
-python scripts/check_ai.py --purpose reply --profile default
+python scripts/check_framework.py --purpose application
+python scripts/check_framework.py --purpose chat
 ```
-
-Реальный model probe:
-
-```bash
-python scripts/check_ai.py --purpose cover-letter --profile default --probe
-python scripts/check_ai.py --purpose reply --profile default --probe
-```
-
-Подробности: [docs/LLM_SETUP.md](docs/LLM_SETUP.md).
 
 ## Отклики
 
@@ -222,7 +182,7 @@ Live:
 
 Для cover letters static fallback не используется: `AIError` пропускает конкретную vacancy и помечает run как неуспешный.
 
-AI-письма проходят тот же паттерн качества, что и чат-ответы: `letter_quality_issues()` (границы длины 150–900 символов, клише, незарендеренные placeholder'ы, длинные тире, обрыв на полуслове) и один repair-ретрай с замечаниями в промпте. Письмо, не прошедшее проверку дважды, поднимает `AIError` — для `apply-vacancies` это пропуск вакансии, для `apply-safe` — переход на static fallback (теперь нейтральный, без буллет-листов).
+AI-письма генерирует и проверяет `CommunicationFramework()` (`application`). Затем `letter_quality_issues()` проверяет границы длины 150–900 символов, клише и незарендеренные placeholder'ы. Если генерация или проверка не удалась, конкретный отклик пропускается; статический текст не отправляется.
 
 ## Создание Резюме Из Шаблона
 
@@ -327,8 +287,8 @@ GET /negotiations/{id}/messages
 classifier
   ├─ IGNORE
   ├─ MANUAL -> SQLite manual_chat_queue
-  └─ REPLY_TEXT -> LLM / runtime fallback
-humanizer
+  └─ REPLY_TEXT -> Humanizer Framework
+проверка качества текста
 GET /negotiations/{id}/messages   # revalidate exact employer turn
 POST /negotiations/{id}/messages
 ```
@@ -339,10 +299,13 @@ Classifier не тратит LLM-вызов на очевидные состоя
 текстового ответа, это считается сильным признаком, что бот ждал кнопку или
 структурированное действие, и чат тоже уходит в `MANUAL`.
 
-Обычный `REPLY_TEXT` проходит существующий LLM/humanizer pipeline. Перед POST
-worker перечитывает историю и отправляет ответ только если тот же employer
-message всё ещё последний. После сетевой ошибки worker снова читает чат и не
-повторяет POST, если предполагаемый ответ уже появился.
+Обычный `REPLY_TEXT` генерируется `CommunicationFramework()` с его собственным
+провайдером. Перед POST worker перечитывает историю и отправляет ответ только
+если тот же employer message всё ещё последний. Локальный журнал
+`reply_message_sends` не допускает повторной отправки на тот же ID вопроса.
+После сетевой ошибки worker снова читает чат и не повторяет POST, если
+предполагаемый ответ уже появился. Для переписки в несколько шагов используйте
+`./scripts/reply.sh --live --rounds 5 --round-interval 60`.
 
 Pending manual cases можно посмотреть:
 
@@ -376,34 +339,32 @@ hh-applicant-tool --profile-id 0555 vacancy-links --json      # для скри�
 
 ## Humanizer
 
-Шаблоны:
+Сопроводительные письма и ответы работодателям генерирует `CommunicationFramework()`.
+Он сам выбирает провайдер, строит план сообщения и проверяет результат. Локальные
+`letter_quality_issues()` и `reply_quality_issues()` служат дополнительным барьером.
+При сбое генерации сообщение не отправляется.
 
-- `prompts/cover_letter_frontend.txt`;
-- `prompts/reply_employer.txt`.
-
-Они запрещают длинные тире, placeholder'ы, канцелярит, типовые AI-клише и слишком гладкий рекламный стиль. Для autonomous replies действует ещё runtime validator: плохой ответ отклоняется, модель получает одну попытку исправления, после повторной неудачи сообщение пропускается.
-
-Static reply fallback проходит тот же runtime validator до отправки.
-
-Telegram не дописывается программно в каждый ответ. Он используется только когда это уместно по истории диалога.
-
-## Humanizer Framework (shadow)
+## Humanizer Framework
 
 Общий communication layer живёт в отдельном репозитории [humanizer-framework](https://github.com/orelkrylatiy/humanizer-framework) и подключён как git-зависимость, запиненная на конкретный коммит (см. `pyproject.toml`). Обновление pin — только явный bump: любое изменение planner'а меняет тексты исходящих сообщений. Для локальной доработки фреймворка удобнее editable-установка: `pip install -e ../humanizer-framework`.
 
-Первый этап интеграции — shadow-режим (Stage A плана миграции из docs фреймворка). Переменная `HH_FRAMEWORK_SHADOW=1` (по умолчанию выключена) включает в `scripts/reply_iterative_ai.py` параллельную генерацию черновика ответа работодателю через фреймворк: домен `job_search`, канал `hh`, тип `chat_reply`, voice и business rules из `src/hh_applicant_tool/communication/`. Сравнение текущего и framework-ответов с plan-метаданными пишется в лог с маркером `FRAMEWORK_SHADOW`, счётчик попадает в stats как `framework_shadow`.
-
-Гарантии shadow-режима:
-
-- classifier (`IGNORE`/`MANUAL`) не вызывает фреймворк — только ветка `REPLY_TEXT`;
-- текст фреймворка никогда не отправляется и не влияет на primary path;
-- любой сбой фреймворка логируется и пропускается, отправка продолжается;
-- dry-run не делает shadow-вызовов LLM;
-- у shadow свой LLM-клиент без системного промпта (промпт строит фреймворк), static fallback в shadow не используется.
+При отклике используется запрос `job_search/application`; при ответе в чате
+`job_search/chat_reply`. В рабочем пути вызов `CommunicationFramework()` не получает
+провайдер от проекта. `scripts/check_framework.py` делает пробную генерацию без
+отправки в hh.ru. Классификатор по-прежнему пропускает служебные и ручные чаты,
+а перед отправкой worker перечитывает последнее сообщение работодателя.
 
 Смайлы и эмодзи в hh-коммуникации запрещены на трёх уровнях: business rule в промпте адаптера, hard-валидация `forbidden_smiley` во фреймворке (для неформальных RU-каналов profi/repetit/telegram она выключена) и проверка `contains a smiley or emoji` в `reply_quality_issues`/`letter_quality_issues` основного пайплайна.
 
-Обновление pin во фреймворке: закоммитить и запушить изменения там, прогнать его тесты (`pytest`, `ruff check .`), затем поднять `rev` в `pyproject.toml` и переустановить `pip install -e .`.
+Опциональная отправка email после успешного отклика включается через
+`APPLY_SEND_EMAIL=1`. Если задан `HH_GMAIL_DIR`, проект использует локальный
+Gmail API OAuth (`config.json`, `credentials.json`, `token.json`) и проверяет адрес
+аккаунта перед запуском. Без него профиль должен содержать `smtp.host`,
+`smtp.port` и `smtp.from` или `smtp.user`; для авторизованного сервера нужны
+также `smtp.user` и `smtp.password`. Тело email — то же проверенное фреймворком сопроводительное
+письмо плюс ссылка на резюме. Локальная таблица `vacancy_email_sends` хранит
+получателя, тему, статус и время отправки, предотвращая повторное письмо по
+той же вакансии и адресу.
 
 ## Расписание
 

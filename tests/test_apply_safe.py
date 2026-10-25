@@ -53,10 +53,10 @@ def _args(*extra: str) -> argparse.Namespace:
     return parser.parse_args(list(extra))
 
 
-def test_ai_initialization_failure_keeps_application_batch_running() -> None:
+def test_framework_applications_need_no_project_ai_provider() -> None:
     operation = Operation()
     operation._apply_vacancies = Mock()
-    args = _args("--ai", "--force-message")
+    args = _args("--ai", "--force-message", "--skip-tests")
     tool = SimpleNamespace(
         config={
             "cover_letter_fallback": {
@@ -67,14 +67,12 @@ def test_ai_initialization_failure_keeps_application_batch_running() -> None:
         get_cover_letter_ai=Mock(side_effect=ValueError("provider unavailable")),
     )
 
-    result = operation.run(tool, args)
-
-    assert result is None
-    assert operation.cover_letter_ai is None
+    assert operation.run(tool, args) is None
+    tool.get_cover_letter_ai.assert_not_called()
     operation._apply_vacancies.assert_called_once_with()
 
 
-def test_runtime_ai_failure_uses_static_configured_cover_letter() -> None:
+def test_runtime_ai_failure_does_not_use_static_cover_letter(monkeypatch) -> None:
     operation = Operation()
     operation.force_message = True
     operation.cover_letter_fallback_enabled = True
@@ -82,16 +80,18 @@ def test_runtime_ai_failure_uses_static_configured_cover_letter() -> None:
     operation.cover_fallback_count = 0
     operation.message_prompt = "Сгенерируй письмо"
     operation._build_cover_letter_context = Mock(return_value="context")
-    operation.cover_letter_ai = Mock()
-    operation.cover_letter_ai.complete.side_effect = AIError("LLM down")
+    operation.cover_letter_ai = True
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations._apply_vacancies_apply_flow.FrameworkWriter",
+        Mock(side_effect=AIError("LLM down")),
+    )
 
-    letter = operation._build_cover_letter(_vacancy(), _resume(), _placeholders())
+    with pytest.raises(AIError, match="framework cover letter unavailable"):
+        operation._build_cover_letter(_vacancy(), _resume(), _placeholders())
+    assert operation.cover_fallback_count == 0
 
-    assert letter == "Здравствуйте, Максим. Рассмотрите мое резюме."
-    assert operation.cover_fallback_count == 1
 
-
-def test_empty_ai_cover_letter_uses_static_fallback() -> None:
+def test_framework_validation_failure_is_not_sent_as_static_fallback(monkeypatch) -> None:
     operation = Operation()
     operation.force_message = True
     operation.cover_letter_fallback_enabled = True
@@ -99,13 +99,15 @@ def test_empty_ai_cover_letter_uses_static_fallback() -> None:
     operation.cover_fallback_count = 0
     operation.message_prompt = "Сгенерируй письмо"
     operation._build_cover_letter_context = Mock(return_value="context")
-    operation.cover_letter_ai = Mock()
-    operation.cover_letter_ai.complete.return_value = "   "
+    operation.cover_letter_ai = True
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations._apply_vacancies_apply_flow.FrameworkWriter",
+        Mock(side_effect=AIError("empty_message")),
+    )
 
-    letter = operation._build_cover_letter(_vacancy(), _resume(), _placeholders())
-
-    assert letter == "Fallback for Frontend developer"
-    assert operation.cover_fallback_count == 1
+    with pytest.raises(AIError, match="framework cover letter unavailable"):
+        operation._build_cover_letter(_vacancy(), _resume(), _placeholders())
+    assert operation.cover_fallback_count == 0
 
 
 def test_generated_cover_letter_is_sent_as_negotiation_message() -> None:
@@ -145,10 +147,10 @@ def test_force_message_refuses_to_apply_with_empty_cover_letter() -> None:
     operation.tool.api_client.post.assert_not_called()
 
 
-def test_fallback_can_be_explicitly_disabled() -> None:
+def test_disabled_fallback_does_not_change_framework_startup() -> None:
     operation = Operation()
     operation._apply_vacancies = Mock()
-    args = _args("--ai", "--force-message")
+    args = _args("--ai", "--force-message", "--skip-tests")
     tool = SimpleNamespace(
         config={
             "cover_letter_fallback": {
@@ -159,10 +161,9 @@ def test_fallback_can_be_explicitly_disabled() -> None:
         get_cover_letter_ai=Mock(side_effect=ValueError("provider unavailable")),
     )
 
-    with pytest.raises(ValueError, match="provider unavailable"):
-        operation.run(tool, args)
-
-    operation._apply_vacancies.assert_not_called()
+    assert operation.run(tool, args) is None
+    tool.get_cover_letter_ai.assert_not_called()
+    operation._apply_vacancies.assert_called_once_with()
 
 
 def test_apply_safe_resolves_resume_alias_before_batch() -> None:
