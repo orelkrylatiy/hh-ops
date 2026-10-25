@@ -7,7 +7,7 @@ import os
 from humanizer_framework.providers import HarnessProvider, OpenCodeCLIProvider
 from humanizer_framework.providers.base import Provider
 
-DEFAULT_OPENCODE_MODEL = "openai/gpt-5.6-sol"
+DEFAULT_OPENCODE_MODEL = "openai/gpt-5.6-luna"
 
 
 def opencode_provider() -> Provider:
