@@ -85,14 +85,18 @@ def solve_captcha_with_opencode(current_json: Path) -> str:
     metadata = json.loads(current_json.read_text(encoding="utf-8"))
     image_path = Path(metadata["image"])
     prompt = (
-        "Распознай прикреплённую картинку CAPTCHA. "
-        "Верни только 4-8 латинских букв и цифр с сохранением регистра, "
-        "без пробелов, кавычек и пояснений."
+        "Распознай текст на прикреплённой CAPTCHA. "
+        "Твой ответ должен содержать только один слитный токен из 4-8 "
+        "латинских букв и цифр с сохранением регистра. "
+        "Не пиши описание, пояснения, markdown, кавычки или дополнительные слова."
     )
     answer = run_opencode(
         prompt,
         cwd=str(current_json.parent.parent.parent),
         files=[image_path],
     )
-    match = re.search(r"\b[A-Za-z0-9]{4,8}\b", answer)
-    return match.group(0) if match else ""
+    compact = re.sub(r"[^A-Za-z0-9]", "", answer.strip())
+    if 4 <= len(compact) <= 8:
+        return compact
+    tokens = re.findall(r"[A-Za-z0-9]{4,8}", answer)
+    return tokens[-1] if tokens else ""
