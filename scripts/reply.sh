@@ -16,6 +16,10 @@ fi
 MAX_CHATS="${REPLY_CHATS:-${CHATS:-100}}"
 ROUNDS="${REPLY_ROUNDS:-1}"
 ROUND_INTERVAL="${REPLY_ROUND_INTERVAL:-60}"
+# .env may be CRLF-formatted when sourced from WSL; strip the carriage return
+# before validating numeric CLI settings.
+ROUNDS="${ROUNDS//$'\r'/}"
+ROUND_INTERVAL="${ROUND_INTERVAL//$'\r'/}"
 RUN_MODE="dry-run"
 RUN_MODE_EXPLICIT=""
 PROFILE_ID="${HH_PROFILE_ID:-}"
