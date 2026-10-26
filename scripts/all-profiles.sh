@@ -145,6 +145,13 @@ echo "Running '$COMMAND' for ${#PROFILES_LIST[@]} profile(s), parallelism=$PARAL
 echo "Profiles: ${PROFILES_LIST[*]}"
 echo "Logs: $LOG_DIR/<profile>-$COMMAND.log"
 
+HH_EXECUTABLE="hh-applicant-tool"
+if [[ -f "$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe" ]]; then
+    HH_EXECUTABLE="$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe"
+elif [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
+    HH_EXECUTABLE="$PROJECT_ROOT/.venv/bin/hh-applicant-tool"
+fi
+
 PIDS=()
 RUN_PROFILES=()
 FAILED=()
@@ -187,13 +194,13 @@ start_profile() {
         set +e
         case "$COMMAND" in
             boost)
-                hh-applicant-tool --no-auto-auth --profile-id "$profile" boost-resume
+                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" boost-resume
                 ;;
             update)
-                hh-applicant-tool --no-auto-auth --profile-id "$profile" update-resumes
+                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" update-resumes
                 ;;
             refresh)
-                hh-applicant-tool --no-auto-auth --profile-id "$profile" refresh-token
+                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" refresh-token
                 ;;
             *)
                 if [[ ${#ARGS[@]} -gt 0 ]]; then
