@@ -112,8 +112,16 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
+python_path() {
+    if [[ "$PYTHON_BIN" == *.exe && -n "$(command -v wslpath 2>/dev/null || true)" ]]; then
+        wslpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 if [[ "$RUN_MODE" == "live" ]]; then
-    "$PYTHON_BIN" "$SCRIPT_DIR/check_framework.py" --purpose chat
+    "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose chat
 fi
 
 ARGS=(--max-chats "$MAX_CHATS" --rounds "$ROUNDS" --round-interval "$ROUND_INTERVAL")
@@ -126,4 +134,4 @@ if [[ -n "$PROFILE_ID" ]]; then
     ARGS+=(--profile "$PROFILE_ID")
 fi
 
-"$PYTHON_BIN" "$SCRIPT_DIR/reply_iterative_ai.py" "${ARGS[@]}"
+"$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/reply_iterative_ai.py")" "${ARGS[@]}"
