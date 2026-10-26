@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import utils
 
 # Paths & Files
 CONFIG_DIR = utils.get_config_path() / "hh-applicant-tool"
 CONFIG_FILENAME = "config.json"
 LOG_FILENAME = "log.txt"
+CAPTCHA_ARTIFACTS_DIR = Path(__file__).resolve().parents[2] / "tmp" / "captcha"
+OPENCODE_COMMAND = "opencode"
+OPENCODE_PRIMARY_MODEL = "openai/gpt-5.6-sol"
+OPENCODE_FALLBACK_MODEL = "openai/gpt-6.1-sol"
 DATABASE_FILENAME = "data"
 COOKIES_FILENAME = "cookies.txt"
 

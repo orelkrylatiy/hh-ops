@@ -102,9 +102,16 @@ class ApplyVacanciesApplyFlowMixin:
             return
         smtp = self.tool.config.get("smtp") or {}
         if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
-            raise ValueError("--send-email requires smtp.host and smtp.port in profile config")
+            logger.warning(
+                "Email follow-up disabled: smtp.host/smtp.port are not configured"
+            )
+            self.args.send_email = False
+            return
         if not (smtp.get("from") or smtp.get("user")):
-            raise ValueError("--send-email requires smtp.from or smtp.user in profile config")
+            logger.warning(
+                "Email follow-up disabled: smtp.from/smtp.user are not configured"
+            )
+            self.args.send_email = False
 
     def _init_ai_filter_for_resume(self, resume: datatypes.Resume) -> None:
         if not self.ai_filter:

@@ -42,6 +42,17 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
+# When Bash is running under WSL but PYTHON_BIN is a Windows executable,
+# translate /mnt/c/... paths before passing them to Python.  Windows Python
+# interprets a WSL path as C:\\mnt\\c\\..., which breaks prompt rendering.
+python_path() {
+    if [[ "$PYTHON_BIN" == *.exe && -n "$(command -v wslpath 2>/dev/null || true)" ]]; then
+        wslpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)
@@ -219,20 +230,21 @@ fi
 
 # render_prompt.py (venv-python, UTF-8 end-to-end) вместо envsubst:
 # envsubst на Windows портит кириллицу в значениях переменных (Максим -> ??????).
-RENDERED_SYSTEM_PROMPT="$(mktemp "${TMPDIR:-/tmp}/hh-apply-prompt.XXXXXX")"
+RENDERED_SYSTEM_PROMPT="$(mktemp "$PROJECT_ROOT/tmp/hh-apply-prompt.XXXXXX")"
 cleanup() {
     rm -f "$RENDERED_SYSTEM_PROMPT"
 }
 trap cleanup EXIT
 
-if ! "$PYTHON_BIN" "$SCRIPT_DIR/render_prompt.py" "$SYSTEM_PROMPT" "$RENDERED_SYSTEM_PROMPT"; then
+if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/render_prompt.py")" \
+    "$(python_path "$SYSTEM_PROMPT")" "$(python_path "$RENDERED_SYSTEM_PROMPT")"; then
     echo "Prompt rendering failed: $SYSTEM_PROMPT" >&2
     exit 1
 fi
 
 # Префлайт LLM обязателен: с выключенным cover_letter_fallback (fail-closed)
 # продолжать без живого ИИ нельзя — отклики без AI запрещены правилом Макса.
-if ! "$PYTHON_BIN" "$SCRIPT_DIR/check_framework.py" --purpose application; then
+if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose application; then
     echo "Cover-letter AI preflight failed; refusing to run without AI" >&2
     exit 1
 fi
@@ -265,8 +277,11 @@ if [[ -n "$AI_FILTER" ]]; then
     AI_FILTER_ARGS+=(--ai-filter "$AI_FILTER")
 fi
 
+# Live apply always sends the validated follow-up email when a recipient and
+# Gmail/SMTP configuration are available. Dry-run remains protected by the
+# operation itself and never sends.
 EMAIL_ARGS=()
-if [[ "${APPLY_SEND_EMAIL:-1}" == "1" ]]; then
+if [[ "${APPLY_SEND_EMAIL:-1}" != "0" ]]; then
     EMAIL_ARGS+=(--send-email)
 fi
 

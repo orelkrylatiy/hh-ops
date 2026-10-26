@@ -19,6 +19,8 @@ else:
     _PLAYWRIGHT_IMPORT_ERROR = None
 
 from ..main import BaseOperation
+from ..utils.captcha_artifacts import save_captcha_image
+from ..utils.opencode import solve_captcha_with_opencode
 from ..utils.terminal import print_kitty_image, print_sixel_mage
 
 if TYPE_CHECKING:
@@ -323,9 +325,26 @@ class Operation(BaseOperation):
             captcha_text = ""
             try:
                 img_bytes = await captcha_element.screenshot()
-                captcha_text = await asyncio.to_thread(
-                    captcha_ai.solve_captcha, img_bytes
+                image_path = save_captcha_image(
+                    img_bytes,
+                    flow="authorize",
+                    attempt=attempt + 1,
+                    profile_id=getattr(self._tool, "profile_id", None) or "default",
                 )
+                logger.info("Снимок капчи сохранён: %s", image_path)
+                try:
+                    captcha_text = await asyncio.to_thread(
+                        solve_captcha_with_opencode, image_path.parent / "CURRENT.json"
+                    )
+                    if captcha_text:
+                        logger.info("CAPTCHA распознана через OpenCode")
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning("OpenCode CAPTCHA failed, using API fallback: %s", ex)
+                    captcha_text = ""
+                if not captcha_text:
+                    captcha_text = await asyncio.to_thread(
+                        captcha_ai.solve_captcha, img_bytes
+                    )
             except Exception as ex:  # noqa: BLE001
                 logger.warning("captcha AI failed (попытка %d): %s", attempt + 1, ex)
             if not captcha_text:
@@ -372,6 +391,13 @@ class Operation(BaseOperation):
             )
 
         img_bytes = await captcha_element.screenshot()
+        image_path = save_captcha_image(
+            img_bytes,
+            flow="authorize-manual",
+            attempt=1,
+            profile_id=getattr(self._tool, "profile_id", None) or "default",
+        )
+        logger.info("Снимок капчи сохранён: %s", image_path)
         print("\n[!] Требуется ввод капчи.")
         if args.use_kitty:
             print_kitty_image(img_bytes)

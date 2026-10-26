@@ -6,11 +6,14 @@ import logging
 from http.cookiejar import Cookie
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import unquote, urlsplit
 
 from ..api import datatypes
 from ..main import BaseNamespace, BaseOperation
 from ..storage.repositories.errors import RepositoryError
+from ..utils.captcha_artifacts import save_captcha_image
 from ..utils.misc import expand_env_placeholders, load_prompt
+from ..utils.opencode import solve_captcha_with_opencode
 from ..utils.resume_aliases import resolve_resume_alias
 from ._apply_vacancies_ai import ApplyVacanciesAIMixin
 from ._apply_vacancies_apply_flow import ApplyVacanciesApplyFlowMixin
@@ -502,6 +505,33 @@ class Operation(
                 "headless": True,
                 "args": ["--disable-blink-features=AutomationControlled"],
             }
+            # HH API and the captcha browser must use the same egress IP.  The
+            # requests session already contains the configured proxy; passing
+            # it to Playwright prevents HH from rejecting a valid answer as a
+            # challenge created by another network session.
+            proxy_url = (
+                self.tool.session.proxies.get("https")
+                or self.tool.session.proxies.get("http")
+            )
+            if proxy_url:
+                proxy = urlsplit(proxy_url)
+                if proxy.scheme and proxy.hostname:
+                    server = f"{proxy.scheme}://{proxy.hostname}"
+                    if proxy.port:
+                        server += f":{proxy.port}"
+                    launch_kwargs["proxy"] = {
+                        "server": server,
+                        **(
+                            {"username": unquote(proxy.username)}
+                            if proxy.username
+                            else {}
+                        ),
+                        **(
+                            {"password": unquote(proxy.password)}
+                            if proxy.password
+                            else {}
+                        ),
+                    }
             try:
                 browser = await pw.chromium.launch(channel="msedge", **launch_kwargs)
             except Exception:
@@ -544,10 +574,28 @@ class Operation(
                     )
 
                     img_bytes = await captcha_element.screenshot()
-
-                    captcha_text = await asyncio.to_thread(
-                        captcha_ai.solve_captcha, img_bytes
+                    image_path = save_captcha_image(
+                        img_bytes,
+                        flow="apply",
+                        attempt=attempt + 1,
+                        profile_id=getattr(self.tool, "profile_id", None) or "default",
                     )
+                    logger.info("Снимок капчи сохранён: %s", image_path)
+
+                    current_json = image_path.parent / "CURRENT.json"
+                    try:
+                        captcha_text = await asyncio.to_thread(
+                            solve_captcha_with_opencode, current_json
+                        )
+                        if captcha_text:
+                            logger.info("CAPTCHA распознана через OpenCode")
+                    except Exception as ex:  # noqa: BLE001
+                        logger.warning("OpenCode CAPTCHA failed, using API fallback: %s", ex)
+                        captcha_text = ""
+                    if not captcha_text:
+                        captcha_text = await asyncio.to_thread(
+                            captcha_ai.solve_captcha, img_bytes
+                        )
 
                     if not captcha_text:
                         logger.warning("AI не распознал капчу (попытка %d)", attempt + 1)
@@ -578,6 +626,7 @@ class Operation(
 
                 if not solved:
                     logger.error("не смог решить капчу за 5 попыток")
+                    return False
 
                 cookies = await context.cookies()
                 for c in cookies:
