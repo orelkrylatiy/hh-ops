@@ -32,6 +32,10 @@ CHAT_REPLY_BUSINESS_RULES = [
     "Если данных для ответа не хватает, задай один короткий уточняющий вопрос вместо выдумки.",
 ]
 
+# Fallback writing style only; it must never substitute for selected-resume facts.
+# TODO(HH-VOICE-01): FrameworkWriter currently passes neither the selected
+# profile nor a personalized VoiceProfile. The frontend-oriented default
+# therefore applies to both applications and chat replies for all resumes.
 DEFAULT_CHAT_VOICE = VoiceProfile(
     id="maxim-frontend",
     description="Фронтенд-инженер, живой деловой тон, короткие фразы разной длины",

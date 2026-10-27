@@ -19,6 +19,11 @@ class FrameworkWriter:
         )
         self._framework = framework or CommunicationFramework(provider=opencode_provider())
 
+    # TODO(HH-VOICE-01): The selected resume/profile and author VoiceProfile are
+    # not propagated into the request. The adapter therefore defaults to
+    # "frontend-react" and DEFAULT_CHAT_VOICE for every application, although
+    # the selected resume's factual content still arrives via source_context.
+    # See docs/BACKLOG.md; keep professional facts separate from writing voice.
     def application(
         self, *, vacancy_name: str, employer_name: str, source_context: str
     ) -> CommunicationResult:
@@ -30,6 +35,9 @@ class FrameworkWriter:
             )
         )
 
+    # TODO(HH-VOICE-01): Expose the active resume profile and an appropriate
+    # chat voice here too; currently build_chat_reply_request() uses its defaults.
+    # The resume_context below is factual context, not a style selector.
     def chat_reply(
         self, *, context: list[str], initiated_by_us: bool,
         vacancy_name: str, employer_name: str, latest_message_text: str,

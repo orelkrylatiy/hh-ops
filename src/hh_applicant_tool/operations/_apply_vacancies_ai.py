@@ -91,6 +91,13 @@ class ApplyVacanciesAIMixin:
             if resume_summary:
                 parts.append(f"Контекст моего резюме:\n{resume_summary[:4000]}")
 
+        # TODO(HH-CONTEXT-02): Humanizer prompting.build_prompt() currently
+        # clips the serialized request.context to 3,500 chars (head + tail).
+        # This input may contain up to 4,000 chars of vacancy description and
+        # 4,000 chars of resume summary, so facts in the middle may be lost.
+        # Select and preserve relevant fields before generation; simply
+        # increasing the global cap is not necessarily the right fix.
+        # See docs/BACKLOG.md.
         return "\n\n".join(parts)
 
     def _analyze_resume_heavy(self, resume: dict[str, Any]) -> str:
