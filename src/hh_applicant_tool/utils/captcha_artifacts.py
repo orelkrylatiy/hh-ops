@@ -46,3 +46,29 @@ def save_captcha_image(
         json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return image_path
+
+
+def save_captcha_attempt_result(
+    image_path: Path,
+    *,
+    provider: str,
+    answer: str,
+    accepted: bool | None = None,
+) -> Path:
+    """Persist the CAPTCHA backend result next to the captured image."""
+    result_path = image_path.with_suffix(".json")
+    result_path.write_text(
+        json.dumps(
+            {
+                "image": str(image_path.resolve()),
+                "provider": provider,
+                "answer": answer,
+                "accepted": accepted,
+                "recorded_at": datetime.now(UTC).isoformat(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return result_path

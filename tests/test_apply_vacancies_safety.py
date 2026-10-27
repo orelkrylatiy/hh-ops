@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+from http.cookiejar import Cookie, CookieJar
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
     VacancyResponseResult,
 )
-from hh_applicant_tool.operations.apply_vacancies import Operation
+from hh_applicant_tool.operations.apply_vacancies import (
+    Operation,
+    _effective_captcha_proxy,
+    _playwright_cookies,
+    _wait_for_captcha_image,
+)
 
 
 def _vacancy(vacancy_id: str) -> dict[str, object]:
@@ -31,6 +38,76 @@ def _resume() -> dict[str, object]:
         "title": "Backend developer",
         "alternate_url": "https://example.test/resumes/resume-1",
     }
+
+
+def test_effective_captcha_proxy_includes_environment_proxy(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations.apply_vacancies.get_environ_proxies",
+        Mock(return_value={"https": "http://127.0.0.1:10809"}),
+    )
+    session = SimpleNamespace(proxies={}, trust_env=True)
+
+    assert (
+        _effective_captcha_proxy(session, "https://hh.ru/account/captcha")
+        == "http://127.0.0.1:10809"
+    )
+
+
+def test_effective_captcha_proxy_prefers_explicit_session_proxy(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations.apply_vacancies.get_environ_proxies",
+        Mock(return_value={"https": "http://127.0.0.1:10809"}),
+    )
+    session = SimpleNamespace(proxies={"https": "http://explicit-proxy.test:8080"}, trust_env=True)
+
+    assert (
+        _effective_captcha_proxy(session, "https://hh.ru/account/captcha")
+        == "http://explicit-proxy.test:8080"
+    )
+
+
+def test_playwright_cookies_uses_current_in_memory_cookie_jar() -> None:
+    jar = CookieJar()
+    jar.set_cookie(
+        Cookie(
+            version=0,
+            name="hhuid",
+            value="fresh-value",
+            port=None,
+            port_specified=False,
+            domain=".hh.ru",
+            domain_specified=True,
+            domain_initial_dot=True,
+            path="/",
+            path_specified=True,
+            secure=True,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={},
+        )
+    )
+
+    assert _playwright_cookies(jar) == [
+        {
+            "name": "hhuid",
+            "value": "fresh-value",
+            "domain": ".hh.ru",
+            "path": "/",
+            "expires": -1,
+            "secure": True,
+        }
+    ]
+
+
+def test_wait_for_captcha_image_passes_selector_as_keyword_argument() -> None:
+    page = SimpleNamespace(wait_for_function=AsyncMock())
+
+    asyncio.run(_wait_for_captcha_image(page, "img[data-qa='captcha']"))
+
+    _, kwargs = page.wait_for_function.await_args
+    assert kwargs == {"arg": "img[data-qa='captcha']", "timeout": 15000}
 
 
 def _operation_for_resume(
@@ -198,6 +275,23 @@ def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch, tmp_pat
 
     gmail.send.assert_called_once()
     operation._send_email.assert_not_called()
+
+
+def test_invalid_gmail_oauth_disables_email_without_blocking_apply(monkeypatch) -> None:
+    monkeypatch.setenv("HH_GMAIL_DIR", "test-gmail-dir")
+    gmail = Mock()
+    gmail.profile_email.side_effect = ValueError("expired refresh token")
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations._apply_vacancies_apply_flow.GmailAPISender",
+        Mock(return_value=gmail),
+    )
+    operation = Operation()
+    operation._args = SimpleNamespace(send_email=True)
+    operation.tool = SimpleNamespace(config={})
+
+    operation._validate_email_config()
+
+    assert operation.args.send_email is False
 
 
 def test_global_email_ledger_blocks_same_recipient_across_profiles(tmp_path) -> None:

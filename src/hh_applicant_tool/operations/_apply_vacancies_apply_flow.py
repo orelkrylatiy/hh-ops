@@ -31,6 +31,10 @@ logger = logging.getLogger(__package__)
 LETTER_MIN_CHARS = 150
 LETTER_MAX_CHARS = 900
 LETTER_PLACEHOLDER_TOKENS = ("[", "]", "{", "}", "%(", "<имя>", "<name>")
+APPLICATION_CONTACT_URL = "https://t.me/maxxwway"
+APPLICATION_CONTACT_LINE = (
+    f"Буду рад связаться и обсудить задачи в Telegram: {APPLICATION_CONTACT_URL}"
+)
 # ")" допускаем: письмо может заканчиваться оговоркой в скобках
 _LETTER_SENTENCE_ENDINGS = ".!?…)"
 
@@ -54,9 +58,19 @@ def letter_quality_issues(text: str) -> list[str]:
         issues.append("contains an AI-style cliche")
     if contains_smiley(normalized):
         issues.append("contains a smiley or emoji")
-    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS:
+    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not normalized.endswith(
+        APPLICATION_CONTACT_URL
+    ):
         issues.append("letter looks truncated")
     return issues
+
+
+def append_application_contact(text: str) -> str:
+    """Append the verified contact deterministically, without trusting the model."""
+    letter = text.strip()
+    if APPLICATION_CONTACT_URL in letter:
+        return letter
+    return f"{letter}\n\n{APPLICATION_CONTACT_LINE}"
 
 
 @dataclass(frozen=True)
@@ -96,10 +110,32 @@ class ApplyVacanciesApplyFlowMixin:
         if not self.args.send_email:
             return
         gmail_dir = os.environ.get("HH_GMAIL_DIR")
+        if not gmail_dir:
+            candidates = [
+                os.path.join(os.path.expanduser("~"), ".mail"),
+                r"C:\Users\Maxim\.mail",
+            ]
+            gmail_dir = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if os.path.isfile(os.path.join(candidate, "credentials.json"))
+                    and os.path.isfile(os.path.join(candidate, "token.json"))
+                ),
+                "",
+            )
         if gmail_dir:
-            sender = GmailAPISender(gmail_dir)
-            logger.info("Gmail API ready for vacancy mail: %s", sender.profile_email())
-            return
+            try:
+                sender = GmailAPISender(gmail_dir)
+                logger.info(
+                    "Gmail API ready for vacancy mail: %s", sender.profile_email()
+                )
+                return
+            except (OSError, ValueError, requests.RequestException) as exc:
+                logger.warning(
+                    "Gmail API unavailable for vacancy mail: %s; trying SMTP",
+                    exc,
+                )
         smtp = self.tool.config.get("smtp") or {}
         if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
             logger.warning(
@@ -235,7 +271,7 @@ class ApplyVacanciesApplyFlowMixin:
             )
             if "got_rejection" in relations:
                 logger.debug("Вы получили отказ от %s", vacancy["alternate_url"])
-                print("⛔ Пришел отказ от", vacancy["alternate_url"])
+                print("Пришел отказ от", vacancy["alternate_url"])
             return True
 
         if vacancy.get("archived"):
@@ -374,13 +410,25 @@ class ApplyVacanciesApplyFlowMixin:
                     vacancy_name=str(vacancy.get("name") or ""),
                     employer_name=str(employer.get("name") or ""),
                     source_context=context,
+                    profile=(
+                        "ai-engineer"
+                        if getattr(self, "resume_alias", "") == "ai-engineer"
+                        else "frontend-react"
+                    ),
                 )
             except Exception as exc:
+                rejected_text = getattr(exc, "last_text", None)
+                if rejected_text:
+                    logger.warning(
+                        "Framework application rejected text: %r",
+                        rejected_text,
+                    )
                 raise AIError(f"humanizer-framework application failed: {exc}") from exc
             logger.info("Framework application generated: plan=%s provider=%s issues=%s",
                         result.plan.action.value, result.provider,
                         [issue.code for issue in result.issues])
             letter = sanitize_reply_text(result.text.strip())
+            logger.info("Framework application text: %r", letter)
             # модель часто заканчивает строкой контакта без терминальной точки,
             # а чекер качества бракует это как "truncated"
             if letter and letter[-1].isalnum():
@@ -402,6 +450,12 @@ class ApplyVacanciesApplyFlowMixin:
                 "сопроводительном письме",
             )
 
+        letter = append_application_contact(letter)
+        issues = letter_quality_issues(letter)
+        if issues:
+            raise AIError(
+                "cover letter with contact failed quality checks: " + ", ".join(issues)
+            )
         logger.debug(letter)
         return letter
 
@@ -489,7 +543,7 @@ class ApplyVacanciesApplyFlowMixin:
                     vacancy["alternate_url"],
                     res,
                 )
-            print("📨 Отправили отклик на вакансию", vacancy["alternate_url"])
+            print("Отправили отклик на вакансию", vacancy["alternate_url"])
             return VacancyResponseResult(should_continue=True, accepted=True)
         except Redirect:
             logger.warning(
@@ -610,7 +664,7 @@ class ApplyVacanciesApplyFlowMixin:
             resume["alternate_url"],
             resume["title"],
         )
-        print("🚀 Начинаю рассылку откликов для резюме:", resume["title"])
+        print("Начинаю рассылку откликов для резюме:", resume["title"])
 
         if self._response_quota_reached():
             logger.info(
@@ -705,4 +759,4 @@ class ApplyVacanciesApplyFlowMixin:
             resume["alternate_url"],
             resume["title"],
         )
-        print("✅️ Закончили рассылку откликов для резюме:", resume["title"])
+        print("Закончили рассылку откликов для резюме:", resume["title"])

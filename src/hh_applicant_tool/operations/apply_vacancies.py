@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlsplit
 
+from requests.utils import get_environ_proxies
+
 from ..api import datatypes
 from ..main import BaseNamespace, BaseOperation
 from ..storage.repositories.errors import RepositoryError
-from ..utils.captcha_artifacts import save_captcha_image
+from ..utils.captcha_artifacts import save_captcha_attempt_result, save_captcha_image
 from ..utils.misc import expand_env_placeholders, load_prompt
 from ..utils.opencode import solve_captcha_with_opencode
 from ..utils.resume_aliases import resolve_resume_alias
@@ -24,6 +26,42 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__package__)
+
+
+def _effective_captcha_proxy(session: Any, captcha_url: str) -> str | None:
+    """Return the proxy that requests will actually use for the CAPTCHA URL."""
+    proxies = dict(getattr(session, "proxies", None) or {})
+    if getattr(session, "trust_env", True):
+        for scheme, proxy_url in get_environ_proxies(captcha_url).items():
+            proxies.setdefault(scheme, proxy_url)
+    scheme = urlsplit(captcha_url).scheme
+    return proxies.get(scheme) or proxies.get("https") or proxies.get("http")
+
+
+def _playwright_cookies(cookie_jar: Any) -> list[dict[str, object]]:
+    """Copy the current requests cookie jar into a Playwright context."""
+    return [
+        {
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": cookie.domain,
+            "path": cookie.path or "/",
+            "expires": (float(cookie.expires) if cookie.expires and cookie.expires > 0 else -1),
+            "secure": bool(cookie.secure),
+        }
+        for cookie in cookie_jar
+    ]
+
+
+async def _wait_for_captcha_image(page: Any, selector: str) -> None:
+    await page.wait_for_function(
+        """selector => {
+            const image = document.querySelector(selector);
+            return image && image.complete && image.naturalWidth > 0;
+        }""",
+        arg=selector,
+        timeout=15000,
+    )
 
 
 class Namespace(BaseNamespace):
@@ -509,10 +547,7 @@ class Operation(
             # requests session already contains the configured proxy; passing
             # it to Playwright prevents HH from rejecting a valid answer as a
             # challenge created by another network session.
-            proxy_url = (
-                self.tool.session.proxies.get("https")
-                or self.tool.session.proxies.get("http")
-            )
+            proxy_url = _effective_captcha_proxy(self.tool.session, captcha_url)
             if proxy_url:
                 proxy = urlsplit(proxy_url)
                 if proxy.scheme and proxy.hostname:
@@ -538,28 +573,12 @@ class Operation(
                 browser = await pw.chromium.launch(**launch_kwargs)
             try:
                 context = await browser.new_context()
-                # без куки профиля hh редиректит капчу на логин и goto висит:
-                # подтягиваем cookies.txt профиля в контекст браузера
+                # Use the live requests jar, not a second read of cookies.txt:
+                # the CAPTCHA-triggering response may have updated cookies in memory.
                 try:
-                    import http.cookiejar as _cj
-
-                    jar_path = Path(self.tool.session.cookies.filename)
-                    if jar_path.exists():
-                        jar = _cj.MozillaCookieJar(str(jar_path))
-                        jar.load(ignore_discard=True, ignore_expires=True)
-                        pw_cookies = [
-                            {
-                                "name": c.name,
-                                "value": c.value,
-                                "domain": c.domain,
-                                "path": c.path or "/",
-                                "expires": float(c.expires) if c.expires and c.expires > 0 else -1,
-                                "secure": bool(c.secure),
-                            }
-                            for c in jar
-                        ]
-                        if pw_cookies:
-                            await context.add_cookies(pw_cookies)
+                    pw_cookies = _playwright_cookies(self.tool.session.cookies)
+                    if pw_cookies:
+                        await context.add_cookies(pw_cookies)
                 except Exception as ex:  # noqa: BLE001
                     logger.debug("captcha context cookie load failed: %s", ex)
                 page = await context.new_page()
@@ -573,6 +592,20 @@ class Operation(
                         self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
                     )
 
+                    # HH sometimes renders the CAPTCHA element before its
+                    # image payload arrives. Do not screenshot a blank
+                    # 467-byte placeholder.
+                    try:
+                        await _wait_for_captcha_image(page, self.SEL_CAPTCHA_IMAGE)
+                    except Exception as ex:  # noqa: BLE001
+                        logger.warning(
+                            "CAPTCHA image did not finish loading (attempt %d): %s",
+                            attempt + 1,
+                            ex,
+                        )
+                        await page.reload(timeout=60000, wait_until="domcontentloaded")
+                        continue
+
                     img_bytes = await captcha_element.screenshot()
                     image_path = save_captcha_image(
                         img_bytes,
@@ -583,6 +616,7 @@ class Operation(
                     logger.info("Снимок капчи сохранён: %s", image_path)
 
                     current_json = image_path.parent / "CURRENT.json"
+                    provider = "opencode"
                     try:
                         captcha_text = await asyncio.to_thread(
                             solve_captcha_with_opencode, current_json
@@ -593,9 +627,30 @@ class Operation(
                         logger.warning("OpenCode CAPTCHA failed, using API fallback: %s", ex)
                         captcha_text = ""
                     if not captcha_text:
+                        provider = "api"
                         captcha_text = await asyncio.to_thread(
                             captcha_ai.solve_captcha, img_bytes
                         )
+
+                    result_path = save_captcha_attempt_result(
+                        image_path,
+                        provider=provider,
+                        answer=captcha_text,
+                    )
+                    logger.info(
+                        "CAPTCHA result: provider=%s answer=%s artifact=%s",
+                        provider,
+                        captcha_text or "<empty>",
+                        result_path,
+                    )
+
+                    if captcha_text.casefold() in {"captcha", "recaptcha"}:
+                        logger.warning(
+                            "Unsupported visual CAPTCHA challenge; refusing non-token answer: %s",
+                            captcha_text,
+                        )
+                        await page.reload(timeout=60000, wait_until="domcontentloaded")
+                        continue
 
                     if not captcha_text:
                         logger.warning("AI не распознал капчу (попытка %d)", attempt + 1)
@@ -616,6 +671,12 @@ class Operation(
                     for _ in range(6):
                         await page.wait_for_timeout(2500)
                         if not await page.query_selector(self.SEL_CAPTCHA_INPUT):
+                            save_captcha_attempt_result(
+                                image_path,
+                                provider=provider,
+                                answer=captcha_text,
+                                accepted=True,
+                            )
                             solved = True
                             break
                     if solved:
@@ -720,4 +781,4 @@ class Operation(
             self.responses_sent,
         )
         action = "запланировано" if self.dry_run else "отправлено"
-        print(f"📝 Обработка завершена: {action} откликов — {self.responses_sent}.")
+        print(f"Обработка завершена: {action} откликов — {self.responses_sent}.")

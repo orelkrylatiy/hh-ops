@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+from ..ai.openai import _normalize_captcha_text
 from ..constants import (
     OPENCODE_COMMAND,
     OPENCODE_FALLBACK_MODEL,
@@ -85,18 +85,18 @@ def solve_captcha_with_opencode(current_json: Path) -> str:
     metadata = json.loads(current_json.read_text(encoding="utf-8"))
     image_path = Path(metadata["image"])
     prompt = (
-        "Распознай текст на прикреплённой CAPTCHA. "
-        "Твой ответ должен содержать только один слитный токен из 4-8 "
-        "латинских букв и цифр с сохранением регистра. "
-        "Не пиши описание, пояснения, markdown, кавычки или дополнительные слова."
+        "Выполни OCR-транскрипцию: прочитай ровно два искажённых русских слова "
+        "на прикреплённом изображении. Верни только эти два слова кириллицей через "
+        "пробел, без пояснений и без исправления их смысла."
     )
-    answer = run_opencode(
-        prompt,
-        cwd=str(current_json.parent.parent.parent),
-        files=[image_path],
-    )
-    compact = re.sub(r"[^A-Za-z0-9]", "", answer.strip())
-    if 4 <= len(compact) <= 8:
-        return compact
-    tokens = re.findall(r"[A-Za-z0-9]{4,8}", answer)
-    return tokens[-1] if tokens else ""
+    for model in (OPENCODE_PRIMARY_MODEL, OPENCODE_FALLBACK_MODEL):
+        answer = run_opencode(
+            prompt,
+            models=(model,),
+            cwd=str(current_json.parent.parent.parent),
+            files=[image_path],
+        )
+        normalized = _normalize_captcha_text(answer)
+        if normalized.casefold() not in {"", "captcha", "recaptcha"}:
+            return normalized
+    return ""

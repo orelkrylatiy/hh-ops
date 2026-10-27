@@ -15,13 +15,42 @@ logger = logging.getLogger(__package__)
 
 
 def _normalize_captcha_text(value: str) -> str:
-    """Extract HH's case-sensitive 4-8 character captcha token."""
+    """Extract the text shown by HH's visual CAPTCHA.
+
+    HH serves both the older short ASCII tokens and warped Cyrillic phrases.
+    Keep the latter intact (including spaces) instead of silently deleting all
+    non-ASCII characters.
+    """
     raw = (value or "").strip()
+    if not raw:
+        return ""
+
+    raw = re.sub(r"^```(?:text)?\s*|\s*```$", "", raw, flags=re.IGNORECASE).strip()
+
+    # Preserve the legacy short-token behaviour, including model responses
+    # such as "The answer is xY7kQ2".
     compact = re.sub(r"[^A-Za-z0-9]", "", raw)
     if 4 <= len(compact) <= 8:
         return compact
     tokens = re.findall(r"[A-Za-z0-9]{4,8}", raw)
-    return tokens[-1] if tokens else ""
+    if tokens and not re.search(r"[А-Яа-яЁё]", raw):
+        return tokens[-1]
+
+    # Vision models sometimes wrap the answer in quotes or introduce it with
+    # a short label. Prefer that payload before applying conservative Unicode
+    # filtering.
+    quoted = re.findall(r"[«\"']([^»\"']+)[»\"']", raw)
+    candidate = quoted[-1] if quoted else raw
+    if ":" in candidate:
+        prefix, payload = candidate.rsplit(":", 1)
+        if re.search(r"(?i)(?:капч|captcha|ответ|текст|изображени|написан)", prefix):
+            candidate = payload
+
+    candidate = "".join(char if char.isalnum() or char in {" ", "-"} else " " for char in candidate)
+    candidate = " ".join(candidate.split()).strip(" -")
+    if 4 <= len(candidate) <= 64 and len(candidate.split()) <= 6:
+        return candidate
+    return ""
 
 
 class OpenAIError(AIError):
@@ -252,9 +281,8 @@ class ChatOpenAI:
                 {
                     "role": "system",
                     "content": (
-                        "Ты должен распознать CAPTCHA на изображении. "
-                        "Это 4-8 латинских букв и цифр. Сохрани регистр. "
-                        "Верни только токен слитно, без пробелов, кавычек, markdown и объяснений."
+                        "Ты должен распознать текст на изображении. "
+                        "Верни ТОЛЬКО текст, без каких-либо объяснений или дополнительных символов."
                     ),
                 },
                 {
@@ -262,11 +290,14 @@ class ChatOpenAI:
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{image_base64}"},
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_base64}",
+                                "detail": "high",
+                            },
                         },
                         {
                             "type": "text",
-                            "text": "Распознай CAPTCHA. Верни только слитный токен из латинских букв и цифр.",
+                            "text": "Распознай текст на изображении. Верни только результат распознавания.",
                         },
                     ],
                 },
@@ -287,9 +318,8 @@ class ChatOpenAI:
             if not captcha_text:
                 # reasoning-модель (GLM) может оставить ответ в reasoning_content
                 reasoning = message.get("reasoning_content") or ""
-                matches = re.findall(r"[0-9A-Za-z]{4,8}", reasoning)
-                if matches:
-                    captcha_text = matches[-1]
+                captcha_text = _normalize_captcha_text(reasoning)
+                if captcha_text:
                     logger.debug("Капча восстановлена из reasoning_content: %s", captcha_text)
             # Models may wrap the answer in quotes, markdown, spaces or a sentence.
             # HH expects only the case-sensitive alphanumeric token.

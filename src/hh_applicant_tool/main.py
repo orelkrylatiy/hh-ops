@@ -33,6 +33,14 @@ from .constants import (
 from .storage import StorageFacade
 from .utils.cookiejar import HHOnlyCookieJar
 from .utils.log import setup_logger
+
+# The Windows launcher can expose a legacy console encoding (for example
+# ``charmap``).  Status messages contain emoji, so make console writes
+# loss-tolerant instead of aborting a live operation after the API work starts.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from .utils.mixins import MegaTool
 
 logger = logging.getLogger(__package__)

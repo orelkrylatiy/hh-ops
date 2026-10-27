@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
-from hh_applicant_tool.automation.reply_state import ManualChatQueue, ReplySendLog
+from hh_applicant_tool.automation.contact_collector import extract_contacts
+from hh_applicant_tool.automation.reply_state import (
+    EmployerContactStore,
+    ManualChatQueue,
+    ReplySendLog,
+)
 from hh_applicant_tool.communication import FrameworkShadowReplier, FrameworkWriter
 from hh_applicant_tool.constants import CONFIG_DIR
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
@@ -441,6 +446,7 @@ class ReplyWorker:
         shadow_replier: FrameworkShadowReplier | None = None,
         framework_writer: FrameworkWriter | None = None,
         send_log: ReplySendLog | None = None,
+        contact_store: EmployerContactStore | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
@@ -450,6 +456,8 @@ class ReplyWorker:
         self.shadow_replier = shadow_replier
         self.framework_writer = framework_writer
         self.send_log = send_log
+        self.contact_store = contact_store
+        self.contacts_collected_last_scan = 0
         self.resume_aliases = self._load_resume_aliases()
 
     def _load_resume_aliases(self) -> dict[str, str]:
@@ -468,6 +476,7 @@ class ReplyWorker:
         page = 0
         inspected = 0
         per_page = min(max(self.config.max_chats, 1), 100)
+        self.contacts_collected_last_scan = 0
         while inspected < self.config.max_chats:
             payload = self.hh.call_api(f"/negotiations?page={page}&per_page={per_page}")
             items = payload.get("items")
@@ -479,9 +488,23 @@ class ReplyWorker:
                 if inspected >= self.config.max_chats:
                     break
                 inspected += 1
+                negotiation_id = str(item.get("id") or "")
+                if not negotiation_id:
+                    continue
+                messages: list[dict[str, Any]] | None = None
+                if self.contact_store is not None:
+                    try:
+                        messages = self._negotiation_messages(negotiation_id)
+                    except HHCLIError as exc:
+                        logger.warning(
+                            "Could not load messages for negotiation %s: %s", negotiation_id, exc
+                        )
+                        continue
+                    self.contacts_collected_last_scan += self._collect_contacts(
+                        item, negotiation_id, messages
+                    )
                 state = item.get("state")
                 if isinstance(state, dict) and state.get("id") == "discard":
-                    negotiation_id = str(item.get("id") or "")
                     if negotiation_id and self.manual_queue is not None and not self.config.dry_run:
                         self.manual_queue.resolve_chat(negotiation_id)
                     continue
@@ -491,18 +514,16 @@ class ReplyWorker:
                 messaging_status = str(item.get("messaging_status") or "")
                 if messaging_status and messaging_status != "ok":
                     continue
-                negotiation_id = str(item.get("id") or "")
-                if not negotiation_id:
-                    continue
                 if negotiation_id in self.config.skip_chat_ids:
                     continue
-                try:
-                    messages = self._negotiation_messages(negotiation_id)
-                except HHCLIError as exc:
-                    logger.warning(
-                        "Could not load messages for negotiation %s: %s", negotiation_id, exc
-                    )
-                    continue
+                if messages is None:
+                    try:
+                        messages = self._negotiation_messages(negotiation_id)
+                    except HHCLIError as exc:
+                        logger.warning(
+                            "Could not load messages for negotiation %s: %s", negotiation_id, exc
+                        )
+                        continue
                 ordered = sorted_messages(messages)
                 if not ordered:
                     continue
@@ -530,6 +551,45 @@ class ReplyWorker:
                 break
             page += 1
         return chats
+
+    def _collect_contacts(
+        self,
+        chat: dict[str, Any],
+        chat_id: str,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        if self.contact_store is None:
+            return 0
+        vacancy_name, employer_name = self._vacancy_info(chat)
+        inserted = 0
+        for message in messages:
+            if message_role(message) != EMPLOYER_ROLE:
+                continue
+            text = message_text(message)
+            msg_id = message_id(message)
+            if not text or not msg_id:
+                continue
+            for contact in extract_contacts(text):
+                if self.contact_store.save(
+                    profile_id=self.config.profile_id,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    message_created_at=message_created_at(message),
+                    vacancy_name=vacancy_name,
+                    employer_name=employer_name,
+                    contact_type=contact.contact_type,
+                    contact_value=contact.value,
+                    normalized_value=contact.normalized_value,
+                    message_text=text,
+                ):
+                    inserted += 1
+                    logger.info(
+                        "Saved %s contact from chat %s: %s",
+                        contact.contact_type,
+                        chat_id,
+                        contact.normalized_value,
+                    )
+        return inserted
 
     def _negotiation_messages(self, negotiation_id: str) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
@@ -797,8 +857,10 @@ class ReplyWorker:
             "ignored": 0,
             "manual": 0,
             "errors": 0,
+            "contacts_saved": 0,
         }
         candidates = self.collect_candidate_chats()
+        stats["contacts_saved"] = self.contacts_collected_last_scan
         stats["candidates"] = len(candidates)
         for chat in candidates:
             try:

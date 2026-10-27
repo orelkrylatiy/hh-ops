@@ -16,12 +16,18 @@ from hh_applicant_tool.communication import (
     CHAT_REPLY_BUSINESS_RULES,
     FrameworkShadowReplier,
     FrameworkWriter,
+    build_application_request,
     build_chat_reply_request,
     conversation_from_context,
     framework_shadow_enabled,
 )
 from hh_applicant_tool.communication.shadow import SHADOW_ENV_FLAG
-from hh_applicant_tool.operations._apply_vacancies_apply_flow import letter_quality_issues
+from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
+    APPLICATION_CONTACT_LINE,
+    APPLICATION_CONTACT_URL,
+    append_application_contact,
+    letter_quality_issues,
+)
 from hh_applicant_tool.utils.string import contains_smiley
 
 
@@ -156,6 +162,32 @@ def test_letter_quality_issues_rejects_smileys() -> None:
     assert "contains a smiley or emoji" not in letter_quality_issues(
         base + " (подробности в резюме)."
     )
+
+
+def test_application_contact_is_appended_once_and_passes_quality_checks() -> None:
+    letter = (
+        "Здравствуйте! Заинтересовали задачи по развитию продуктового интерфейса. "
+        "Более пяти лет работаю с React и TypeScript и готов обсудить опыт подробнее."
+    )
+
+    with_contact = append_application_contact(letter)
+
+    assert with_contact.endswith(APPLICATION_CONTACT_LINE)
+    assert append_application_contact(with_contact) == with_contact
+    assert letter_quality_issues(with_contact) == []
+
+
+def test_application_request_uses_selected_profile_voice() -> None:
+    request = build_application_request(
+        vacancy_name="LLM Engineer",
+        employer_name="Acme",
+        source_context="Python и OpenAI-compatible API",
+        profile="ai-engineer",
+    )
+
+    assert request.profile == "ai-engineer"
+    assert request.voice is not None
+    assert request.voice.id == "maxim-ai-engineer"
 
 
 def test_shadow_flags_smiley_from_framework_output() -> None:

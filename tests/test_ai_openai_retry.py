@@ -94,6 +94,9 @@ def test_legacy_transport_bypasses_framework_chain(monkeypatch) -> None:
         ('"Ab 1-cD"', "Ab1cD"),
         ("The answer is xY7kQ2", "xY7kQ2"),
         ("```QwEr12```", "QwEr12"),
+        ("автов ожидание", "автов ожидание"),
+        ("Текст на изображении: «автов ожидание»", "автов ожидание"),
+        ("```text\nРусская фраза\n```", "Русская фраза"),
         ("abc", ""),
     ],
 )

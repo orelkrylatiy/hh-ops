@@ -9,6 +9,7 @@ from ..utils.misc import expand_env_placeholders, load_prompt
 from ..utils.string import rand_text, render_template
 from ._apply_vacancies_apply_flow import (
     VacancyResponseResult,
+    append_application_contact,
     letter_quality_issues,
 )
 from .apply_vacancies import Namespace
@@ -61,6 +62,7 @@ class Operation(BaseApplyOperation):
         ).strip()
         if not letter:
             raise ValueError("cover-letter fallback rendered an empty message")
+        letter = append_application_contact(letter)
         issues = letter_quality_issues(letter)
         if issues:
             # fail-open: фолбэк остаётся последним шансом откликнуться,

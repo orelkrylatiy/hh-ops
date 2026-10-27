@@ -169,3 +169,89 @@ class ReplySendLog:
                    WHERE chat_id=? AND employer_message_id=?""",
                 (chat_id, employer_message_id),
             )
+
+
+class EmployerContactStore:
+    """Profile-local archive of contacts found in employer chat messages."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn, conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS employer_contacts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    message_created_at TEXT,
+                    vacancy_name TEXT,
+                    employer_name TEXT,
+                    contact_type TEXT NOT NULL,
+                    contact_value TEXT NOT NULL,
+                    normalized_value TEXT NOT NULL,
+                    message_text TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(chat_id, message_id, contact_type, normalized_value)
+                );
+                CREATE INDEX IF NOT EXISTS idx_employer_contacts_value
+                    ON employer_contacts(contact_type, normalized_value);
+                CREATE INDEX IF NOT EXISTS idx_employer_contacts_created
+                    ON employer_contacts(created_at DESC);
+                """
+            )
+
+    def save(
+        self,
+        *,
+        profile_id: str,
+        chat_id: str,
+        message_id: str,
+        message_created_at: str,
+        vacancy_name: str,
+        employer_name: str,
+        contact_type: str,
+        contact_value: str,
+        normalized_value: str,
+        message_text: str,
+    ) -> bool:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn, conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO employer_contacts (
+                    profile_id, chat_id, message_id, message_created_at,
+                    vacancy_name, employer_name, contact_type, contact_value,
+                    normalized_value, message_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_id,
+                    chat_id,
+                    message_id,
+                    message_created_at,
+                    vacancy_name,
+                    employer_name,
+                    contact_type,
+                    contact_value,
+                    normalized_value,
+                    message_text,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def recent(self, limit: int = 100) -> list[dict[str, Any]]:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT profile_id, chat_id, message_id, message_created_at,
+                       vacancy_name, employer_name, contact_type, contact_value,
+                       normalized_value, message_text, created_at
+                FROM employer_contacts
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]

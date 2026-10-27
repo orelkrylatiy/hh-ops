@@ -17,7 +17,11 @@ import sys
 import time
 from pathlib import Path
 
-from hh_applicant_tool.automation.reply_state import ManualChatQueue, ReplySendLog
+from hh_applicant_tool.automation.reply_state import (
+    EmployerContactStore,
+    ManualChatQueue,
+    ReplySendLog,
+)
 from hh_applicant_tool.automation.reply_worker import (
     HHCLI,
     ReplyWorker,
@@ -85,8 +89,9 @@ def main() -> int:
 
     manual_queue = None
     send_log = None
+    db_path = profile_dir(args.profile) / DATABASE_FILENAME
+    contact_store = EmployerContactStore(db_path)
     if not dry_run:
-        db_path = profile_dir(args.profile) / DATABASE_FILENAME
         manual_queue = ManualChatQueue(db_path)
         send_log = ReplySendLog(db_path)
 
@@ -105,6 +110,7 @@ def main() -> int:
         manual_queue=manual_queue,
         framework_writer=framework_writer,
         send_log=send_log,
+        contact_store=contact_store,
     )
     stats: dict[str, int] = {}
     for round_number in range(1, args.rounds + 1):

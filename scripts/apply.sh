@@ -13,6 +13,11 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
     set +a
 fi
 
+# Keep the local Gmail OAuth path available even when a shell startup file
+# provides an empty override. The worker runs Windows Python from WSL, so the
+# Windows path is intentional here.
+export HH_GMAIL_DIR="${HH_GMAIL_DIR:-C:/Users/Maxim/.mail}"
+
 SEARCH_QUERY="${SEARCH_QUERY:-Frontend разработчик}"
 MAX_RESPONSES="${APPLY_LIMIT:-${LIMIT:-100}}"
 PER_PAGE="${APPLY_PER_PAGE:-50}"
