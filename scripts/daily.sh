@@ -132,12 +132,29 @@ fi
 
 echo "Daily HH pass: mode=$RUN_MODE profile=${PROFILE_ID:-default}"
 
+# An error in one stage must not suppress independent stages (especially chat
+# replies after an application batch). Preserve a failing final exit status so
+# callers, cron and monitoring still notice partial failures.
+FAILED_STAGES=()
+run_stage() {
+    local stage="$1"
+    shift
+    local status=0
+    if "$@"; then
+        echo "HH_DAILY_STAGE stage=$stage status=0"
+    else
+        status=$?
+        echo "HH_DAILY_STAGE stage=$stage status=$status" >&2
+        FAILED_STAGES+=("$stage:$status")
+    fi
+}
+
 if [[ "$WITH_BOOST" == true ]]; then
-    "$SCRIPT_DIR/all-profiles.sh" boost --live
+    run_stage boost "$SCRIPT_DIR/all-profiles.sh" boost --live
 fi
 
 if [[ "$REPLY_ONLY" == false ]]; then
-    "$SCRIPT_DIR/apply.sh" "$MODE_FLAG" \
+    run_stage apply "$SCRIPT_DIR/apply.sh" "$MODE_FLAG" \
         --search "$SEARCH_QUERY" \
         --limit "$APPLY_LIMIT" \
         --pages "$APPLY_PAGES" \
@@ -146,7 +163,13 @@ if [[ "$REPLY_ONLY" == false ]]; then
 fi
 
 if [[ "$APPLY_ONLY" == false ]]; then
-    "$SCRIPT_DIR/reply.sh" "$MODE_FLAG" \
+    run_stage reply "$SCRIPT_DIR/reply.sh" "$MODE_FLAG" \
         --chats "$REPLY_CHATS" \
         "${PROFILE_ARGS[@]}"
 fi
+
+if (( ${#FAILED_STAGES[@]} > 0 )); then
+    echo "HH_DAILY_RESULT status=failed stages=${FAILED_STAGES[*]}" >&2
+    exit 1
+fi
+echo "HH_DAILY_RESULT status=ok"
