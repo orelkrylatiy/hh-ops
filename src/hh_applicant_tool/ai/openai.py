@@ -41,10 +41,6 @@ def _framework_chain_provider():
     return _FRAMEWORK_CHAIN
 
 
-class OpenAIError(AIError):
-    pass
-
-
 @dataclass
 class ChatOpenAI:
     """Клиент для OpenAI-совместимых API (OpenAI, OpenRouter, Ollama и др.).

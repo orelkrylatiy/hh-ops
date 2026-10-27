@@ -237,4 +237,5 @@ def test_tracked_0555_lane_config_is_valid() -> None:
     ]
     assert lanes[0]["resume_alias"] == "primary"
     assert all(lane.get("resume_alias") == "ai-engineer" for lane in lanes[1:])
-    assert all(lane.get("ai_filter") == "light" for lane in lanes[1:])
+    # AI filtering is optional; the tracked lanes intentionally omit it.
+    assert all(lane.get("skip_if_alias_missing") for lane in lanes[1:])

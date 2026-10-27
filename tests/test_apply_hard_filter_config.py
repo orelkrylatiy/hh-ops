@@ -72,6 +72,9 @@ def test_default_hard_filter_does_not_block_target_frontend_titles(
 def test_stop_words_are_configured_outside_apply_script() -> None:
     script = APPLY_SCRIPT.read_text(encoding="utf-8")
 
-    assert "rules/apply-hard-filter.regex" in script
+    # Filtering is opt-in; the rules live in a separate file and the script
+    # accepts its path through APPLY_HARD_FILTER_FILE or --hard-filter-file.
+    assert 'HARD_FILTER_FILE="${APPLY_HARD_FILTER_FILE:-}"' in script
+    assert '--hard-filter-file' in script
     assert "junior|стажир|bitrix" not in script
     assert 'EXCLUDED_FILTER="${EXCLUDED_FILTER:-}"' in script

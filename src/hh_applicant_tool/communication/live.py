@@ -8,8 +8,8 @@ from pathlib import Path
 from humanizer_framework import CommunicationFramework
 from humanizer_framework.models import CommunicationResult
 
-from .adapter import build_application_request, build_chat_reply_request
 from ..ai.framework_provider import opencode_provider
+from .adapter import build_application_request, build_chat_reply_request
 
 
 class FrameworkWriter:
