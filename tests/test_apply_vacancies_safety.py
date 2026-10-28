@@ -12,11 +12,30 @@ from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
     VacancyResponseResult,
 )
 from hh_applicant_tool.operations.apply_vacancies import (
+    CAPTCHA_SUCCESS_BACKURL,
     Operation,
+    _captcha_browser_url,
     _effective_captcha_proxy,
     _playwright_cookies,
     _wait_for_captcha_image,
 )
+
+
+def test_captcha_browser_url_adds_required_applicant_callback() -> None:
+    result = _captcha_browser_url("https://hh.ru/account/captcha?state=abc123")
+
+    assert result.startswith("https://hh.ru/account/captcha?")
+    assert "state=abc123" in result
+    assert "backurl=hh%3A%2F%2Fapplicant%2FcaptchaSuccessBackUrl" in result
+
+
+def test_captcha_browser_url_preserves_existing_callback() -> None:
+    result = _captcha_browser_url(
+        "https://hh.ru/account/captcha?state=abc&backurl=https%3A%2F%2Fexample.test"
+    )
+
+    assert "backurl=https%3A%2F%2Fexample.test" in result
+    assert CAPTCHA_SUCCESS_BACKURL not in result
 
 
 def _vacancy(vacancy_id: str) -> dict[str, object]:
@@ -230,9 +249,7 @@ def test_vacancy_email_reuses_framework_letter_and_deduplicates(monkeypatch, tmp
     placeholders = {"vacancy_name": "Frontend developer", "resume_url": "https://hh.ru/resume/1"}
 
     for _ in range(2):
-        operation._send_vacancy_email_if_needed(
-            vacancy, None, {}, placeholders, letter
-        )
+        operation._send_vacancy_email_if_needed(vacancy, None, {}, placeholders, letter)
 
     operation._send_email.assert_called_once()
     recipient, subject, body = operation._send_email.call_args.args
@@ -429,9 +446,7 @@ def test_existing_local_negotiation_skips_vacancy_before_apply() -> None:
     operation._args = SimpleNamespace(skip_tests=False)
     negotiation_repo = Mock()
     negotiation_repo.find.return_value = iter([object()])
-    operation.tool = SimpleNamespace(
-        storage=SimpleNamespace(negotiations=negotiation_repo)
-    )
+    operation.tool = SimpleNamespace(storage=SimpleNamespace(negotiations=negotiation_repo))
     operation._is_excluded = Mock(return_value=False)
 
     should_skip = operation._should_skip_vacancy_basic(
@@ -450,9 +465,7 @@ def test_missing_local_negotiation_keeps_existing_hh_relation_logic() -> None:
     operation._args = SimpleNamespace(skip_tests=False)
     negotiation_repo = Mock()
     negotiation_repo.find.return_value = iter([])
-    operation.tool = SimpleNamespace(
-        storage=SimpleNamespace(negotiations=negotiation_repo)
-    )
+    operation.tool = SimpleNamespace(storage=SimpleNamespace(negotiations=negotiation_repo))
     operation._is_excluded = Mock(return_value=False)
 
     vacancy = _vacancy("124")
@@ -473,9 +486,7 @@ def test_negotiation_lookup_failure_falls_back_to_hh_checks() -> None:
     operation._args = SimpleNamespace(skip_tests=False)
     negotiation_repo = Mock()
     negotiation_repo.find.side_effect = TypeError("db unavailable")
-    operation.tool = SimpleNamespace(
-        storage=SimpleNamespace(negotiations=negotiation_repo)
-    )
+    operation.tool = SimpleNamespace(storage=SimpleNamespace(negotiations=negotiation_repo))
     operation._is_excluded = Mock(return_value=False)
 
     should_skip = operation._should_skip_vacancy_basic(

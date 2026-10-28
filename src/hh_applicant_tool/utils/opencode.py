@@ -89,14 +89,11 @@ def solve_captcha_with_opencode(current_json: Path) -> str:
         "на прикреплённом изображении. Верни только эти два слова кириллицей через "
         "пробел, без пояснений и без исправления их смысла."
     )
-    for model in (OPENCODE_PRIMARY_MODEL, OPENCODE_FALLBACK_MODEL):
-        answer = run_opencode(
-            prompt,
-            models=(model,),
-            cwd=str(current_json.parent.parent.parent),
-            files=[image_path],
-        )
-        normalized = _normalize_captcha_text(answer)
-        if normalized.casefold() not in {"", "captcha", "recaptcha"}:
-            return normalized
-    return ""
+    answer = run_opencode(
+        prompt,
+        models=(OPENCODE_FALLBACK_MODEL,),
+        cwd=str(current_json.parent.parent.parent),
+        files=[image_path],
+    )
+    normalized = _normalize_captcha_text(answer)
+    return normalized if normalized.casefold() not in {"", "captcha", "recaptcha"} else ""

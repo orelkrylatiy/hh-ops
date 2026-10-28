@@ -6,7 +6,7 @@ import logging
 from http.cookiejar import Cookie
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from requests.utils import get_environ_proxies
 
@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__package__)
+
+CAPTCHA_SUCCESS_BACKURL = "hh://applicant/captchaSuccessBackUrl"
+
+
+def _captcha_browser_url(captcha_url: str) -> str:
+    """Add the applicant API success callback required by HH's CAPTCHA page."""
+    parsed = urlsplit(captcha_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.setdefault("backurl", CAPTCHA_SUCCESS_BACKURL)
+    return urlunsplit(parsed._replace(query=urlencode(query)))
 
 
 def _effective_captcha_proxy(session: Any, captcha_url: str) -> str | None:
@@ -302,62 +312,30 @@ class Operation(
             nargs="+",
             help="Формат работы (REMOTE, HYBRID, ON_SITE, FIELD_WORK)",
         )
-        api_search_filters.add_argument(
-            "--employment", nargs="+", help="Тип занятости"
-        )
-        api_search_filters.add_argument(
-            "--area", nargs="+", help="Регион (area id)"
-        )
-        api_search_filters.add_argument(
-            "--metro", nargs="+", help="Станции метро (metro id)"
-        )
-        api_search_filters.add_argument(
-            "--professional-role", nargs="+", help="Проф. роль (id)"
-        )
-        api_search_filters.add_argument(
-            "--industry", nargs="+", help="Индустрия (industry id)"
-        )
-        api_search_filters.add_argument(
-            "--employer-id", nargs="+", help="ID работодателей"
-        )
+        api_search_filters.add_argument("--employment", nargs="+", help="Тип занятости")
+        api_search_filters.add_argument("--area", nargs="+", help="Регион (area id)")
+        api_search_filters.add_argument("--metro", nargs="+", help="Станции метро (metro id)")
+        api_search_filters.add_argument("--professional-role", nargs="+", help="Проф. роль (id)")
+        api_search_filters.add_argument("--industry", nargs="+", help="Индустрия (industry id)")
+        api_search_filters.add_argument("--employer-id", nargs="+", help="ID работодателей")
         api_search_filters.add_argument(
             "--excluded-employer-id", nargs="+", help="Исключить работодателей"
         )
-        api_search_filters.add_argument(
-            "--currency", help="Код валюты (RUR, USD, EUR)"
-        )
-        api_search_filters.add_argument(
-            "--salary", type=int, help="Минимальная зарплата"
-        )
+        api_search_filters.add_argument("--currency", help="Код валюты (RUR, USD, EUR)")
+        api_search_filters.add_argument("--salary", type=int, help="Минимальная зарплата")
         api_search_filters.add_argument(
             "--only-with-salary",
             default=False,
             action=argparse.BooleanOptionalAction,
         )
-        api_search_filters.add_argument(
-            "--label", nargs="+", help="Метки вакансий (label)"
-        )
-        api_search_filters.add_argument(
-            "--period", type=int, help="Искать вакансии за N дней"
-        )
-        api_search_filters.add_argument(
-            "--date-from", help="Дата публикации с (YYYY-MM-DD)"
-        )
-        api_search_filters.add_argument(
-            "--date-to", help="Дата публикации по (YYYY-MM-DD)"
-        )
-        api_search_filters.add_argument(
-            "--top-lat", type=float, help="Гео: верхняя широта"
-        )
-        api_search_filters.add_argument(
-            "--bottom-lat", type=float, help="Гео: нижняя широта"
-        )
-        api_search_filters.add_argument(
-            "--left-lng", type=float, help="Гео: левая долгота"
-        )
-        api_search_filters.add_argument(
-            "--right-lng", type=float, help="Гео: правая долгота"
-        )
+        api_search_filters.add_argument("--label", nargs="+", help="Метки вакансий (label)")
+        api_search_filters.add_argument("--period", type=int, help="Искать вакансии за N дней")
+        api_search_filters.add_argument("--date-from", help="Дата публикации с (YYYY-MM-DD)")
+        api_search_filters.add_argument("--date-to", help="Дата публикации по (YYYY-MM-DD)")
+        api_search_filters.add_argument("--top-lat", type=float, help="Гео: верхняя широта")
+        api_search_filters.add_argument("--bottom-lat", type=float, help="Гео: нижняя широта")
+        api_search_filters.add_argument("--left-lng", type=float, help="Гео: левая долгота")
+        api_search_filters.add_argument("--right-lng", type=float, help="Гео: правая долгота")
         api_search_filters.add_argument(
             "--sort-point-lat",
             type=float,
@@ -400,11 +378,7 @@ class Operation(
         delay_parts = response_delay.split("-")
         try:
             delay_min = float(delay_parts[0])
-            delay_max = (
-                float(delay_parts[1])
-                if len(delay_parts) > 1
-                else delay_min
-            )
+            delay_max = float(delay_parts[1]) if len(delay_parts) > 1 else delay_min
         except (ValueError, IndexError):
             logger.warning(
                 "Неверный формат задержки %r, используем по умолчанию 1-3 сек",
@@ -419,20 +393,13 @@ class Operation(
         try:
             parsed = int(value)
         except ValueError as ex:
-            raise argparse.ArgumentTypeError(
-                "must be a non-negative integer"
-            ) from ex
+            raise argparse.ArgumentTypeError("must be a non-negative integer") from ex
         if parsed < 0:
-            raise argparse.ArgumentTypeError(
-                "must be a non-negative integer"
-            )
+            raise argparse.ArgumentTypeError("must be a non-negative integer")
         return parsed
 
     def _response_quota_reached(self) -> bool:
-        return (
-            self.max_responses is not None
-            and self.responses_sent >= self.max_responses
-        )
+        return self.max_responses is not None and self.responses_sent >= self.max_responses
 
     def _assign_args(self, args: Namespace) -> None:
         for attr_name in self._ARG_ATTRS:
@@ -451,8 +418,7 @@ class Operation(
             published = [
                 str(resume["id"])
                 for resume in tool.get_resumes()
-                if resume.get("id")
-                and (resume.get("status") or {}).get("id") == "published"
+                if resume.get("id") and (resume.get("status") or {}).get("id") == "published"
             ]
             if len(published) != 1:
                 raise ValueError(
@@ -483,9 +449,7 @@ class Operation(
         args.system_prompt = load_prompt(args.system_prompt)
         args.message_prompt = load_prompt(args.message_prompt)
         self.cover_letter = (
-            expand_env_placeholders(
-                args.letter_file.read_text(encoding="utf-8", errors="ignore")
-            )
+            expand_env_placeholders(args.letter_file.read_text(encoding="utf-8", errors="ignore"))
             if args.letter_file
             else self.cover_letter
         )
@@ -523,7 +487,8 @@ class Operation(
         if self.ai_error_count or self.email_error_count:
             logger.error(
                 "Сбой генерации или email: AI=%d, email=%d; запуск помечен как неуспешный",
-                self.ai_error_count, self.email_error_count,
+                self.ai_error_count,
+                self.email_error_count,
             )
             return 1
         return None
@@ -556,16 +521,8 @@ class Operation(
                         server += f":{proxy.port}"
                     launch_kwargs["proxy"] = {
                         "server": server,
-                        **(
-                            {"username": unquote(proxy.username)}
-                            if proxy.username
-                            else {}
-                        ),
-                        **(
-                            {"password": unquote(proxy.password)}
-                            if proxy.password
-                            else {}
-                        ),
+                        **({"username": unquote(proxy.username)} if proxy.username else {}),
+                        **({"password": unquote(proxy.password)} if proxy.password else {}),
                     }
             try:
                 browser = await pw.chromium.launch(channel="msedge", **launch_kwargs)
@@ -583,7 +540,11 @@ class Operation(
                     logger.debug("captcha context cookie load failed: %s", ex)
                 page = await context.new_page()
 
-                await page.goto(captcha_url, timeout=60000, wait_until="domcontentloaded")
+                await page.goto(
+                    _captcha_browser_url(captcha_url),
+                    timeout=60000,
+                    wait_until="domcontentloaded",
+                )
 
                 # до 5 попыток: неверный ответ => на странице новая картинка
                 solved = False
@@ -628,9 +589,7 @@ class Operation(
                         captcha_text = ""
                     if not captcha_text:
                         provider = "api"
-                        captcha_text = await asyncio.to_thread(
-                            captcha_ai.solve_captcha, img_bytes
-                        )
+                        captcha_text = await asyncio.to_thread(captcha_ai.solve_captcha, img_bytes)
 
                     result_path = save_captcha_attempt_result(
                         image_path,
@@ -681,9 +640,7 @@ class Operation(
                             break
                     if solved:
                         break
-                    logger.warning(
-                        "капча не принята (попытка %d), пробую заново", attempt + 1
-                    )
+                    logger.warning("капча не принята (попытка %d), пробую заново", attempt + 1)
 
                 if not solved:
                     logger.error("не смог решить капчу за 5 попыток")
@@ -730,9 +687,7 @@ class Operation(
             else resumes
         )
         # Выбираем только опубликованные
-        resumes = list(
-            filter(lambda x: x["status"]["id"] == "published", resumes)
-        )
+        resumes = list(filter(lambda x: x["status"]["id"] == "published", resumes))
         if not resumes:
             logger.warning("У вас нет опубликованных резюме")
             return
@@ -766,9 +721,7 @@ class Operation(
                         or not vacancy.get("employer")
                         or not vacancy["employer"].get("id")
                     ):
-                        logger.debug(
-                            "Пропуск отклика: вакансия или работодатель удален"
-                        )
+                        logger.debug("Пропуск отклика: вакансия или работодатель удален")
                         continue
                     self.tool.storage.negotiations.save(neg)
                 except RepositoryError as e:

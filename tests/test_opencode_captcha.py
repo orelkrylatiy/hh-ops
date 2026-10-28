@@ -21,25 +21,18 @@ def test_opencode_captcha_preserves_cyrillic_phrase(tmp_path, monkeypatch) -> No
     assert opencode.solve_captcha_with_opencode(metadata_path) == "автов ожидание"
 
 
-def test_opencode_captcha_retries_with_fallback_model_on_refusal(tmp_path, monkeypatch) -> None:
+def test_opencode_captcha_uses_61_sol(tmp_path, monkeypatch) -> None:
     image_path = tmp_path / "captcha.png"
     metadata_path = tmp_path / "CURRENT.json"
     metadata_path.write_text(
         json.dumps({"image": str(image_path)}),
         encoding="utf-8",
     )
-    calls = []
 
     def fake_run(*args, **kwargs):
-        calls.append(kwargs["models"])
-        if kwargs["models"] == (opencode.OPENCODE_PRIMARY_MODEL,):
-            return "Не могу помочь с распознаванием CAPTCHA."
+        assert kwargs["models"] == (opencode.OPENCODE_FALLBACK_MODEL,)
         return "изъянов налущив"
 
     monkeypatch.setattr(opencode, "run_opencode", fake_run)
 
     assert opencode.solve_captcha_with_opencode(metadata_path) == "изъянов налущив"
-    assert calls == [
-        (opencode.OPENCODE_PRIMARY_MODEL,),
-        (opencode.OPENCODE_FALLBACK_MODEL,),
-    ]
