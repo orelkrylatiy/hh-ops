@@ -62,6 +62,7 @@ coverage.xml
 .env
 .profiles
 .venv
+.venv_test
 env/
 venv/
 ENV/

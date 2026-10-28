@@ -59,6 +59,40 @@ live     разрешает реальные отклики, ответы, clean
 
 Требуется Python 3.11+.
 
+### Windows / PowerShell
+
+Запускай команды из корня репозитория. Bash-скрипты из `scripts/` требуют
+Git Bash или WSL; установка и авторизация выполняются напрямую из PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\setup-windows.ps1
+```
+
+Скрипт идемпотентен: его можно повторить после обновления зависимостей.
+
+Проверка CLI:
+
+```powershell
+.\hh.bat --help
+.\hh.bat --profile-id default whoami
+.\hh.bat --profile-id default list-resumes
+```
+
+Первичная авторизация с видимым окном браузера:
+
+```powershell
+.\hh.bat --profile-id default authorize "89990000000" --no-headless
+```
+
+Если удобнее полностью ввести номер, код и капчу в браузере:
+
+```powershell
+.\hh.bat --profile-id default authorize --manual --no-headless
+```
+
+### Linux / macOS / Git Bash / WSL
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -117,9 +151,27 @@ hh-applicant-tool --profile-id account2 whoami
 Batch по всем профилям:
 
 ```bash
+# Git Bash, WSL или Linux
 ./scripts/all-profiles.sh apply --dry-run
 ./scripts/all-profiles.sh reply --dry-run
 ```
+
+Для одного профиля безопасный preview откликов:
+
+```bash
+./scripts/apply-profile.sh --profile default --dry-run
+```
+
+Реальные отклики отправляет только явный `--live`:
+
+```bash
+./scripts/apply-profile.sh --profile default --live
+```
+
+Эти `*.sh` команды не являются командами PowerShell. На Windows запускай их
+из полностью настроенного WSL/Linux-окружения или из Git Bash с доступным
+`python3` и установленными зависимостями проекта. Не смешивай Windows `.venv`
+с Python внутри WSL.
 
 Параллелизм ограничен и по умолчанию рассчитан на десять аккаунтов:
 
@@ -265,12 +317,6 @@ Preview без отправки и без вызова LLM:
 
 ```bash
 ./scripts/reply.sh --profile default --chats 20 --dry-run
-```
-
-Посмотреть реальные ответы LLM без отправки (тот же worker, но POST запрещён):
-
-```bash
-python scripts/reply_shadow.py default 30
 ```
 
 Live:
