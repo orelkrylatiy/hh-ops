@@ -11,7 +11,6 @@ import requests
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError, _normalize_captcha_text
 
-
 PROBE_PAYLOAD = {"model": "test-model", "messages": [{"role": "user", "content": "OK?"}]}
 
 

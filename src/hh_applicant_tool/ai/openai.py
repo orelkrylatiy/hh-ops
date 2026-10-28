@@ -1,6 +1,5 @@
 import base64
 import logging
-import os
 import re
 import time
 from dataclasses import KW_ONLY, dataclass, field
