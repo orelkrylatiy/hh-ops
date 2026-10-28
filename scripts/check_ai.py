@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
-from hh_applicant_tool.automation.reply_fallback import load_reply_fallback_config
 from hh_applicant_tool.constants import CONFIG_DIR
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 
@@ -104,12 +103,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     path = config_path(args.profile)
-    fallback = None
     try:
         config = load_config(path)
         section, provider = select_provider(config, args.purpose)
-        if args.purpose == "reply":
-            fallback = load_reply_fallback_config(config)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"AI config error: {exc}", file=sys.stderr)
         return 1
@@ -123,9 +119,6 @@ def main() -> int:
     print(f"AI config OK: {section} / {provider['model']} / {provider['base_url']}")
     if args.purpose == "reply" and section == "openai_cover_letter":
         print("Reply provider fallback: openai_cover_letter")
-    if fallback is not None:
-        status = "enabled" if fallback.enabled else "disabled"
-        print(f"Reply runtime fallback: {status}")
 
     if args.probe:
         try:

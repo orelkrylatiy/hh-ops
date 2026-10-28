@@ -54,25 +54,6 @@ reply по всем профилям. После каждого успешног
 автоматически; общий email-ledger не допускает дубликаты. Для live-запуска
 `scripts/apply.sh` флаг `--send-email` включён принудительно.
 
-### 2.1 Теневой прогон ответов (LLM без отправки)
-
-`scripts/reply_shadow.py` использует тот же reply-worker и реальную LLM, но никогда не делает POST в `/negotiations`. Показывает классификацию чатов и точный текст, который live-режим отправил бы работодателю:
-
-```bash
-export HH_NAME="Максим" HH_TELEGRAM="@maxxwway"
-
-# свежие чаты профиля: что бот ответил бы прямо сейчас
-python scripts/reply_shadow.py 5457 30
-
-# реплей: regenerate ответов для реальной истории чатов по chat_id
-python scripts/reply_shadow.py replay 5457 5590761786 5590766312
-
-# CHAT_ID:N — ответить на N-е сообщение работодателя в чате, а не на последнее
-python scripts/reply_shadow.py replay 5457 5590759237:2
-```
-
-Полезно перед первым live-прогоном и после правок промптов.
-
 ### 3. Контекст проекта
 
 **Пользователь:** `${HH_NAME}`, Frontend-разработчик (React/TypeScript/Redux)

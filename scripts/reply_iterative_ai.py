@@ -82,7 +82,6 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    ai = None
     framework_writer = None
     if not dry_run:
         framework_writer = FrameworkWriter()
@@ -105,8 +104,6 @@ def main() -> int:
             ),
         ),
         hh=HHCLI(args.profile),
-        ai=ai,
-        system_prompt="",
         manual_queue=manual_queue,
         framework_writer=framework_writer,
         send_log=send_log,

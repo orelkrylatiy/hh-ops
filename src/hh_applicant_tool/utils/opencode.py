@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..ai.openai import _normalize_captcha_text
 from ..constants import (
+    OPENCODE_CAPTCHA_MODEL,
     OPENCODE_COMMAND,
     OPENCODE_FALLBACK_MODEL,
     OPENCODE_PRIMARY_MODEL,
@@ -91,7 +92,7 @@ def solve_captcha_with_opencode(current_json: Path) -> str:
     )
     answer = run_opencode(
         prompt,
-        models=(OPENCODE_FALLBACK_MODEL,),
+        models=(OPENCODE_CAPTCHA_MODEL,),
         cwd=str(current_json.parent.parent.parent),
         files=[image_path],
     )

@@ -152,30 +152,3 @@ def build_application_request(
         language="ru",
     )
 
-
-class ChatCompleteProvider:
-    """Adapt a single-prompt ChatOpenAI-style client to the framework Provider protocol.
-
-    Framework package.messages contains several system entries plus bounded
-    history; single-prompt clients take one string, so system entries are
-    joined and the rest is passed as labelled turns. The wrapped client must
-    be built without its own system prompt.
-    """
-
-    name = "hh-chat-openai"
-
-    def __init__(self, complete) -> None:
-        self._complete = complete
-
-    def generate(
-        self,
-        messages: list[dict[str, str]],
-        *,
-        temperature: float = 0.4,
-        max_tokens: int = 300,
-    ) -> str:
-        del temperature, max_tokens
-        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
-        rest = [m for m in messages if m["role"] != "system"]
-        user = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in rest)
-        return self._complete(f"{system}\n\n{user}".strip())

@@ -64,9 +64,9 @@ def _framework_chain_provider():
     """Humanizer Framework's OpenCode-only provider for text generation."""
     global _FRAMEWORK_CHAIN
     if _FRAMEWORK_CHAIN is None:
-        from .framework_provider import opencode_provider
+        from .framework_provider import generation_provider
 
-        _FRAMEWORK_CHAIN = opencode_provider()
+        _FRAMEWORK_CHAIN = generation_provider()
     return _FRAMEWORK_CHAIN
 
 
@@ -93,7 +93,6 @@ class ChatOpenAI:
     model: str | None = None
     rate_limit: int = 40  # запросов в минуту, 0 = отключено
     verify_ssl: bool = True
-    legacy_transport: bool = False
 
     session: requests.Session = field(default_factory=requests.Session)
 
@@ -208,9 +207,8 @@ class ChatOpenAI:
 
     def complete(self, message: str) -> str:
         """Генерирует текст. Транспорт: цепочка humanizer-framework
-        (OpenCode ChatGPT → GLM → OpenAI API, ключи в .env фреймворка).
-        HH_AI_LEGACY=1 возвращает прежний прямой OpenAI-совместимый вызов.
-        Vision-капча (solve_captcha) всегда ходит напрямую, как раньше.
+        (GLM → OpenCode, ключи в .env). Vision-капча (solve_captcha)
+        всегда ходит напрямую, как раньше.
 
         Args:
             message: пользовательский промпт.
@@ -218,34 +216,7 @@ class ChatOpenAI:
         Returns:
             Текст ответа модели.
         """
-        if not (self.legacy_transport or os.environ.get("HH_AI_LEGACY")):
-            return self._complete_via_framework(message)
-
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        messages.append({"role": "user", "content": message})
-
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("AI запрос: %s", message)
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_completion_tokens": self.max_completion_tokens,
-            "stream": False,
-        }
-
-        data = self._execute_with_retry(payload)
-        try:
-            content = data["choices"][0]["message"]["content"]
-            if content is None:
-                return ""
-            # reasoning-модели (GLM) иногда протаскивают блок размышления в content
-            return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL).strip()
-        except (KeyError, IndexError, TypeError) as ex:
-            raise OpenAIError(f"Invalid response format: {ex}") from ex
+        return self._complete_via_framework(message)
 
     def _complete_via_framework(self, message: str) -> str:
         try:

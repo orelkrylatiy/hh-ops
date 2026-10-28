@@ -14,14 +14,11 @@ from hh_applicant_tool.automation.reply_worker import (
 )
 from hh_applicant_tool.communication import (
     CHAT_REPLY_BUSINESS_RULES,
-    FrameworkShadowReplier,
     FrameworkWriter,
     build_application_request,
     build_chat_reply_request,
     conversation_from_context,
-    framework_shadow_enabled,
 )
-from hh_applicant_tool.communication.shadow import SHADOW_ENV_FLAG
 from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
     APPLICATION_CONTACT_LINE,
     APPLICATION_CONTACT_URL,
@@ -95,13 +92,6 @@ def test_framework_prepare_builds_policy_and_bounded_history() -> None:
     assert package.messages[0]["role"] == "system"
     assert len(package.messages) <= 2 + 8 + 1
     assert package.plan.max_chars > 0
-
-
-def test_framework_shadow_enabled_reads_env() -> None:
-    assert not framework_shadow_enabled({})
-    assert framework_shadow_enabled({SHADOW_ENV_FLAG: "1"})
-    assert framework_shadow_enabled({SHADOW_ENV_FLAG: "yes"})
-    assert not framework_shadow_enabled({SHADOW_ENV_FLAG: "0"})
 
 
 def test_live_writer_generates_application_and_chat_reply() -> None:
@@ -190,70 +180,6 @@ def test_application_request_uses_selected_profile_voice() -> None:
     assert request.voice.id == "maxim-ai-engineer"
 
 
-def test_shadow_flags_smiley_from_framework_output() -> None:
-    # Второй выход нужен на repair-pass фреймворка; он тоже со смайлом,
-    # поэтому исходный ответ с hard-issue остаётся итогом сравнения.
-    replier = FrameworkShadowReplier(
-        Mock(),
-        provider=MockProvider(["Отлично, берусь:) Завтра удобно после 15:00.", "Хорошо:)"]),
-    )
-    comparison = replier.compare(_decision(), "Завтра удобно после 15:00.")
-    assert comparison is not None
-    assert "H:forbidden_smiley" in comparison.issue_codes
-
-
-def test_shadow_compare_returns_comparison_without_sending() -> None:
-    replier = FrameworkShadowReplier(
-        Mock(),  # never used: provider is injected
-        provider=MockProvider(["Завтра после 15:00 удобно, расскажу про опыт с React 19."]),
-    )
-    comparison = replier.compare(_decision(), "Завтра удобно после 15:00.")
-    assert comparison is not None
-    assert comparison.chat_id == "chat-1"
-    assert comparison.primary_reply == "Завтра удобно после 15:00."
-    assert comparison.framework_text.startswith("Завтра после 15:00")
-    assert comparison.plan_action in {"answer", "schedule", "acknowledge"}
-    assert replier.comparisons == 1
-
-
-def test_shadow_compare_swallows_provider_failure() -> None:
-    replier = FrameworkShadowReplier(
-        Mock(),
-        provider=MockProvider([]),
-    )
-    assert replier.compare(_decision(), "Здравый ответ.") is None
-    assert replier.comparisons == 0
-
-
-class _RecordingShadowReplier:
-    def __init__(self) -> None:
-        self.calls: list[tuple[Any, str]] = []
-
-    def compare(self, decision: Any, primary_reply: str) -> None:
-        self.calls.append((decision, primary_reply))
-
-
-def _live_worker(shadow_replier: Any, ai: Any) -> ReplyWorker:
-    return ReplyWorker(
-        ReplyWorkerConfig(dry_run=False),
-        hh=Mock(),
-        ai=ai,
-        system_prompt="system",
-        shadow_replier=shadow_replier,
-    )
-
-
-def test_worker_runs_shadow_on_healthy_reply() -> None:
-    shadow = _RecordingShadowReplier()
-    ai = Mock()
-    ai.complete.return_value = "Здравствуйте! Отвечу на вопрос: да, работаю с React 19."
-    worker = _live_worker(shadow, ai)
-    reply = worker.generate_reply(_decision())
-    assert reply is not None
-    assert len(shadow.calls) == 1
-    assert shadow.calls[0][1] == reply
-
-
 def test_live_worker_sends_framework_reply_without_legacy_ai() -> None:
     writer = Mock()
     writer.chat_reply.return_value = SimpleNamespace(
@@ -265,8 +191,6 @@ def test_live_worker_sends_framework_reply_without_legacy_ai() -> None:
     worker = ReplyWorker(
         ReplyWorkerConfig(dry_run=False),
         hh=Mock(),
-        ai=None,
-        system_prompt="",
         framework_writer=writer,
     )
     assert worker.generate_reply(_decision()) == "Да, работаю с React и TypeScript."
@@ -279,33 +203,6 @@ def test_live_worker_skips_failed_framework_reply() -> None:
     worker = ReplyWorker(
         ReplyWorkerConfig(dry_run=False),
         hh=Mock(),
-        ai=None,
-        system_prompt="",
         framework_writer=writer,
     )
     assert worker.generate_reply(_decision()) is None
-
-
-def test_worker_dry_run_never_calls_shadow() -> None:
-    shadow = _RecordingShadowReplier()
-    worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=True),
-        hh=Mock(),
-        ai=Mock(),
-        system_prompt="system",
-        shadow_replier=shadow,
-    )
-    reply = worker.generate_reply(_decision())
-    assert reply is not None
-    assert shadow.calls == []
-
-
-def test_worker_survives_shadow_failure() -> None:
-    class _BrokenReplier:
-        def compare(self, decision: Any, primary_reply: str) -> None:
-            raise RuntimeError("boom")
-
-    ai = Mock()
-    ai.complete.return_value = "Здравствуйте! Отвечу на вопрос: да, работаю с React 19."
-    worker = _live_worker(_BrokenReplier(), ai)
-    assert worker.generate_reply(_decision()) is not None

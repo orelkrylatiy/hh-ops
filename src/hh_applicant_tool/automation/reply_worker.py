@@ -11,14 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from hh_applicant_tool.ai.openai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.automation.contact_collector import extract_contacts
 from hh_applicant_tool.automation.reply_state import (
     EmployerContactStore,
     ManualChatQueue,
     ReplySendLog,
 )
-from hh_applicant_tool.communication import FrameworkShadowReplier, FrameworkWriter
+from hh_applicant_tool.communication import FrameworkWriter
 from hh_applicant_tool.constants import CONFIG_DIR
 from hh_applicant_tool.utils.config import resolve_profile_config_dir
 from hh_applicant_tool.utils.resume_context import load_resume_context
@@ -103,7 +102,6 @@ class ReplyWorkerConfig:
     profile_id: str = ""
     dry_run: bool = True
     max_chats: int = 100
-    ai_retries: int = 1
     send_retries: int = 2
     send_retry_delay: float = 1.0
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
@@ -226,40 +224,6 @@ class HHCLI:
                 raise HHCLIError("HH API returned a non-object response")
             return payload
         raise HHCLIError("unreachable")
-
-
-def select_ai_config(config: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Return the reply provider with an explicit cover-letter fallback."""
-    for section in ("openai_reply", "openai_cover_letter"):
-        value = config.get(section)
-        if isinstance(value, dict) and value:
-            return section, value
-    raise ValueError("configure 'openai_reply' or fallback 'openai_cover_letter'")
-
-
-def build_ai_client(config: dict[str, Any], system_prompt: str) -> ChatOpenAI:
-    section, provider = select_ai_config(config)
-    api_key = str(provider.get("api_key") or "").strip()
-    base_url = str(provider.get("base_url") or "").strip()
-    model = str(provider.get("model") or "").strip()
-    if not api_key:
-        raise ValueError(f"'{section}.api_key' is required")
-    if not base_url:
-        raise ValueError(f"'{section}.base_url' is required")
-    if not model:
-        raise ValueError(f"'{section}.model' is required")
-
-    return ChatOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        system_prompt=system_prompt,
-        temperature=float(provider.get("temperature", 0.35)),
-        max_completion_tokens=int(provider.get("max_completion_tokens", 500)),
-        rate_limit=int(provider.get("rate_limit", 30)),
-        timeout=float(provider.get("timeout", 45.0)),
-        max_retries=int(provider.get("max_retries", 3)),
-    )
 
 
 def load_json_config(path: Path) -> dict[str, Any]:
@@ -440,20 +404,14 @@ class ReplyWorker:
         config: ReplyWorkerConfig,
         *,
         hh: HHCLI,
-        ai: ChatOpenAI | None,
-        system_prompt: str,
         manual_queue: ManualChatQueue | None = None,
-        shadow_replier: FrameworkShadowReplier | None = None,
-        framework_writer: FrameworkWriter | None = None,
+        framework_writer: FrameworkWriter,
         send_log: ReplySendLog | None = None,
         contact_store: EmployerContactStore | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
-        self.ai = ai
-        self.system_prompt = system_prompt
         self.manual_queue = manual_queue
-        self.shadow_replier = shadow_replier
         self.framework_writer = framework_writer
         self.send_log = send_log
         self.contact_store = contact_store
@@ -709,98 +667,33 @@ class ReplyWorker:
             resume_context=resume_context,
         )
 
-    def _generation_prompt(self, decision: ReplyDecision, correction: str = "") -> str:
-        situation = (
-            "Кандидат сам откликнулся на вакансию."
-            if decision.initiated_by_us
-            else "Работодатель инициировал диалог."
-        )
-        company = decision.employer_name or "не указана"
-        correction_text = f"\n\nИсправь предыдущую попытку: {correction}." if correction else ""
-        profile_text = (
-            "\n\nПрофиль кандидата для активного резюме:\n" + decision.resume_context
-            if decision.resume_context
-            else ""
-        )
-        return (
-            f"Вакансия: {decision.vacancy_name}\n"
-            f"Компания: {company}\n"
-            f"Ситуация: {situation}\n\n"
-            "История переписки:\n"
-            + "\n".join(decision.context)
-            + profile_text
-            + "\n\nТебе доступна только эта история и профиль активного резюме. "
-            "Если спрашивают про навык или опыт, которых нет в истории, честно ответь, "
-            "что такого опыта нет, одной короткой фразой, и не придумывай детали. "
-            "Не утверждай, что уже что-то сделал или отправил, если этого нет в истории."
-            + "\n\nОтветь только текстом сообщения работодателю."
-            + correction_text
-        )
-
     def generate_reply(self, decision: ReplyDecision) -> str | None:
         if self.config.dry_run:
             return safe_preview_reply(decision.initiated_by_us)
-        if self.framework_writer is not None:
-            try:
-                result = self.framework_writer.chat_reply(
-                    context=decision.context,
-                    initiated_by_us=decision.initiated_by_us,
-                    vacancy_name=decision.vacancy_name,
-                    employer_name=decision.employer_name,
-                    latest_message_text=decision.latest_message_text,
-                    resume_context=decision.resume_context,
-                )
-            except Exception as exc:
-                logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
-                return None
-            reply = sanitize_reply_text(result.text.strip())
-            issues = reply_quality_issues(reply)
-            if issues:
-                logger.warning("Framework reply rejected for chat %s: %s", decision.chat_id,
-                               ", ".join(issues))
-                return None
-            logger.info("Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
-                        decision.chat_id, result.plan.action.value, result.provider,
-                        [issue.code for issue in result.issues])
-            return reply
-        if self.ai is None:
-            raise ValueError("AI client is required for live replies")
-
-        correction = ""
-        for attempt in range(self.config.ai_retries + 1):
-            try:
-                reply = sanitize_reply_text(
-                    self.ai.complete(self._generation_prompt(decision, correction)).strip()
-                )
-            except OpenAIError as exc:
-                logger.error("AI failed for chat %s: %s", decision.chat_id, exc)
-                return None
-            issues = reply_quality_issues(reply)
-            if not issues:
-                self._run_shadow_comparison(decision, reply)
-                return reply
-            logger.warning(
-                "Rejected AI reply for chat %s: %s",
-                decision.chat_id,
-                ", ".join(issues),
-            )
-            correction = "; ".join(issues)
-            if attempt >= self.config.ai_retries:
-                return None
-        return None
-
-    def _run_shadow_comparison(self, decision: ReplyDecision, reply: str) -> None:
-        """Log a parallel framework draft; shadow output is never sent."""
-        if self.config.dry_run or self.shadow_replier is None:
-            return
-        if decision.action != ACTION_REPLY:
-            return
+        if self.framework_writer is None:
+            raise ValueError("FrameworkWriter is required for live replies")
         try:
-            self.shadow_replier.compare(decision, reply)
-        except Exception as exc:
-            logger.warning(
-                "Framework shadow comparison failed for chat %s: %s", decision.chat_id, exc
+            result = self.framework_writer.chat_reply(
+                context=decision.context,
+                initiated_by_us=decision.initiated_by_us,
+                vacancy_name=decision.vacancy_name,
+                employer_name=decision.employer_name,
+                latest_message_text=decision.latest_message_text,
+                resume_context=decision.resume_context,
             )
+        except Exception as exc:
+            logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
+            return None
+        reply = sanitize_reply_text(result.text.strip())
+        issues = reply_quality_issues(reply)
+        if issues:
+            logger.warning("Framework reply rejected for chat %s: %s", decision.chat_id,
+                           ", ".join(issues))
+            return None
+        logger.info("Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
+                    decision.chat_id, result.plan.action.value, result.provider,
+                    [issue.code for issue in result.issues])
+        return reply
 
     def is_still_current(self, decision: ReplyDecision) -> bool:
         detail = self._chat_detail(decision.chat_id)

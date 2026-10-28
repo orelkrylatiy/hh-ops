@@ -132,19 +132,12 @@ configuration error / STOP
 
 Live worker не подставляет скрытый URL/model/API key.
 
-### 2. Runtime fallback сообщения
+### 2. Генерация ответов
 
-После выбора provider `ChatOpenAI` выполняет свои network/provider retries. Если они исчерпаны и `complete()` бросает `OpenAIError`, `FallbackChatAI` может вернуть статический `reply_fallback.message`.
+Живой ответ генерирует humanizer-framework (`FrameworkWriter.chat_reply`).
+Провалившаяся генерация или забракованный чекером текст означают `None` —
+чат пропускается без статических подстановок.
 
-Default fallback включён. Его можно переопределить или выключить в `config.json` профиля:
-
-```json
-{
-  "reply_fallback": {
-    "enabled": true,
-    "message": "Здравствуйте! Вакансия интересна. Готов обсудить детали и ответить на вопросы."
-  }
-}
 ```
 
 Fallback используется именно при runtime LLM failure. Если модель вернула плохой текст, он идёт через humanizer/corrective-generation и при повторной неудаче пропускается.

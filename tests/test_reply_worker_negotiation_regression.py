@@ -27,8 +27,7 @@ def _worker(hh: Any) -> ReplyWorker:
     return ReplyWorker(
         ReplyWorkerConfig(dry_run=False),
         hh=hh,
-        ai=Mock(),
-        system_prompt="system",
+        framework_writer=Mock(),
     )
 
 

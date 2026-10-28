@@ -7,7 +7,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from hh_applicant_tool.ai.openai import OpenAIError
 from hh_applicant_tool.automation.reply_worker import (
     ACTION_IGNORE,
     ACTION_MANUAL,
@@ -20,13 +19,11 @@ from hh_applicant_tool.automation.reply_worker import (
     ReplyDecision,
     ReplyWorker,
     ReplyWorkerConfig,
-    build_ai_client,
     build_context,
     classify_chat,
     load_json_config,
     reply_quality_issues,
     sanitize_reply_text,
-    select_ai_config,
 )
 
 
@@ -55,81 +52,12 @@ def _decision(**overrides: Any) -> ReplyDecision:
     return ReplyDecision(**values)
 
 
-def _live_worker(hh=None, ai=None, **config_overrides) -> ReplyWorker:
+def _live_worker(hh=None, framework_writer=None, **config_overrides) -> ReplyWorker:
     return ReplyWorker(
         ReplyWorkerConfig(dry_run=False, **config_overrides),
         hh=hh or Mock(),
-        ai=ai or Mock(),
-        system_prompt="system",
+        framework_writer=framework_writer or Mock(),
     )
-
-
-def test_reply_ai_config_falls_back_to_cover_letter() -> None:
-    config = {
-        "openai_cover_letter": {
-            "api_key": "key",
-            "base_url": "https://example.test/v1/chat/completions",
-            "model": "model",
-        }
-    }
-
-    section, provider = select_ai_config(config)
-
-    assert section == "openai_cover_letter"
-    assert provider["model"] == "model"
-
-
-def test_reply_ai_config_prefers_dedicated_reply_section() -> None:
-    config = {
-        "openai_cover_letter": {"model": "cover"},
-        "openai_reply": {"model": "reply"},
-    }
-
-    section, provider = select_ai_config(config)
-
-    assert section == "openai_reply"
-    assert provider["model"] == "reply"
-
-
-def test_build_ai_client_forwards_provider_settings() -> None:
-    client = build_ai_client(
-        {
-            "openai_reply": {
-                "api_key": " reply-key ",
-                "base_url": "https://example.test/v1/chat/completions",
-                "model": "reply-model",
-                "temperature": 0.2,
-                "max_completion_tokens": 321,
-                "rate_limit": 17,
-                "timeout": 12,
-                "max_retries": 4,
-            }
-        },
-        "system prompt",
-    )
-
-    assert client.api_key == "reply-key"
-    assert client.base_url == "https://example.test/v1/chat/completions"
-    assert client.model == "reply-model"
-    assert client.system_prompt == "system prompt"
-    assert client.temperature == 0.2
-    assert client.max_completion_tokens == 321
-    assert client.rate_limit == 17
-    assert client.timeout == 12
-    assert client.max_retries == 4
-
-
-@pytest.mark.parametrize("missing", ["api_key", "base_url", "model"])
-def test_build_ai_client_rejects_incomplete_provider(missing: str) -> None:
-    provider = {
-        "api_key": "key",
-        "base_url": "https://example.test/v1/chat/completions",
-        "model": "model",
-    }
-    provider[missing] = ""
-
-    with pytest.raises(ValueError, match=missing):
-        build_ai_client({"openai_reply": provider}, "system")
 
 
 def test_load_json_config_requires_object(tmp_path) -> None:
@@ -273,8 +201,7 @@ def test_collect_candidate_chats_only_keeps_unblocked_employer_turns() -> None:
     worker = ReplyWorker(
         ReplyWorkerConfig(max_chats=100),
         hh=hh,
-        ai=None,
-        system_prompt="prompt",
+        framework_writer=Mock(),
     )
 
     chats = worker.collect_candidate_chats()
@@ -292,7 +219,7 @@ def test_collect_candidate_chats_bounds_inspected_negotiations() -> None:
         "pages": 1,
     }
     worker = ReplyWorker(
-        ReplyWorkerConfig(max_chats=1), hh=hh, ai=None, system_prompt="",
+        ReplyWorkerConfig(max_chats=1), hh=hh, framework_writer=Mock(),
     )
 
     assert worker.collect_candidate_chats() == []
@@ -315,8 +242,7 @@ def test_collect_resolves_pending_manual_queue_for_discarded_chat() -> None:
     worker = ReplyWorker(
         ReplyWorkerConfig(dry_run=False, max_chats=100),
         hh=hh,
-        ai=Mock(),
-        system_prompt="prompt",
+        framework_writer=Mock(),
         manual_queue=queue,
     )
 
@@ -343,7 +269,7 @@ def test_make_decision_builds_context_and_vacancy_metadata() -> None:
         ],
         "pages": 1,
     }
-    worker = ReplyWorker(ReplyWorkerConfig(), hh=hh, ai=None, system_prompt="prompt")
+    worker = ReplyWorker(ReplyWorkerConfig(), hh=hh, framework_writer=Mock())
 
     decision = worker.make_decision(
         {
@@ -379,45 +305,40 @@ def test_make_decision_skips_when_applicant_is_latest() -> None:
         ],
         "pages": 1,
     }
-    worker = ReplyWorker(ReplyWorkerConfig(), hh=hh, ai=None, system_prompt="prompt")
+    worker = ReplyWorker(ReplyWorkerConfig(), hh=hh, framework_writer=Mock())
 
     assert worker.make_decision({"id": "chat-1"}) is None
 
 
-def test_generate_reply_returns_safe_first_attempt() -> None:
-    ai = Mock()
-    ai.complete.return_value = "Да, завтра после 12 удобно."
-    worker = _live_worker(ai=ai)
+def _framework_result(text: str) -> Mock:
+    result = Mock()
+    result.text = text
+    result.provider = "mock"
+    result.issues = []
+    return result
+
+
+def test_generate_reply_returns_framework_text() -> None:
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result("Да, завтра после 12 удобно.")
+    worker = _live_worker(framework_writer=writer)
 
     assert worker.generate_reply(_decision()) == "Да, завтра после 12 удобно."
-    ai.complete.assert_called_once()
+    writer.chat_reply.assert_called_once()
 
 
-def test_generate_reply_retries_humanizer_failure_with_correction() -> None:
-    ai = Mock()
-    ai.complete.side_effect = [
-        "Важно отметить — буду рад обсудить.",
-        "Да, завтра после 12 удобно.",
-    ]
-    worker = _live_worker(ai=ai, ai_retries=1)
-
-    assert worker.generate_reply(_decision()) == "Да, завтра после 12 удобно."
-    assert ai.complete.call_count == 2
-    assert "Исправь предыдущую попытку" in ai.complete.call_args_list[1].args[0]
-
-
-def test_generate_reply_fails_closed_after_second_unsafe_result() -> None:
-    ai = Mock()
-    ai.complete.side_effect = ["Важно отметить — отвечу.", "Таким образом — отвечу."]
-    worker = _live_worker(ai=ai, ai_retries=1)
+def test_generate_reply_fails_closed_when_framework_rejects_text() -> None:
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result("Важно отметить — отвечу.")
+    worker = _live_worker(framework_writer=writer)
 
     assert worker.generate_reply(_decision()) is None
 
 
-def test_generate_reply_fails_closed_on_ai_error() -> None:
-    ai = Mock()
-    ai.complete.side_effect = OpenAIError("provider down")
-    worker = _live_worker(ai=ai)
+def test_generate_reply_fails_closed_on_framework_error() -> None:
+    writer = Mock()
+    writer.chat_reply.side_effect = RuntimeError("provider down")
+    worker = _live_worker(framework_writer=writer)
 
     assert worker.generate_reply(_decision()) is None
 
@@ -547,7 +468,7 @@ def test_failed_send_returns_false_when_message_is_not_visible() -> None:
 
 def test_run_dry_run_plans_without_revalidation_or_send() -> None:
     worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=True), hh=Mock(), ai=None, system_prompt="prompt"
+        ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock()
     )
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     worker.make_decision = Mock(return_value=_decision())
@@ -600,11 +521,6 @@ def test_run_counts_chat_api_error_without_crashing_other_loop() -> None:
     stats = worker.run()
 
     assert stats["errors"] == 1
-
-
-def test_missing_ai_config_fails_closed() -> None:
-    with pytest.raises(ValueError):
-        select_ai_config({})
 
 
 def test_classifier_ignores_plain_acknowledgement() -> None:
@@ -813,8 +729,7 @@ def test_run_manual_decision_queues_without_generating_or_sending() -> None:
     worker = ReplyWorker(
         ReplyWorkerConfig(dry_run=False),
         hh=Mock(),
-        ai=Mock(),
-        system_prompt="prompt",
+        framework_writer=Mock(),
         manual_queue=manual_queue,
     )
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])

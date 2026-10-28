@@ -30,7 +30,7 @@ def test_opencode_captcha_uses_61_sol(tmp_path, monkeypatch) -> None:
     )
 
     def fake_run(*args, **kwargs):
-        assert kwargs["models"] == (opencode.OPENCODE_FALLBACK_MODEL,)
+        assert kwargs["models"] == (opencode.OPENCODE_CAPTCHA_MODEL,)
         return "изъянов налущив"
 
     monkeypatch.setattr(opencode, "run_opencode", fake_run)
