@@ -198,7 +198,7 @@ class Operation(BaseOperation):
                     if password:
                         await self._direct_login(page, password)
                     else:
-                        await self._onetime_code_login(page)
+                        await self._onetime_code_login(page, code_future)
                 else:
                     print(
                         "Откройте окно Chromium и войдите на hh.ru вручную.\n"
@@ -283,27 +283,44 @@ class Operation(BaseOperation):
         await page.locator(self.SEL_PASSWORD_INPUT).first.press("Enter")
         logger.debug("Форма с паролем отправлена")
 
-    async def _onetime_code_login(self, page) -> None:
+    async def _onetime_code_login(self, page, code_future) -> None:
         logger.info("Вход по одноразовому коду...")
         login_field = page.locator(
             f"{self.SEL_EMAIL_INPUT}, {self.SEL_PHONE_INPUT}, {self.SEL_LOGIN_INPUT}"
         ).first
         await login_field.press("Enter")
         await self._handle_captcha(page)
-        await page.wait_for_selector(
-            self.SEL_CODE_CONTAINER, timeout=self.selector_timeout
-        )
+        # hh.ru после капчи может думать заметно дольше 5с (медленные ответы),
+        # поэтому код-инпут ждём фиксированную минуту, а не selector_timeout.
+        # Если за это время прилетел OAuth redirect (вход завершился без
+        # одноразового кода), ждать поле кода не нужно.
+        try:
+            await page.wait_for_selector(self.SEL_CODE_CONTAINER, timeout=60000)
+        except asyncio.TimeoutError:
+            if code_future.done():
+                return
+            raise
 
         print("Код был отправлен. Проверьте почту или SMS.")
-        code = (
-            await asyncio.to_thread(input, "Введите полученный код: ")
-        ).strip()
-        if not code:
-            raise RuntimeError("Код подтверждения не может быть пустым.")
+        # Гонка: код могли ввести прямо в браузере — тогда OAuth redirect
+        # уже перехвачен и читать код из терминала не нужно.
+        input_task = asyncio.ensure_future(
+            asyncio.to_thread(input, "Введите полученный код: ")
+        )
+        await asyncio.wait(
+            (input_task, code_future), return_when=asyncio.FIRST_COMPLETED
+        )
+        if input_task.done():
+            code = input_task.result().strip()
+            if not code:
+                raise RuntimeError("Код подтверждения не может быть пустым.")
 
-        await page.fill(self.SEL_PIN_CODE_INPUT, code)
-        await page.press(self.SEL_PIN_CODE_INPUT, "Enter")
-        logger.debug("Форма с кодом отправлена")
+            await page.fill(self.SEL_PIN_CODE_INPUT, code)
+            await page.press(self.SEL_PIN_CODE_INPUT, "Enter")
+            logger.debug("Форма с кодом отправлена")
+        else:
+            input_task.cancel()
+            logger.debug("OAuth-код перехвачен до ввода кода из терминала")
 
     def _get_captcha_ai(self):
         try:
