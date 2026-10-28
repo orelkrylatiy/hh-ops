@@ -47,11 +47,8 @@ flowchart TD
     CLI --> Storage["SQLite / StorageFacade"]
     CLI --> ProfileConfig["profile config / token / cookies"]
 
-    Apply --> CoverLLM["ChatOpenAI\ncover letter"]
-    ReplyBootstrap --> FallbackAI["FallbackChatAI"]
-    FallbackAI --> ReplyLLM["ChatOpenAI\nreply provider"]
-    ReplyLLM --> Provider["OpenAI-compatible provider"]
-    FallbackAI --> StaticFallback["static reply fallback"]
+    Apply --> FrameworkLLM["humanizer-framework\nGLM -> OpenCode"]
+    ReplyBootstrap --> FrameworkLLM
 ```
 
 ## 2. Control plane: кто запускает automation
@@ -80,9 +77,13 @@ Scheduled path не пытается интерактивно авторизов
 
 `scripts/all-profiles.sh` получает профили в таком порядке:
 
-1. `.profiles`;
-2. переменная `PROFILES`;
-3. fallback `default`.
+1. переменная `PROFILES` (явный вызов сильнее файла — так `daily.sh` передаёт подмножество);
+2. `.profiles`;
+3. `HH_PROFILE_ID`;
+4. автообнаружение по `config/`;
+5. fallback `default`.
+
+`scripts/daily.sh` — единый one-shot entrypoint (boost + apply + reply) для всех аккаунтов сразу (`bash scripts/daily.sh --live --with-boost`, на Windows `daily.bat`) или для подмножества (`--profiles 0555 1206`). Он сам разрешает список профилей и делегирует каждую стадию в `all-profiles.sh`.
 
 По умолчанию:
 
@@ -269,9 +270,7 @@ Shell entrypoint: `scripts/reply.sh`.
 ```text
 profile config
    ↓
-build_ai_client()
-   ↓
-FallbackChatAI(primary, reply_fallback)
+FrameworkWriter (humanizer-framework, GLM → OpenCode)
    ↓
 ReplyWorker
 ```
@@ -332,25 +331,12 @@ openai_cover_letter
 configuration error / STOP
 ```
 
-#### Runtime message fallback
+#### Генерация ответов
 
-Выбранный `ChatOpenAI` сначала выполняет собственные network/provider retries. Если после них `complete()` бросает `OpenAIError`, `FallbackChatAI` может вернуть статический `reply_fallback.message`.
-
-Default fallback включён:
-
-```text
-Здравствуйте! Спасибо за сообщение. Я разработчик, вакансия мне интересна. Готов обсудить задачи, формат работы и ответить на вопросы.
-```
-
-Настройка профиля:
-
-```json
-{
-  "reply_fallback": {
-    "enabled": true,
-    "message": "Здравствуйте! Вакансия интересна. Готов обсудить детали и ответить на вопросы."
-  }
-}
+Живой ответ всегда генерирует humanizer-framework (`FrameworkWriter.chat_reply`):
+план, валидация и repair внутри фреймворка, качество дополнительно проверяет
+`reply_quality_issues`. Забракованный текст отправляется как `None` — чат
+пропускается, статических подстановок нет.
 ```
 
 Fallback используется **только после `OpenAIError`**, а не вместо содержательно плохого ответа модели.
@@ -528,11 +514,10 @@ flowchart TD
 | Apply flow | `operations/_apply_vacancies_apply_flow.py` | filters, cover letter, POST |
 | Vacancy helpers | `operations/_apply_vacancies_helpers.py` | search, regex filter, tests, HTML helpers |
 | Reply shell | `scripts/reply.sh` | prompt rendering + preflight |
-| Reply bootstrap | `scripts/reply_iterative_ai.py` | config + AI/fallback + worker construction |
+| Reply bootstrap | `scripts/reply_iterative_ai.py` | worker construction |
 | Reply engine | `automation/reply_worker.py` | selection, context, humanizer, stale-check, idempotent send |
-| Reply fallback | `automation/reply_fallback.py` | static fallback after `OpenAIError` |
-| LLM HTTP | `ai/openai.py` | OpenAI-compatible HTTP, rate limit, retries |
-| AI preflight | `scripts/check_ai.py` | provider/fallback config validation + optional probe |
+| LLM HTTP | `ai/openai.py` | vision captcha transport, rate limit, retries |
+| AI preflight | `scripts/check_ai.py` | provider config validation + optional probe |
 | CLI core | `main.py` | operation loading, profiles, auth lifecycle |
 | HH HTTP | `api/client.py` | HH requests, timeout, token refresh |
 | Profile paths | `utils/config.py` | profile isolation |

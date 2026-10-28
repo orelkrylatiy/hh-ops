@@ -18,13 +18,15 @@ fi
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 
+# An explicit PROFILES value wins over the .profiles file so callers such as
+# daily.sh can target a subset of the fleet.
 PROFILES_LIST=()
-if [[ -f "$PROJECT_ROOT/.profiles" ]]; then
+if [[ -n "${PROFILES:-}" ]]; then
+    read -ra PROFILES_LIST <<< "$PROFILES"
+elif [[ -f "$PROJECT_ROOT/.profiles" ]]; then
     while IFS= read -r profile; do
         [[ -n "$profile" ]] && PROFILES_LIST+=("$profile")
     done < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$PROJECT_ROOT/.profiles")
-elif [[ -n "${PROFILES:-}" ]]; then
-    read -ra PROFILES_LIST <<< "$PROFILES"
 elif [[ -n "${HH_PROFILE_ID:-}" ]]; then
     PROFILES_LIST=("$HH_PROFILE_ID")
 else
@@ -72,7 +74,11 @@ case "$COMMAND" in
     apply) CMD_SCRIPT="$SCRIPT_DIR/apply-profile.sh" ;;
     reply) CMD_SCRIPT="$SCRIPT_DIR/reply.sh" ;;
     cleanup) CMD_SCRIPT="$SCRIPT_DIR/cleanup.sh" ;;
-    daily) CMD_SCRIPT="$SCRIPT_DIR/daily.sh" ;;
+    daily)
+        # daily.sh owns fleet orchestration for this command; delegating it
+        # per profile would nest all-profiles runs inside their own locks.
+        exec "$SCRIPT_DIR/daily.sh" "$@"
+        ;;
     boost|update|refresh) CMD_SCRIPT="" ;;
     *)
         echo "Unknown command: $COMMAND (apply | reply | cleanup | daily | boost | update | refresh)" >&2

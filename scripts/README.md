@@ -12,7 +12,7 @@
 | `setup-ai-resume.sh` | dry-run/live создание AI resume variant |
 | `reply.sh` | до пяти ограниченных проходов по чатам |
 | `cleanup.sh` | очистка rejected/discard переговоров |
-| `daily.sh` | ручной one-shot apply + reply |
+| `daily.sh` | единый one-shot boost + apply + reply: все аккаунты или `--profiles 0555 1206` |
 | `all-profiles.sh` | запуск операции по всем профилям с per-profile lock |
 | `cron-job.sh` | safety gate `off/dry-run/live` для cron |
 | `setup-cron.sh` | установка канонического host-cron |
@@ -20,6 +20,8 @@
 | `check_ai.py` | проверка LLM-конфига |
 | `check.sh` | ручная диагностика аккаунта |
 | `open_browsers.py` | отдельные видимые HH-браузеры с cookies каждого профиля |
+
+Полный цикл по всем аккаунтам: `daily.bat --live --with-boost` (или `daily.bat --live --profiles 0555 1206 --with-boost` для выбранных).
 
 На Windows запусти `open-browsers.bat` из корня проекта для всех сохранённых
 профилей или `open-browsers.bat 0555 1206` для выбранных. Окна подписаны ID
