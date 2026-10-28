@@ -231,6 +231,10 @@ class Operation(BaseOperation):
                 storage.settings.set_value("auth.last_login", datetime.now())
                 cookies = await context.cookies()
                 self._set_session_cookies(cookies)
+                # На успехе exit-save (ветка except в main.run) не вызывается:
+                # чистый выход терял бы куки. Пишем токен и cookie-jar сразу.
+                self._tool.save_token()
+                self._tool.save_cookies()
 
             finally:
                 logger.debug("Закрытие браузера")
