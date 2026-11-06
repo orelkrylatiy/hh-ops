@@ -211,7 +211,9 @@ def solve_captcha_with_opencode(current_json: Path) -> str:
     # Standalone starts a private OpenCode server.  A warm direct call usually
     # finishes in ~13s, but Playwright/Edge load can push the cold start past
     # 20s; allow enough startup time without falling back to the shared server.
-    timeout = float(os.environ.get("HH_CAPTCHA_OPENCODE_TIMEOUT", "60"))
+    # Astra Max with four image rotations exceeded 60s in the VPS smoke test.
+    # Keep a bounded wait without retrying the same model after a timeout.
+    timeout = float(os.environ.get("HH_CAPTCHA_OPENCODE_TIMEOUT", "120"))
     # CAPTCHA uses only the explicitly selected vision model. A timeout must
     # not silently repeat that model via the general text fallback setting.
     model = OPENCODE_CAPTCHA_MODEL
