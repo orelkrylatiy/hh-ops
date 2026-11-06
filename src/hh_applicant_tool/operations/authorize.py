@@ -343,6 +343,12 @@ class Operation(BaseOperation):
         if captcha_ai is None:
             return False
         for attempt in range(5):
+            if attempt > 0:
+                # Request a fresh challenge instead of reusing a rejected image.
+                try:
+                    await page.reload(timeout=60000, wait_until="domcontentloaded")
+                except Exception:  # noqa: BLE001
+                    pass
             captcha_text = ""
             try:
                 img_bytes = await captcha_element.screenshot()

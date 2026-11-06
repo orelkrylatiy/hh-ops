@@ -7,7 +7,7 @@ Senior Frontend Developer.
 [TODO: заполнить образование, например: вуз и год окончания]
 
 ## Контакты
-Telegram: [TODO: заполнить контакт]
+Telegram: @maxxwyy (https://t.me/maxxwyy)
 
 ## Правила
 - Использовать для Frontend-вакансий.

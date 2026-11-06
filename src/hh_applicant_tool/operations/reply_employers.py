@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import re
 import time
@@ -16,6 +17,7 @@ from ..communication import FrameworkWriter
 from ..main import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.misc import load_prompt
+from ._apply_vacancies_apply_flow import resolve_contact_url
 from ..utils.resume_context import load_resume_context
 from ..utils.string import rand_text
 
@@ -121,6 +123,9 @@ class Operation(BaseOperation):
         self.only_invitations = args.only_invitations
         self.json_output = getattr(args, "json_output", False)
 
+        # ${HH_TELEGRAM} внутри промпта раскрывается через env; подменяем его
+        # контакт профиля, чтобы чат-ответы ушли с правильным аккаунтом.
+        os.environ["HH_TELEGRAM"] = resolve_contact_url(tool.config)
         self.message_prompt = load_prompt(args.message_prompt)
         self.reply_ai = bool(args.use_ai)
         self.period = args.period

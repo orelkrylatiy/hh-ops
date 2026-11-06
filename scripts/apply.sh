@@ -247,11 +247,10 @@ if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/render_prompt.py")" \
     exit 1
 fi
 
-# Префлайт LLM обязателен: с выключенным cover_letter_fallback (fail-closed)
-# продолжать без живого ИИ нельзя — отклики без AI запрещены правилом Макса.
+# AI preferred; a static cover-letter fallback is used per vacancy if the
+# framework is unavailable or returns text that fails local quality checks.
 if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose application; then
-    echo "Cover-letter AI preflight failed; refusing to run without AI" >&2
-    exit 1
+    echo "Cover-letter AI preflight failed; live run will use static fallback letters" >&2
 fi
 
 HH_EXECUTABLE="hh-applicant-tool"

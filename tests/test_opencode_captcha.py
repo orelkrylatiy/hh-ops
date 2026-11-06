@@ -36,3 +36,27 @@ def test_opencode_captcha_uses_61_sol(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(opencode, "run_opencode", fake_run)
 
     assert opencode.solve_captcha_with_opencode(metadata_path) == "изъянов налущив"
+
+
+def test_opencode_captcha_does_not_retry_same_model_on_timeout(tmp_path, monkeypatch) -> None:
+    metadata = tmp_path / 'CURRENT.json'
+    metadata.write_text(json.dumps({'image': str(tmp_path / 'image.png')}), encoding='utf-8')
+    calls = []
+    def fail(*args, **kwargs):
+        calls.append(kwargs['models'])
+        raise TimeoutError('probe timeout')
+    monkeypatch.setattr(opencode, 'run_opencode', fail)
+    assert opencode.solve_captcha_with_opencode(metadata) == ''
+    assert calls == [(opencode.OPENCODE_CAPTCHA_MODEL,)]
+
+
+def test_opencode_captcha_rejects_refusal_without_switching_model(tmp_path, monkeypatch) -> None:
+    metadata = tmp_path / 'CURRENT.json'
+    metadata.write_text(json.dumps({'image': str(tmp_path / 'image.png')}), encoding='utf-8')
+    calls = []
+    def refusal(*args, **kwargs):
+        calls.append(kwargs['models'])
+        return "Sorry, I can't help solve CAPTCHAs."
+    monkeypatch.setattr(opencode, 'run_opencode', refusal)
+    assert opencode.solve_captcha_with_opencode(metadata) == ''
+    assert calls == [(opencode.OPENCODE_CAPTCHA_MODEL,)]

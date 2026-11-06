@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "3551": {
+      "required_any": ["react\\s*native", "react-native", "rn developer", "мобильн"],
+      "excluded_any": ["только frontend", "backend", "python", "java"]
+    },
+    "0056": {
+      "required_any": ["full[- ]?stack", "frontend.*backend", "react.*node", "node.*react"],
+      "excluded_any": ["react\\s*native", "react-native", "только frontend"]
+    },
+    "0639": {
+      "required_any": ["frontend", "front[- ]?end", "react", "next\\.?(js)?", "typescript"],
+      "excluded_any": ["react\\s*native", "react-native", "full[- ]?stack", "backend"]
+    },
+    "2061": {
+      "required_any": ["frontend", "front[- ]?end", "next\\.?(js)?", "react"],
+      "excluded_any": ["react\\s*native", "react-native", "full[- ]?stack", "backend"]
+    }
+  }
+}

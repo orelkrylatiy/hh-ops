@@ -7,7 +7,7 @@ AI Engineer / LLM Automation Engineer.
 [TODO: заполнить образование, например: вуз и год окончания]
 
 ## Контакты
-Telegram: [TODO: заполнить контакт]
+Telegram: @maxxwyy (https://t.me/maxxwyy)
 
 ## Правила
 - Использовать для AI Engineer, LLM Engineer и automation-вакансий.

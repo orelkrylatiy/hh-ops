@@ -122,6 +122,13 @@ def _lane_args(
 
 
 def _run(command: list[str]) -> int:
+    if os.name == "nt" and command[0] == "bash":
+        # PATH may resolve bash to the WSL launcher, which cannot open C:/... .
+        git_bash = Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe"
+        if not git_bash.is_file():
+            raise RuntimeError("Git Bash is required to run apply scripts from Windows Python")
+        command = [str(git_bash), *command[1:]]
+        command[1] = Path(command[1]).as_posix()
     completed = subprocess.run(command, check=False)
     return completed.returncode
 

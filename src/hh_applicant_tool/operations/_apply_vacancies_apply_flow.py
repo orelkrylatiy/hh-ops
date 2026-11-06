@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import random
 import re
 from dataclasses import dataclass
 from email.utils import parseaddr
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -23,6 +25,7 @@ from ..constants import CONFIG_DIR
 from ..storage.repositories.errors import RepositoryError
 from ..utils.description_links import extract_vacancy_links, vacancy_response_link
 from ..utils.string import contains_smiley, rand_text, render_template
+from ..utils.vacancy_routing import VacancyRouting
 
 logger = logging.getLogger(__package__)
 
@@ -31,15 +34,44 @@ logger = logging.getLogger(__package__)
 LETTER_MIN_CHARS = 150
 LETTER_MAX_CHARS = 900
 LETTER_PLACEHOLDER_TOKENS = ("[", "]", "{", "}", "%(", "<имя>", "<name>")
-APPLICATION_CONTACT_URL = "https://t.me/maxxwway"
+APPLICATION_CONTACT_URL = "https://t.me/maxxwyy"
 APPLICATION_CONTACT_LINE = (
     f"Буду рад связаться и обсудить задачи в Telegram: {APPLICATION_CONTACT_URL}"
 )
 # ")" допускаем: письмо может заканчиваться оговоркой в скобках
 _LETTER_SENTENCE_ENDINGS = ".!?…)"
+_TELEGRAM_LINE_RE = re.compile(r"(?i)(?:telegram|телеграм|t\.me/|telegram\.me/|tg://|(?<![\w@])@[a-z0-9_]{5,32}\b)")
+_TELEGRAM_URL_RE = re.compile(r"(?i)https?://(?:www\.)?(?:t\.me|telegram\.me)/[a-z0-9_]{5,32}/?")
+_TELEGRAM_HANDLE_RE = re.compile(r"(?<![\w@])@[a-z0-9_]{5,32}\b", re.IGNORECASE)
 
 
-def letter_quality_issues(text: str) -> list[str]:
+def normalize_telegram_url(value: str) -> str:
+    """Accept ``@handle``, ``handle`` or a t.me URL; return the URL form."""
+    raw = (value or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://")):
+        return raw
+    return f"https://t.me/{raw.lstrip('@')}"
+
+
+def resolve_contact_url(config: Any = None) -> str:
+    """Per-account Telegram contact: profile config wins, then HH_TELEGRAM env."""
+    contact = config.get("contact") if isinstance(config, dict) else None
+    raw = ""
+    if isinstance(contact, dict):
+        raw = str(contact.get("telegram") or "").strip()
+    if not raw:
+        raw = os.environ.get("HH_TELEGRAM", "").strip()
+    return normalize_telegram_url(raw) or APPLICATION_CONTACT_URL
+
+
+def application_contact_line(contact_url: str = "") -> str:
+    return f"Буду рад связаться и обсудить задачи в Telegram: {contact_url or APPLICATION_CONTACT_URL}"
+
+
+def letter_quality_issues(text: str, contact_url: str = "") -> list[str]:
+    contact_url = contact_url or APPLICATION_CONTACT_URL
     normalized = " ".join((text or "").split())
     if not normalized:
         return ["empty letter"]
@@ -59,18 +91,29 @@ def letter_quality_issues(text: str) -> list[str]:
     if contains_smiley(normalized):
         issues.append("contains a smiley or emoji")
     if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not normalized.endswith(
-        APPLICATION_CONTACT_URL
+        contact_url
     ):
         issues.append("letter looks truncated")
     return issues
 
 
-def append_application_contact(text: str) -> str:
+def append_application_contact(text: str, contact_url: str = "") -> str:
     """Append the verified contact deterministically, without trusting the model."""
-    letter = text.strip()
-    if APPLICATION_CONTACT_URL in letter:
-        return letter
-    return f"{letter}\n\n{APPLICATION_CONTACT_LINE}"
+    contact_url = contact_url or APPLICATION_CONTACT_URL
+    # The model can copy a stale Telegram contact from the resume despite the
+    # prompt. Remove contact lines before adding exactly one verified contact.
+    clean_lines = []
+    for line in (text or "").splitlines():
+        # Preserve experience sentences when a contact shares their line.
+        sentences = re.split(r"(?<=[.!?])\s+", line.strip())
+        clean_lines.append(" ".join(
+            sentence for sentence in sentences
+            if not _TELEGRAM_LINE_RE.search(sentence)
+        ))
+    letter = _TELEGRAM_URL_RE.sub("", "\n".join(clean_lines))
+    letter = _TELEGRAM_HANDLE_RE.sub("", letter)
+    letter = re.sub(r"\n{3,}", "\n\n", letter).strip()
+    return f"{letter}\n\n{application_contact_line(contact_url)}"
 
 
 @dataclass(frozen=True)
@@ -87,6 +130,16 @@ class VacancyResponseResult:
 
 
 class ApplyVacanciesApplyFlowMixin:
+    def _vacancy_routing(self) -> VacancyRouting:
+        routing = getattr(self, "_routing", None)
+        if routing is None:
+            tool = getattr(self, "tool", None)
+            profile_id = str(getattr(tool, "profile_id", None) or os.environ.get("HH_PROFILE_ID") or "default")
+            routing = self._routing = VacancyRouting(profile_id)
+        return routing
+    def _contact_url(self) -> str:
+        return resolve_contact_url(getattr(self.tool, "config", None))
+
     def _global_email_log(self) -> GlobalEmailSendLog:
         configured = os.environ.get("HH_EMAIL_LEDGER_PATH")
         if configured:
@@ -107,6 +160,7 @@ class ApplyVacanciesApplyFlowMixin:
         )
 
     def _validate_email_config(self) -> None:
+        self._email_via_gmail_api = False
         if not self.args.send_email:
             return
         gmail_dir = os.environ.get("HH_GMAIL_DIR")
@@ -130,6 +184,7 @@ class ApplyVacanciesApplyFlowMixin:
                 logger.info(
                     "Gmail API ready for vacancy mail: %s", sender.profile_email()
                 )
+                self._email_via_gmail_api = True
                 return
             except (OSError, ValueError, requests.RequestException) as exc:
                 logger.warning(
@@ -137,6 +192,26 @@ class ApplyVacanciesApplyFlowMixin:
                     exc,
                 )
         smtp = self.tool.config.get("smtp") or {}
+        # The shared local Gmail installation also contains a tested SMTP
+        # fallback.  Older profiles only had SMTP in ~/.mail/config.json, so
+        # do not disable email merely because the OAuth refresh token expired.
+        if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
+            try:
+                shared = json.loads(
+                    Path(gmail_dir or os.path.join(os.path.expanduser("~"), ".mail"), "config.json")
+                    .read_text(encoding="utf-8")
+                )
+                smtp = dict(shared.get("smtp") or {})
+                if shared.get("app_password"):
+                    smtp.setdefault("password", shared["app_password"])
+                smtp.setdefault("user", shared.get("email"))
+                smtp.setdefault("from", shared.get("email"))
+                if isinstance(shared.get("proxy"), dict):
+                    smtp.setdefault("proxy", shared["proxy"])
+                self.tool.config["smtp"] = smtp
+                logger.info("Using shared Gmail SMTP fallback for vacancy mail")
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                logger.warning("Shared Gmail SMTP fallback unavailable: %s", exc)
         if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
             logger.warning(
                 "Email follow-up disabled: smtp.host/smtp.port are not configured"
@@ -373,7 +448,12 @@ class ApplyVacanciesApplyFlowMixin:
                 site_emails[employer_id] = site_info["emails"]
             except requests.RequestException as ex:
                 site_info = None
-                logger.error(ex)
+                logger.warning(
+                    "Не удалось получить контакты с сайта работодателя %s (%s). "
+                    "Продолжаем отклик через HH.",
+                    employer_id,
+                    type(ex).__name__,
+                )
 
             if site_info:
                 logger.debug("site info: %r", site_info)
@@ -405,6 +485,7 @@ class ApplyVacanciesApplyFlowMixin:
             context = self._build_cover_letter_context(vacancy, resume)
             writer = FrameworkWriter()
             employer = vacancy.get("employer") or {}
+            result = None
             try:
                 result = writer.application(
                     vacancy_name=str(vacancy.get("name") or ""),
@@ -423,19 +504,39 @@ class ApplyVacanciesApplyFlowMixin:
                         "Framework application rejected text: %r",
                         rejected_text,
                     )
-                raise AIError(f"humanizer-framework application failed: {exc}") from exc
-            logger.info("Framework application generated: plan=%s provider=%s issues=%s",
-                        result.plan.action.value, result.provider,
-                        [issue.code for issue in result.issues])
-            letter = sanitize_reply_text(result.text.strip())
-            logger.info("Framework application text: %r", letter)
-            # модель часто заканчивает строкой контакта без терминальной точки,
-            # а чекер качества бракует это как "truncated"
-            if letter and letter[-1].isalnum():
-                letter += "."
-            issues = letter_quality_issues(letter)
-            if issues:
-                raise AIError("cover letter failed quality checks: " + ", ".join(issues))
+                logger.warning(
+                    "Framework application failed; using static cover-letter fallback: %s",
+                    exc,
+                )
+                letter = render_template(
+                    rand_text(self.cover_letter),
+                    message_placeholders,
+                    "сопроводительном письме fallback",
+                ).strip()
+            if result is not None:
+                logger.info(
+                    "Framework application generated: plan=%s provider=%s issues=%s",
+                    result.plan.action.value,
+                    result.provider,
+                    [issue.code for issue in result.issues],
+                )
+                letter = sanitize_reply_text(result.text.strip())
+                logger.info("Framework application text: %r", letter)
+                # модель часто заканчивает строкой контакта без терминальной точки,
+                # а чекер качества бракует это как "truncated"
+                if letter and letter[-1].isalnum():
+                    letter += "."
+                issues = letter_quality_issues(letter, self._contact_url())
+                if issues:
+                    logger.warning(
+                        "Framework letter failed quality checks; using static fallback: %s",
+                        ", ".join(issues),
+                    )
+                    letter = render_template(
+                        rand_text(self.cover_letter),
+                        message_placeholders,
+                        "сопроводительном письме fallback",
+                    ).strip()
         else:
             # Правило Макса (11.10.2026): отклики ходят только с AI-письмами.
             # Заглушка без --use-ai = брак; делаем её видимой в логах, чтобы
@@ -450,8 +551,8 @@ class ApplyVacanciesApplyFlowMixin:
                 "сопроводительном письме",
             )
 
-        letter = append_application_contact(letter)
-        issues = letter_quality_issues(letter)
+        letter = append_application_contact(letter, self._contact_url())
+        issues = letter_quality_issues(letter, self._contact_url())
         if issues:
             raise AIError(
                 "cover letter with contact failed quality checks: " + ", ".join(issues)
@@ -552,32 +653,33 @@ class ApplyVacanciesApplyFlowMixin:
             )
             return VacancyResponseResult(should_continue=True, accepted=False)
         except CaptchaRequired as ex:
-            logger.warning("Требуется капча: %s", ex.captcha_url)
+            logger.warning("HH запросил капчу для отклика")
             try:
                 success = asyncio.run(self._solve_captcha_async(ex.captcha_url))
-                if not success:
-                    logger.error("Не удалось решить капчу")
-                    raise RuntimeError("captcha failed")
-
+            except Exception as err:
+                logger.error("Ошибка при решении капчи (%s)", type(err).__name__)
+                raise
+            if not success:
+                raise RuntimeError("captcha failed")
+            logger.info("HH подтвердил прохождение капчи. Повторяем отклик")
+            try:
                 res = self.api_client.post(
                     "/negotiations",
                     params,
                     delay=random.uniform(self.response_delay_min, self.response_delay_max),
                 )
-                if res != {}:
-                    logger.warning(
-                        "Unexpected non-empty response while applying after captcha to %s: %r",
-                        vacancy["alternate_url"],
-                        res,
-                    )
-                print(
-                    "📨 Отправили отклик на вакансию после капчи",
-                    vacancy["alternate_url"],
-                )
-                return VacancyResponseResult(should_continue=True, accepted=True)
             except Exception as err:
-                logger.error("Ошибка при решении капчи: %s", err)
+                logger.warning("Ошибка повторного отклика после пройденной капчи (%s)", type(err).__name__)
                 raise
+            if res != {}:
+                logger.warning(
+                    "Unexpected non-empty response while applying after captcha to %s: %r",
+                    vacancy["alternate_url"],
+                    res,
+                )
+            logger.info("HH принял повторный отклик после капчи")
+            print("📨 Отправили отклик на вакансию после капчи", vacancy["alternate_url"], flush=True)
+            return VacancyResponseResult(should_continue=True, accepted=True)
 
     def _send_vacancy_email_if_needed(
         self,
@@ -602,7 +704,7 @@ class ApplyVacanciesApplyFlowMixin:
         if not mail_to:
             return
 
-        if not letter or letter_quality_issues(letter):
+        if not letter or letter_quality_issues(letter, self._contact_url()):
             logger.error("Email skipped: framework cover letter is missing or invalid")
             return
 
@@ -637,8 +739,15 @@ class ApplyVacanciesApplyFlowMixin:
                     continue
                 try:
                     gmail_dir = os.environ.get("HH_GMAIL_DIR")
-                    if gmail_dir:
-                        GmailAPISender(gmail_dir).send(recipient, mail_subject, mail_body)
+                    if gmail_dir and getattr(self, "_email_via_gmail_api", False):
+                        try:
+                            GmailAPISender(gmail_dir).send(recipient, mail_subject, mail_body)
+                        except Exception as gmail_exc:
+                            logger.warning(
+                                "Gmail API send failed; trying SMTP fallback: %s",
+                                gmail_exc,
+                            )
+                            self._send_email(recipient, mail_subject, mail_body)
                     else:
                         self._send_email(recipient, mail_subject, mail_body)
                 except Exception:
@@ -688,6 +797,9 @@ class ApplyVacanciesApplyFlowMixin:
         self._init_ai_filter_for_resume(resume)
 
         for vacancy in self._get_vacancies(resume_id=resume["id"]):
+            claimed_for_vacancy = False
+            claim_confirmed = False
+            routing = None
             try:
                 if self._response_quota_reached():
                     logger.info(
@@ -708,6 +820,11 @@ class ApplyVacanciesApplyFlowMixin:
                 if not do_apply:
                     continue
 
+                routing = self._vacancy_routing()
+                if routing.enabled and not routing.matches(vacancy):
+                    logger.info("Пропуск вакансии по маршрутизации: %s", vacancy.get("alternate_url", vacancy.get("id")))
+                    continue
+
                 if self._should_skip_vacancy_basic(vacancy, resume["id"]):
                     continue
                 if self._should_skip_by_ai(vacancy, resume["id"]):
@@ -723,6 +840,11 @@ class ApplyVacanciesApplyFlowMixin:
                     resume,
                     message_placeholders,
                 )
+                claimed = self.dry_run or not routing.enabled or routing.claim(vacancy["id"])
+                if not claimed:
+                    logger.info("Вакансия уже закреплена за другим профилем: %s", vacancy.get("alternate_url", vacancy.get("id")))
+                    continue
+                claimed_for_vacancy = bool(routing.enabled and not self.dry_run)
                 result = self._send_vacancy_response(
                     vacancy, resume["id"], letter, resume=resume
                 )
@@ -735,6 +857,9 @@ class ApplyVacanciesApplyFlowMixin:
                     )
                 do_apply = result.should_continue
                 if result.accepted:
+                    if claimed_for_vacancy:
+                        routing.confirm(vacancy["id"])
+                    claim_confirmed = True
                     self.responses_sent += 1
                     self._send_vacancy_email_if_needed(
                         vacancy,
@@ -743,6 +868,8 @@ class ApplyVacanciesApplyFlowMixin:
                         message_placeholders,
                         letter,
                     )
+                elif routing.enabled and not self.dry_run:
+                    routing.release(vacancy["id"])
             except LimitExceeded:
                 do_apply = False
                 logger.warning("Достигли лимита на отклики")
@@ -753,6 +880,13 @@ class ApplyVacanciesApplyFlowMixin:
                 logger.error(ex)
             except BadResponse as ex:
                 logger.error(ex)
+            finally:
+                # A routing claim is only valid after HH accepted the POST.
+                # If a worker is interrupted, times out, or fails during
+                # letter/email handling, do not hide the vacancy from the
+                # next clean run for the whole claim TTL.
+                if claimed_for_vacancy and not claim_confirmed and routing is not None and not self.dry_run:
+                    routing.release(vacancy["id"])
 
         logger.info(
             "Закончили рассылку откликов для резюме: %s (%s)",

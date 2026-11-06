@@ -45,12 +45,18 @@ def _run(daily: Path, log: Path, *args: str, apply: int = 0, reply: int = 0, fle
     env = os.environ.copy()
     env.pop("HH_PROFILE_ID", None)
     env.pop("PROFILES", None)
-    env["HH_DAILY_TEST_LOG"] = str(log)
+    env["HH_DAILY_TEST_LOG"] = log.as_posix()
     env["HH_DAILY_TEST_APPLY_EXIT"] = str(apply)
     env["HH_DAILY_TEST_REPLY_EXIT"] = str(reply)
     env["HH_DAILY_TEST_FLEET_EXIT"] = str(fleet)
     result = subprocess.run(
-        ["bash", str(daily), *args],
+        [
+            str(Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe")
+            if os.name == "nt"
+            else "bash",
+            daily.as_posix(),
+            *args,
+        ],
         cwd=daily.parent.parent,
         env=env,
         capture_output=True,

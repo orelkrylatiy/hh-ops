@@ -167,6 +167,41 @@ def test_application_contact_is_appended_once_and_passes_quality_checks() -> Non
     assert letter_quality_issues(with_contact) == []
 
 
+def test_application_contact_removes_stale_model_contacts() -> None:
+    letter = (
+        "Добрый день!\n\n"
+        "Связаться со мной можно в Telegram: @maxxwyy\n\n"
+        "Буду рад обсудить задачи: https://t.me/maxxwyy"
+    )
+
+    result = append_application_contact(letter, "https://t.me/maxxwyy")
+
+    assert result.count("maxxwyy") == 1
+    assert result.count("Telegram") == 1
+    assert result.endswith("Telegram: https://t.me/maxxwyy")
+
+
+def test_application_contact_preserves_experience_on_same_line() -> None:
+    body = "Здравствуйте! Разрабатываю терминал на React и TypeScript."
+    result = append_application_contact(
+        body + " Связаться со мной можно в Telegram: @maxxwyy.",
+        "https://t.me/maxxwyy",
+    )
+    assert result.startswith(body)
+    assert result.count("maxxwyy") == 1
+    assert append_application_contact(result, "https://t.me/maxxwyy") == result
+
+
+def test_application_contact_removes_bare_handle_and_cyrillic_contact() -> None:
+    result = append_application_contact(
+        "Опыт разработки интерфейсов.\nТелеграм: @maxxwyy\n@oldhandle",
+        "https://t.me/maxxwyy",
+    )
+    assert result.count("maxxwyy") == 1
+    assert "oldhandle" not in result
+    assert result.startswith("Опыт разработки интерфейсов.")
+
+
 def test_application_request_uses_selected_profile_voice() -> None:
     request = build_application_request(
         vacancy_name="LLM Engineer",

@@ -43,6 +43,7 @@ pip-delete-this-directory.txt
 # Local scratch scripts, exports, and generated run artifacts.
 /tmp/
 /output/
+/resumes/downloaded/
 .ruff_cache/
 
 # Unit test / coverage reports

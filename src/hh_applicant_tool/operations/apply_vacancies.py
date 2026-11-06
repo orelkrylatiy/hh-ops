@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import json
 import logging
 from http.cookiejar import Cookie
 from pathlib import Path
@@ -500,7 +502,7 @@ class Operation(
     async def _solve_captcha_async(self, captcha_url: str) -> bool:
         from playwright.async_api import async_playwright
 
-        captcha_ai = self.tool.get_captcha_ai()
+        # CAPTCHA is handled exclusively by the configured OpenCode vision model.
 
         async with async_playwright() as pw:
             # реальный Edge вместо headless-chromium: меньше палится автоматизацией
@@ -540,14 +542,54 @@ class Operation(
                     logger.debug("captcha context cookie load failed: %s", ex)
                 page = await context.new_page()
 
-                await page.goto(
+                # Keep only routing/status information: URLs can contain state
+                # tokens, and request bodies/cookies must not enter artifacts.
+                network_events: list[dict[str, Any]] = []
+                success_callback_seen = False
+
+                def record_request(request: Any) -> None:
+                    nonlocal success_callback_seen
+                    if request.url.split("?", 1)[0] == CAPTCHA_SUCCESS_BACKURL:
+                        success_callback_seen = True
+
+                def record_response(response: Any) -> None:
+                    nonlocal success_callback_seen
+                    if response.headers.get("location", "").split("?", 1)[0] == CAPTCHA_SUCCESS_BACKURL:
+                        success_callback_seen = True
+                    parsed = urlsplit(response.url)
+                    if parsed.hostname and (
+                        parsed.hostname == "hh.ru" or parsed.hostname.endswith(".hh.ru")
+                    ) and ("captcha" in parsed.path or response.request.method == "POST"):
+                        network_events.append({
+                            "event": "response", "method": response.request.method,
+                            "path": parsed.path, "status": response.status,
+                        })
+
+                def record_failure(request: Any) -> None:
+                    network_events.append({
+                        "event": "requestfailed", "method": request.method,
+                        "path": urlsplit(request.url).path,
+                        "failure": request.failure,
+                    })
+
+                page.on("response", record_response)
+                page.on("request", record_request)
+                page.on("requestfailed", record_failure)
+
+                navigation_response = await page.goto(
                     _captcha_browser_url(captcha_url),
                     timeout=60000,
                     wait_until="domcontentloaded",
                 )
+                if navigation_response is not None and navigation_response.status >= 400:
+                    raise RuntimeError(
+                        "CAPTCHA navigation failed: "
+                        f"HTTP {navigation_response.status} path={urlsplit(page.url).path}"
+                    )
 
                 # до 5 попыток: неверный ответ => на странице новая картинка
                 solved = False
+                rejected_images: set[str] = set()
                 for attempt in range(5):
                     captcha_element = await page.wait_for_selector(
                         self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
@@ -568,6 +610,13 @@ class Operation(
                         continue
 
                     img_bytes = await captcha_element.screenshot()
+                    image_digest = hashlib.sha256(img_bytes).hexdigest()
+                    if image_digest in rejected_images:
+                        logger.warning(
+                            "CAPTCHA image unchanged after rejection; reloading instead of repeating OCR"
+                        )
+                        await page.reload(timeout=60000, wait_until="domcontentloaded")
+                        continue
                     image_path = save_captcha_image(
                         img_bytes,
                         flow="apply",
@@ -585,11 +634,8 @@ class Operation(
                         if captcha_text:
                             logger.info("CAPTCHA распознана через OpenCode")
                     except Exception as ex:  # noqa: BLE001
-                        logger.warning("OpenCode CAPTCHA failed, using API fallback: %s", ex)
+                        logger.warning("OpenCode CAPTCHA failed: %s", ex)
                         captcha_text = ""
-                    if not captcha_text:
-                        provider = "api"
-                        captcha_text = await asyncio.to_thread(captcha_ai.solve_captcha, img_bytes)
 
                     result_path = save_captcha_attempt_result(
                         image_path,
@@ -612,9 +658,8 @@ class Operation(
                         continue
 
                     if not captcha_text:
-                        logger.warning("AI не распознал капчу (попытка %d)", attempt + 1)
-                        await page.reload(timeout=60000, wait_until="domcontentloaded")
-                        continue
+                        logger.error("OpenCode returned no valid CAPTCHA answer; stopping this run")
+                        return False
 
                     logger.info(
                         "Распознанный текст капчи (попытка %d): %s",
@@ -623,13 +668,15 @@ class Operation(
                     )
 
                     await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
+                    network_events.clear()
+                    success_callback_seen = False
                     await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
 
-                    # networkidle на hh.ru не наступает (бесконечные запросы аналитики):
-                    # ждём исчезновения инпута капчи
+                    # Require the applicant success callback. An input can also
+                    # disappear on an error page or during navigation.
                     for _ in range(6):
                         await page.wait_for_timeout(2500)
-                        if not await page.query_selector(self.SEL_CAPTCHA_INPUT):
+                        if success_callback_seen:
                             save_captcha_attempt_result(
                                 image_path,
                                 provider=provider,
@@ -640,7 +687,29 @@ class Operation(
                             break
                     if solved:
                         break
-                    logger.warning("капча не принята (попытка %d), пробую заново", attempt + 1)
+                    diagnostic_path = image_path.with_suffix(".diagnostic.json")
+                    diagnostic = {
+                        "outcome": "success_unconfirmed",
+                        "page_path": urlsplit(page.url).path,
+                        "network": list(network_events),
+                        "errors": await page.locator(
+                            '[data-qa*="error"], [role="alert"]'
+                        ).all_text_contents(),
+                        "input_visible": await page.locator(self.SEL_CAPTCHA_INPUT).is_visible(),
+                    }
+                    if any("неверный текст" in error.casefold() for error in diagnostic["errors"]):
+                        diagnostic["outcome"] = "incorrect_text"
+                        rejected_images.add(image_digest)
+                        save_captcha_attempt_result(
+                            image_path, provider=provider, answer=captcha_text, accepted=False,
+                        )
+                    diagnostic_path.write_text(
+                        json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    logger.warning(
+                        "CAPTCHA outcome=%s (attempt %d); diagnostic=%s",
+                        diagnostic["outcome"], attempt + 1, diagnostic_path,
+                    )
 
                 if not solved:
                     logger.error("не смог решить капчу за 5 попыток")

@@ -42,10 +42,15 @@ hh-applicant-tool reply-employers --use-ai --system-prompt "Отвечай ве�
 
 ```bash
 HH_NAME=Максим
-HH_TELEGRAM=@maxxwway
+HH_TELEGRAM=@maxxwyy
 ```
 
 Если запускаешь CLI напрямую, переменные тоже должны быть экспортированы в shell.
+
+Контакт в сопроводительных письмах — на аккаунт: `contact.telegram` в
+`config.json` профиля (`%APPDATA%\hh-applicant-tool\<профиль>\config.json`),
+формат `https://t.me/<handle>`. Приоритет: конфиг профиля → `HH_TELEGRAM` →
+`https://t.me/maxxwyy`.
 
 ## Стратегия на день (для человека/cron)
 

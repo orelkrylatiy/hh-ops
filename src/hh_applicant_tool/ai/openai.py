@@ -24,6 +24,15 @@ def _normalize_captcha_text(value: str) -> str:
     if not raw:
         return ""
 
+    # Never extract a plausible token from an explanation or a refusal.
+    if re.search(
+        r"(?i)(?:\bsorry\b|\b(?:cannot|can't|can’t|unable)\b|"
+        r"не могу|не буду|не удалось|извин|не поддержива|"
+        r"\b(?:captcha|recaptcha)s?\b)",
+        raw,
+    ):
+        return ""
+
     raw = re.sub(r"^```(?:text)?\s*|\s*```$", "", raw, flags=re.IGNORECASE).strip()
 
     # Preserve the legacy short-token behaviour, including model responses
@@ -31,9 +40,9 @@ def _normalize_captcha_text(value: str) -> str:
     compact = re.sub(r"[^A-Za-z0-9]", "", raw)
     if 4 <= len(compact) <= 8:
         return compact
-    tokens = re.findall(r"[A-Za-z0-9]{4,8}", raw)
-    if tokens and not re.search(r"[А-Яа-яЁё]", raw):
-        return tokens[-1]
+    token_answer = re.fullmatch(r"(?i)(?:the\s+)?(?:answer|text)\s+is\s+([a-z0-9]{4,8})[.!]?", raw)
+    if token_answer:
+        return token_answer[1]
 
     # Vision models sometimes wrap the answer in quotes or introduce it with
     # a short label. Prefer that payload before applying conservative Unicode

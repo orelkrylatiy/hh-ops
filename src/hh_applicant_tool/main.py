@@ -18,8 +18,10 @@ from os import getenv
 from pathlib import Path
 from pkgutil import iter_modules
 from typing import Any, Callable, Iterable
+from urllib.parse import urlsplit
 
 import requests
+import socks
 
 from . import ai, api, utils
 from .constants import (
@@ -33,6 +35,27 @@ from .constants import (
 from .storage import StorageFacade
 from .utils.cookiejar import HHOnlyCookieJar
 from .utils.log import setup_logger
+
+
+class _SocksSMTPSSL(smtplib.SMTP_SSL):
+    """SMTP over a per-connection SOCKS5 proxy without changing HH sockets."""
+
+    def __init__(self, *args: Any, proxy: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        self._smtp_proxy = proxy or {}
+        super().__init__(*args, **kwargs)
+
+    def _get_socket(self, host: str, port: int, timeout: float) -> Any:
+        sock = socks.socksocket()
+        sock.set_proxy(
+            socks.SOCKS5,
+            self._smtp_proxy["host"],
+            int(self._smtp_proxy["port"]),
+            username=self._smtp_proxy.get("username"),
+            password=self._smtp_proxy.get("password"),
+        )
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        return self.context.wrap_socket(sock, server_hostname=host)
 
 # The Windows launcher can expose a legacy console encoding (for example
 # ``charmap``).  Status messages contain emoji, so make console writes
@@ -186,6 +209,25 @@ class HHApplicantTool(MegaTool):
         proxies = {}
         http_env = getenv("HTTP_PROXY") or getenv("http_proxy")
         https_env = getenv("HTTPS_PROXY") or getenv("https_proxy") or http_env
+
+        # Do not inherit a desktop localhost proxy accidentally when the
+        # worker is launched from WSL.  WSL NAT cannot reach the Windows
+        # loopback from this process, which turns ordinary vacancy/company
+        # requests into 10-second read timeouts.  A proxy explicitly set in
+        # the profile or CLI remains supported above.
+        ambient = https_env or http_env
+        if ambient:
+            try:
+                host = (urlsplit(ambient).hostname or "").lower()
+            except ValueError:
+                host = ""
+            if host in {"127.0.0.1", "localhost", "::1"}:
+                logger.warning(
+                    "Ignoring ambient localhost proxy %s; configure proxy_url "
+                    "explicitly if this account requires a proxy",
+                    host,
+                )
+                return proxies
 
         if http_env:
             proxies["http"] = http_env
@@ -517,8 +559,12 @@ class HHApplicantTool(MegaTool):
         if not host or not port:
             raise ValueError("SMTP host or port not configured")
 
-        client_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        server = client_cls(host, port)
+        proxy = conf.get("proxy") if isinstance(conf.get("proxy"), dict) else None
+        if proxy and use_ssl:
+            server = _SocksSMTPSSL(host, port, proxy=proxy)
+        else:
+            client_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+            server = client_cls(host, port)
 
         if not use_ssl and conf.get("starttls", True):
             server.starttls()

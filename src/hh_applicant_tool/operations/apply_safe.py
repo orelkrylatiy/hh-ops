@@ -62,8 +62,8 @@ class Operation(BaseApplyOperation):
         ).strip()
         if not letter:
             raise ValueError("cover-letter fallback rendered an empty message")
-        letter = append_application_contact(letter)
-        issues = letter_quality_issues(letter)
+        letter = append_application_contact(letter, self._contact_url())
+        issues = letter_quality_issues(letter, self._contact_url())
         if issues:
             # fail-open: фолбэк остаётся последним шансом откликнуться,
             # но проблемы текста должны быть видны в логах

@@ -183,6 +183,9 @@ class OAuthClient(BaseClient):
             response_type="code",
             scope=self.scope,
             state=self.state,
+            # Без этого токен выпускается в роли последней сессии: аккаунт,
+            # залогиненный как работодатель (0056), получал auth_type=employer.
+            role="applicant",
         )
         params_qs = urlencode({k: v for k, v in params.items() if v})
         return self.resolve_url(f"/authorize?{params_qs}")

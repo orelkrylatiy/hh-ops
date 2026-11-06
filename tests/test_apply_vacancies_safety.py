@@ -278,6 +278,7 @@ def test_vacancy_email_uses_local_gmail_api_when_configured(monkeypatch, tmp_pat
     operation._args = SimpleNamespace(send_email=True)
     operation.tool = SimpleNamespace(config={}, db=sqlite3.connect(":memory:"))
     operation._send_email = Mock()
+    operation._validate_email_config()
     vacancy = _vacancy("1")
     vacancy["contacts"] = {"email": "recruiter@example.test"}
     letter = (
@@ -531,3 +532,51 @@ def test_missing_primary_alias_with_multiple_published_resumes_fails_closed() ->
 
     with pytest.raises(ValueError, match="cannot be inferred safely"):
         operation._resolve_resume_selector(tool)
+
+
+@pytest.mark.parametrize('outcome,expected', [('callback', True), ('incorrect_text', False), ('error_page', False)])
+def test_captcha_requires_callback_and_does_not_repeat_rejected_image(monkeypatch, tmp_path, outcome, expected):
+    import playwright.async_api
+    from hh_applicant_tool.operations import apply_vacancies as module
+
+    handlers = {}
+    page = SimpleNamespace(
+        url='https://hh.ru/account/captcha',
+        on=lambda event, handler: handlers.__setitem__(event, handler),
+        goto=AsyncMock(return_value=SimpleNamespace(status=200)),
+        wait_for_selector=AsyncMock(return_value=SimpleNamespace(screenshot=AsyncMock(return_value=b'image'))),
+        wait_for_function=AsyncMock(),
+        reload=AsyncMock(),
+        fill=AsyncMock(),
+        wait_for_timeout=AsyncMock(),
+        query_selector=AsyncMock(return_value=None),
+    )
+    errors = ['Неверный текст. Пожалуйста, повторите попытку.'] if outcome == 'incorrect_text' else []
+    page.locator = lambda selector: SimpleNamespace(
+        all_text_contents=AsyncMock(return_value=errors),
+        is_visible=AsyncMock(return_value=outcome != 'error_page'),
+    )
+    async def press(*args):
+        if outcome == 'callback':
+            handlers['request'](SimpleNamespace(url=CAPTCHA_SUCCESS_BACKURL))
+    page.press = AsyncMock(side_effect=press)
+    context = SimpleNamespace(add_cookies=AsyncMock(),new_page=AsyncMock(return_value=page),cookies=AsyncMock(return_value=[]))
+    browser = SimpleNamespace(new_context=AsyncMock(return_value=context),close=AsyncMock())
+    pw = SimpleNamespace(chromium=SimpleNamespace(launch=AsyncMock(return_value=browser)))
+    class Manager:
+        async def __aenter__(self): return pw
+        async def __aexit__(self, *args): pass
+    monkeypatch.setattr(playwright.async_api,'async_playwright',Manager)
+    image_path = tmp_path / 'captcha.png'
+    monkeypatch.setattr(module,'save_captcha_image',Mock(return_value=image_path))
+    solver = Mock(return_value='автов ожидание')
+    monkeypatch.setattr(module,'solve_captcha_with_opencode',solver)
+    op = Operation()
+    op.tool = SimpleNamespace(profile_id='test',session=SimpleNamespace(cookies=CookieJar(),proxies={},trust_env=False))
+    assert asyncio.run(op._solve_captcha_async('https://hh.ru/account/captcha')) is expected
+    if outcome == 'incorrect_text':
+        assert solver.call_count == 1
+        assert page.press.await_count == 1
+        import json
+        assert json.loads(image_path.with_suffix('.json').read_text(encoding='utf-8'))['accepted'] is False
+    assert browser.close.await_count == 1

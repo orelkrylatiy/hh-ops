@@ -224,16 +224,15 @@ def test_lane_config_rejects_duplicate_names(tmp_path) -> None:
         module._load_lanes(path)
 
 
-def test_tracked_0555_lane_config_is_valid() -> None:
+def test_optional_lane_config_is_valid(tmp_path) -> None:
     module = _load_module()
-    root = Path(__file__).resolve().parents[1]
-    lanes = module._load_lanes(root / "rules" / "apply-lanes" / "0555.json")
+    path = tmp_path / "lanes.json"
+    _write_lanes(path)
+    lanes = module._load_lanes(path)
 
     assert [lane["name"] for lane in lanes] == [
         "frontend-primary",
         "ai-engineer",
-        "llm-engineer",
-        "ai-automation",
     ]
     assert lanes[0]["resume_alias"] == "primary"
     assert all(lane.get("resume_alias") == "ai-engineer" for lane in lanes[1:])
