@@ -13,7 +13,9 @@ OPENCODE_COMMAND = "opencode"
 OPENCODE_PRIMARY_MODEL = "openai/gpt-6.1-sol"
 OPENCODE_FALLBACK_MODEL = "openai/gpt-6-astra#max"
 # Explicit CAPTCHA model; do not substitute the general text-generation model.
-OPENCODE_CAPTCHA_MODEL = "openai/gpt-6-astra#max"
+# The VPS OpenCode registry exposes the model without the local-only #max
+# variant. An unknown variant can leave a standalone run waiting indefinitely.
+OPENCODE_CAPTCHA_MODEL = "openai/gpt-6-astra"
 DATABASE_FILENAME = "data"
 COOKIES_FILENAME = "cookies.txt"
 

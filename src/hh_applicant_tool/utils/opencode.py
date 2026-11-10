@@ -85,6 +85,12 @@ def spawn_opencode(
 
     last_error: OSError | None = None
     child_env = os.environ.copy()
+    # Keep the child non-interactive. Without an explicit deny policy the
+    # standalone server can wait for an approval prompt and never emit a
+    # result when launched from cron/SSH.
+    child_env["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+        {"permission": {"*": "deny"}}, separators=(",", ":")
+    )
     # apply.sh sources the HH account proxy from .env.  Passing that proxy to
     # the Windows OpenCode child makes its subscription/OAuth requests travel
     # through the HH/WSL proxy and hang, while the same command works from a
