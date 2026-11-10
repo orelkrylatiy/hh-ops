@@ -11,7 +11,7 @@ LOG_FILENAME = "log.txt"
 CAPTCHA_ARTIFACTS_DIR = Path(__file__).resolve().parents[2] / "tmp" / "captcha"
 OPENCODE_COMMAND = "opencode"
 OPENCODE_PRIMARY_MODEL = "openai/gpt-6.1-sol"
-OPENCODE_FALLBACK_MODEL = "openai/gpt-6-astra#max"
+OPENCODE_FALLBACK_MODEL = "openai/gpt-6-astra"
 # Explicit CAPTCHA model; do not substitute the general text-generation model.
 # The VPS OpenCode registry exposes the model without the local-only #max
 # variant. An unknown variant can leave a standalone run waiting indefinitely.
