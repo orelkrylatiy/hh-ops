@@ -13,7 +13,7 @@ from humanizer_framework.providers import (
 )
 from humanizer_framework.providers.base import Provider
 
-DEFAULT_OPENCODE_MODEL = "openai/gpt-5.6-luna"
+DEFAULT_OPENCODE_MODEL = "openai/gpt-6.1-sol"
 DEFAULT_ZAI_MODEL = "glm-5.3-flash"
 # ZaiAnthropicProvider сам резолвит ключ из первой непустой переменной.
 ZAI_KEY_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ZAI_API_KEY")
@@ -46,6 +46,18 @@ def generation_provider() -> Provider:
     opencode_model = os.environ.get(
         "HUMANIZER_OPENCODE_MODEL", DEFAULT_OPENCODE_MODEL
     ).strip()
-    legs.append(OpenCodeCLIProvider(model=opencode_model or DEFAULT_OPENCODE_MODEL))
+    try:
+        opencode_timeout = max(
+            15,
+            int(os.environ.get("HUMANIZER_OPENCODE_TIMEOUT_SECONDS", "45")),
+        )
+    except ValueError:
+        opencode_timeout = 45
+    legs.append(
+        OpenCodeCLIProvider(
+            model=opencode_model or DEFAULT_OPENCODE_MODEL,
+            timeout_seconds=opencode_timeout,
+        )
+    )
 
     return HarnessProvider(legs)
