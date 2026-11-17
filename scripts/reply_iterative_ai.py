@@ -47,11 +47,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum negotiations to inspect per scan (default: 100)",
     )
     parser.add_argument(
-        "--rounds", type=int, default=int(os.environ.get("REPLY_ROUNDS", "1")),
+        "--rounds",
+        type=int,
+        default=int(os.environ.get("REPLY_ROUNDS", "1")),
         help="How many times to rescan chats during this run (default: 1)",
     )
     parser.add_argument(
-        "--round-interval", type=int,
+        "--round-interval",
+        type=int,
         default=int(os.environ.get("REPLY_ROUND_INTERVAL", "60")),
         help="Seconds between scans when --rounds is greater than 1 (default: 60)",
     )

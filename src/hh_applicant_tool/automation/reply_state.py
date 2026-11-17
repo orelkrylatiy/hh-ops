@@ -37,7 +37,6 @@ class ManualChatQueue:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path, timeout=10)
 
-
     def enqueue(
         self,
         *,
