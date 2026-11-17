@@ -1,0 +1,45 @@
+name: Temporary Ruff formatter
+on:
+  push:
+    branches: [fix/ci-quality-20261117]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install ruff==0.16.5
+      - name: Format CI-blocking files
+        run: |
+          ruff format \
+            scripts/reply_iterative_ai.py \
+            src/hh_applicant_tool/automation/reply_state.py \
+            src/hh_applicant_tool/automation/reply_worker.py \
+            src/hh_applicant_tool/communication/global_email_log.py \
+            src/hh_applicant_tool/communication/live.py \
+            src/hh_applicant_tool/operations/apply_safe.py \
+            tests/test_ai_openai_retry.py \
+            tests/test_reply_worker.py
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            scripts/reply_iterative_ai.py \
+            src/hh_applicant_tool/automation/reply_state.py \
+            src/hh_applicant_tool/automation/reply_worker.py \
+            src/hh_applicant_tool/communication/global_email_log.py \
+            src/hh_applicant_tool/communication/live.py \
+            src/hh_applicant_tool/operations/apply_safe.py \
+            tests/test_ai_openai_retry.py \
+            tests/test_reply_worker.py
+          if ! git diff --cached --quiet; then
+            git commit -m "style: apply Ruff formatting to CI paths"
+            git push
+          fi
