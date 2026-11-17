@@ -32,7 +32,7 @@ jobs:
       - name: Install project and quality tools
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[pillow]'
+          pip install -e '.[playwright,pillow]'
           pip install -r admin/requirements.txt
           pip install ruff==0.16.5 basedpyright pytest pytest-cov
 
@@ -172,7 +172,7 @@ jobs:
       - name: Install project and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[pillow]'
+          pip install -e '.[playwright,pillow]'
           pip install -r admin/requirements.txt
           pip install pytest pytest-cov
 
@@ -256,8 +256,10 @@ jobs:
           printf '%s\n' "$@" > "$AI_RESUME_SETUP_ARGS"
           EOF
           chmod +x "$fake_resume_bin/hh-applicant-tool"
+          variant_file="$(mktemp)"
           AI_RESUME_SETUP_ARGS="$setup_args" PATH="$fake_resume_bin:$PATH" \
-            bash scripts/setup-ai-resume.sh --profile 0555 --dry-run
+            bash scripts/setup-ai-resume.sh --profile 0555 --variant "$variant_file" --dry-run
+          rm -f "$variant_file"
           grep -qx -- '--profile-id' "$setup_args"
           grep -qx -- '0555' "$setup_args"
           grep -qx -- 'create-resume-variant' "$setup_args"
