@@ -219,7 +219,9 @@ def test_collect_candidate_chats_bounds_inspected_negotiations() -> None:
         "pages": 1,
     }
     worker = ReplyWorker(
-        ReplyWorkerConfig(max_chats=1), hh=hh, framework_writer=Mock(),
+        ReplyWorkerConfig(max_chats=1),
+        hh=hh,
+        framework_writer=Mock(),
     )
 
     assert worker.collect_candidate_chats() == []
@@ -467,9 +469,7 @@ def test_failed_send_returns_false_when_message_is_not_visible() -> None:
 
 
 def test_run_dry_run_plans_without_revalidation_or_send() -> None:
-    worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock()
-    )
+    worker = ReplyWorker(ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock())
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     worker.make_decision = Mock(return_value=_decision())
     worker.generate_reply = Mock(return_value="preview")

@@ -31,12 +31,8 @@ class GlobalEmailSendLog:
 
     def _backfill_legacy_ledgers(self, root: Path) -> None:
         marker = "legacy_profile_ledgers_imported"
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS global_email_meta (key TEXT PRIMARY KEY)"
-        )
-        if self.conn.execute(
-            "SELECT 1 FROM global_email_meta WHERE key=?", (marker,)
-        ).fetchone():
+        self.conn.execute("CREATE TABLE IF NOT EXISTS global_email_meta (key TEXT PRIMARY KEY)")
+        if self.conn.execute("SELECT 1 FROM global_email_meta WHERE key=?", (marker,)).fetchone():
             return
 
         candidates = [root / "data"]
@@ -59,7 +55,12 @@ class GlobalEmailSendLog:
                             """INSERT OR IGNORE INTO global_email_sends
                                (recipient, vacancy_id, profile_id, subject, status, sent_at)
                                VALUES (?, ?, ?, ?, 'sent', CURRENT_TIMESTAMP)""",
-                            (str(recipient).strip().casefold(), str(vacancy_id), profile_id, subject),
+                            (
+                                str(recipient).strip().casefold(),
+                                str(vacancy_id),
+                                profile_id,
+                                subject,
+                            ),
                         )
                 legacy.close()
             except sqlite3.Error:
