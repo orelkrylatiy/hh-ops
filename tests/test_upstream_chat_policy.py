@@ -32,22 +32,14 @@ def test_bot_metadata_in_both_hh_formats() -> None:
 
 
 def test_human_cooldown_and_bot_bypass() -> None:
-    assert not is_incoming_reply_due(
-        msg(minutes=14), human_cooldown_minutes=15, now=NOW
-    )
+    assert not is_incoming_reply_due(msg(minutes=14), human_cooldown_minutes=15, now=NOW)
     assert is_incoming_reply_due(msg(minutes=16), human_cooldown_minutes=15, now=NOW)
-    assert is_incoming_reply_due(
-        msg(minutes=0, bot=True), human_cooldown_minutes=15, now=NOW
-    )
+    assert is_incoming_reply_due(msg(minutes=0, bot=True), human_cooldown_minutes=15, now=NOW)
 
 
 def test_stale_and_invalid_message_timestamps_fail_closed() -> None:
-    assert not is_incoming_reply_due(
-        msg(minutes=31 * 1440), max_chat_age_days=30, now=NOW
-    )
-    assert is_incoming_reply_due(
-        msg(minutes=29 * 1440), max_chat_age_days=30, now=NOW
-    )
+    assert not is_incoming_reply_due(msg(minutes=31 * 1440), max_chat_age_days=30, now=NOW)
+    assert is_incoming_reply_due(msg(minutes=29 * 1440), max_chat_age_days=30, now=NOW)
     assert message_age_seconds({"created_at": "not-a-date"}, now=NOW) is None
     assert not is_incoming_reply_due(
         {"created_at": "not-a-date"}, human_cooldown_minutes=15, now=NOW

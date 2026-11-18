@@ -223,7 +223,9 @@ def test_collect_candidate_chats_bounds_inspected_negotiations() -> None:
         "pages": 1,
     }
     worker = ReplyWorker(
-        ReplyWorkerConfig(max_chats=1), hh=hh, framework_writer=Mock(),
+        ReplyWorkerConfig(max_chats=1),
+        hh=hh,
+        framework_writer=Mock(),
     )
 
     assert worker.collect_candidate_chats() == []
@@ -471,9 +473,7 @@ def test_failed_send_returns_false_when_message_is_not_visible() -> None:
 
 
 def test_run_dry_run_plans_without_revalidation_or_send() -> None:
-    worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock()
-    )
+    worker = ReplyWorker(ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock())
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     worker.make_decision = Mock(return_value=_decision())
     worker.generate_reply = Mock(return_value="preview")
@@ -772,7 +772,6 @@ def test_run_ignore_decision_does_not_call_ai() -> None:
     worker.generate_reply.assert_not_called()
 
 
-
 def _fresh_message(message_id: str, role: str, text: str, minutes_ago: float) -> dict:
     timestamp = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
     return _message(message_id, role, text, timestamp)
@@ -863,7 +862,8 @@ def test_upstream_followup_revalidates_applicant_turn_and_is_one_shot(tmp_path) 
 def test_upstream_quick_reply_with_no_confident_match_moves_to_manual() -> None:
     worker = _live_worker()
     decision = _decision(
-        action=ACTION_QUICK_REPLY, quick_options=("Да", "Нет"),
+        action=ACTION_QUICK_REPLY,
+        quick_options=("Да", "Нет"),
     )
     worker.collect_candidate_chats = Mock(return_value=[{"id": "c"}])
     worker.make_decision = Mock(return_value=decision)

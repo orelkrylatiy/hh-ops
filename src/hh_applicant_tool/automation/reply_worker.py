@@ -532,10 +532,16 @@ class ReplyWorker:
                     max_chat_age_days=self.config.max_chat_age_days,
                 ):
                     continue
-                if self.send_log is not None and latest_id and self.send_log.is_recorded(
-                    negotiation_id, latest_id
+                if (
+                    self.send_log is not None
+                    and latest_id
+                    and self.send_log.is_recorded(negotiation_id, latest_id)
                 ):
-                    logger.info("Chat %s already answered for employer message %s", negotiation_id, latest_id)
+                    logger.info(
+                        "Chat %s already answered for employer message %s",
+                        negotiation_id,
+                        latest_id,
+                    )
                     continue
                 if self.manual_queue is not None and not self.config.dry_run and latest_id:
                     self.manual_queue.resolve_chat(
@@ -754,8 +760,11 @@ class ReplyWorker:
         try:
             result = self.framework_writer.chat_reply(
                 context=(
-                    [*decision.context, "Выбери только один точный ответ из вариантов: "
-                     + " | ".join(decision.quick_options)]
+                    [
+                        *decision.context,
+                        "Выбери только один точный ответ из вариантов: "
+                        + " | ".join(decision.quick_options),
+                    ]
                     if decision.action == ACTION_QUICK_REPLY
                     else decision.context
                 ),
@@ -777,12 +786,17 @@ class ReplyWorker:
             reply = matched
         issues = reply_quality_issues(reply)
         if issues:
-            logger.warning("Framework reply rejected for chat %s: %s", decision.chat_id,
-                           ", ".join(issues))
+            logger.warning(
+                "Framework reply rejected for chat %s: %s", decision.chat_id, ", ".join(issues)
+            )
             return None
-        logger.info("Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
-                    decision.chat_id, result.plan.action.value, result.provider,
-                    [issue.code for issue in result.issues])
+        logger.info(
+            "Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
+            decision.chat_id,
+            result.plan.action.value,
+            result.provider,
+            [issue.code for issue in result.issues],
+        )
         return reply
 
     def is_still_current(self, decision: ReplyDecision) -> bool:
@@ -919,9 +933,7 @@ class ReplyWorker:
                         if self.followup_store is not None:
                             self.followup_store.mark_sent(decision.chat_id)
                     elif self.send_log is not None:
-                        self.send_log.mark_sent(
-                            decision.chat_id, decision.expected_last_message_id
-                        )
+                        self.send_log.mark_sent(decision.chat_id, decision.expected_last_message_id)
                     stats["sent"] += 1
                 else:
                     stats["errors"] += 1

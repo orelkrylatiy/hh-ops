@@ -41,7 +41,9 @@ APPLICATION_CONTACT_LINE = (
 )
 # ")" допускаем: письмо может заканчиваться оговоркой в скобках
 _LETTER_SENTENCE_ENDINGS = ".!?…)"
-_TELEGRAM_LINE_RE = re.compile(r"(?i)(?:telegram|телеграм|t\.me/|telegram\.me/|tg://|(?<![\w@])@[a-z0-9_]{5,32}\b)")
+_TELEGRAM_LINE_RE = re.compile(
+    r"(?i)(?:telegram|телеграм|t\.me/|telegram\.me/|tg://|(?<![\w@])@[a-z0-9_]{5,32}\b)"
+)
 _TELEGRAM_URL_RE = re.compile(r"(?i)https?://(?:www\.)?(?:t\.me|telegram\.me)/[a-z0-9_]{5,32}/?")
 _TELEGRAM_HANDLE_RE = re.compile(r"(?<![\w@])@[a-z0-9_]{5,32}\b", re.IGNORECASE)
 
@@ -68,7 +70,9 @@ def resolve_contact_url(config: Any = None) -> str:
 
 
 def application_contact_line(contact_url: str = "") -> str:
-    return f"Буду рад связаться и обсудить задачи в Telegram: {contact_url or APPLICATION_CONTACT_URL}"
+    return (
+        f"Буду рад связаться и обсудить задачи в Telegram: {contact_url or APPLICATION_CONTACT_URL}"
+    )
 
 
 def letter_quality_issues(text: str, contact_url: str = "") -> list[str]:
@@ -91,9 +95,7 @@ def letter_quality_issues(text: str, contact_url: str = "") -> list[str]:
         issues.append("contains an AI-style cliche")
     if contains_smiley(normalized):
         issues.append("contains a smiley or emoji")
-    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not normalized.endswith(
-        contact_url
-    ):
+    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not normalized.endswith(contact_url):
         issues.append("letter looks truncated")
     return issues
 
@@ -107,10 +109,9 @@ def append_application_contact(text: str, contact_url: str = "") -> str:
     for line in (text or "").splitlines():
         # Preserve experience sentences when a contact shares their line.
         sentences = re.split(r"(?<=[.!?])\s+", line.strip())
-        clean_lines.append(" ".join(
-            sentence for sentence in sentences
-            if not _TELEGRAM_LINE_RE.search(sentence)
-        ))
+        clean_lines.append(
+            " ".join(sentence for sentence in sentences if not _TELEGRAM_LINE_RE.search(sentence))
+        )
     letter = _TELEGRAM_URL_RE.sub("", "\n".join(clean_lines))
     letter = _TELEGRAM_HANDLE_RE.sub("", letter)
     letter = re.sub(r"\n{3,}", "\n\n", letter).strip()
@@ -135,9 +136,12 @@ class ApplyVacanciesApplyFlowMixin:
         routing = getattr(self, "_routing", None)
         if routing is None:
             tool = getattr(self, "tool", None)
-            profile_id = str(getattr(tool, "profile_id", None) or os.environ.get("HH_PROFILE_ID") or "default")
+            profile_id = str(
+                getattr(tool, "profile_id", None) or os.environ.get("HH_PROFILE_ID") or "default"
+            )
             routing = self._routing = VacancyRouting(profile_id)
         return routing
+
     def _contact_url(self) -> str:
         return resolve_contact_url(getattr(self.tool, "config", None))
 
@@ -155,9 +159,7 @@ class ApplyVacanciesApplyFlowMixin:
 
     def _profile_id_for_email_log(self) -> str:
         return str(
-            getattr(self.tool, "profile_id", None)
-            or os.environ.get("HH_PROFILE_ID")
-            or "default"
+            getattr(self.tool, "profile_id", None) or os.environ.get("HH_PROFILE_ID") or "default"
         )
 
     def _validate_email_config(self) -> None:
@@ -182,9 +184,7 @@ class ApplyVacanciesApplyFlowMixin:
         if gmail_dir:
             try:
                 sender = GmailAPISender(gmail_dir)
-                logger.info(
-                    "Gmail API ready for vacancy mail: %s", sender.profile_email()
-                )
+                logger.info("Gmail API ready for vacancy mail: %s", sender.profile_email())
                 self._email_via_gmail_api = True
                 return
             except (OSError, ValueError, requests.RequestException) as exc:
@@ -199,8 +199,9 @@ class ApplyVacanciesApplyFlowMixin:
         if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
             try:
                 shared = json.loads(
-                    Path(gmail_dir or os.path.join(os.path.expanduser("~"), ".mail"), "config.json")
-                    .read_text(encoding="utf-8")
+                    Path(
+                        gmail_dir or os.path.join(os.path.expanduser("~"), ".mail"), "config.json"
+                    ).read_text(encoding="utf-8")
                 )
                 smtp = dict(shared.get("smtp") or {})
                 if shared.get("app_password"):
@@ -214,15 +215,11 @@ class ApplyVacanciesApplyFlowMixin:
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 logger.warning("Shared Gmail SMTP fallback unavailable: %s", exc)
         if not isinstance(smtp, dict) or not smtp.get("host") or not smtp.get("port"):
-            logger.warning(
-                "Email follow-up disabled: smtp.host/smtp.port are not configured"
-            )
+            logger.warning("Email follow-up disabled: smtp.host/smtp.port are not configured")
             self.args.send_email = False
             return
         if not (smtp.get("from") or smtp.get("user")):
-            logger.warning(
-                "Email follow-up disabled: smtp.from/smtp.user are not configured"
-            )
+            logger.warning("Email follow-up disabled: smtp.from/smtp.user are not configured")
             self.args.send_email = False
 
     def _init_ai_filter_for_resume(self, resume: datatypes.Resume) -> None:
@@ -430,17 +427,17 @@ class ApplyVacanciesApplyFlowMixin:
         if not employer_id or employer_id in seen_employers:
             return employer_id
 
-        employer_profile: datatypes.Employer = self.api_client.get(
-            f"/employers/{employer_id}"
-        )
+        employer_profile: datatypes.Employer = self.api_client.get(f"/employers/{employer_id}")
         if not self.dry_run:
             try:
                 self.tool.storage.employers.save(employer_profile)
             except RepositoryError as ex:
                 logger.exception(ex)
 
-        if not self.dry_run and self.args.send_email and (
-            site_url := (employer_profile.get("site_url") or "").strip()
+        if (
+            not self.dry_run
+            and self.args.send_email
+            and (site_url := (employer_profile.get("site_url") or "").strip())
         ):
             site_url = site_url if "://" in site_url else "https://" + site_url
             logger.debug("visit site: %s", site_url)
@@ -555,9 +552,7 @@ class ApplyVacanciesApplyFlowMixin:
         letter = append_application_contact(letter, self._contact_url())
         issues = letter_quality_issues(letter, self._contact_url())
         if issues:
-            raise AIError(
-                "cover letter with contact failed quality checks: " + ", ".join(issues)
-            )
+            raise AIError("cover letter with contact failed quality checks: " + ", ".join(issues))
         logger.debug(letter)
         return letter
 
@@ -677,7 +672,9 @@ class ApplyVacanciesApplyFlowMixin:
                     delay=random.uniform(self.response_delay_min, self.response_delay_max),
                 )
             except Exception as err:
-                logger.warning("Ошибка повторного отклика после пройденной капчи (%s)", type(err).__name__)
+                logger.warning(
+                    "Ошибка повторного отклика после пройденной капчи (%s)", type(err).__name__
+                )
                 raise
             if res != {}:
                 logger.warning(
@@ -686,7 +683,9 @@ class ApplyVacanciesApplyFlowMixin:
                     res,
                 )
             logger.info("HH принял повторный отклик после капчи")
-            print("📨 Отправили отклик на вакансию после капчи", vacancy["alternate_url"], flush=True)
+            print(
+                "📨 Отправили отклик на вакансию после капчи", vacancy["alternate_url"], flush=True
+            )
             return VacancyResponseResult(should_continue=True, accepted=True)
 
     def _send_vacancy_email_if_needed(
@@ -830,7 +829,10 @@ class ApplyVacanciesApplyFlowMixin:
 
                 routing = self._vacancy_routing()
                 if routing.enabled and not routing.matches(vacancy):
-                    logger.info("Пропуск вакансии по маршрутизации: %s", vacancy.get("alternate_url", vacancy.get("id")))
+                    logger.info(
+                        "Пропуск вакансии по маршрутизации: %s",
+                        vacancy.get("alternate_url", vacancy.get("id")),
+                    )
                     continue
 
                 if self._should_skip_vacancy_basic(vacancy, resume["id"]):
@@ -850,12 +852,13 @@ class ApplyVacanciesApplyFlowMixin:
                 )
                 claimed = self.dry_run or not routing.enabled or routing.claim(vacancy["id"])
                 if not claimed:
-                    logger.info("Вакансия уже закреплена за другим профилем: %s", vacancy.get("alternate_url", vacancy.get("id")))
+                    logger.info(
+                        "Вакансия уже закреплена за другим профилем: %s",
+                        vacancy.get("alternate_url", vacancy.get("id")),
+                    )
                     continue
                 claimed_for_vacancy = bool(routing.enabled and not self.dry_run)
-                result = self._send_vacancy_response(
-                    vacancy, resume["id"], letter, resume=resume
-                )
+                result = self._send_vacancy_response(vacancy, resume["id"], letter, resume=resume)
                 if not isinstance(result, VacancyResponseResult):
                     # Preserve the old private-method contract for custom
                     # integrations which return a plain boolean.
@@ -893,7 +896,12 @@ class ApplyVacanciesApplyFlowMixin:
                 # If a worker is interrupted, times out, or fails during
                 # letter/email handling, do not hide the vacancy from the
                 # next clean run for the whole claim TTL.
-                if claimed_for_vacancy and not claim_confirmed and routing is not None and not self.dry_run:
+                if (
+                    claimed_for_vacancy
+                    and not claim_confirmed
+                    and routing is not None
+                    and not self.dry_run
+                ):
                     routing.release(vacancy["id"])
 
         logger.info(

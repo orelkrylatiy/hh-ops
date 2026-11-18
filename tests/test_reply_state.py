@@ -60,7 +60,6 @@ def test_reply_send_log_blocks_same_question_but_allows_followup(tmp_path) -> No
     assert log.claim("chat-1", "employer-2") is True
 
 
-
 def test_upstream_followup_store_is_durable_and_at_most_once(tmp_path) -> None:
     db = tmp_path / "state.db"
     first = FollowupStore(db)

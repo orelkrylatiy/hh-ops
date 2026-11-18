@@ -71,9 +71,7 @@ class ApplyVacanciesHelpersMixin:
         return tests if isinstance(tests, dict) else None
 
     # Безопасный ответ, если обе генерации ушли в шаблонный мусор.
-    _TASK_ANSWER_FALLBACK = (
-        "Готов ответить на этот вопрос подробно на созвоне или в переписке."
-    )
+    _TASK_ANSWER_FALLBACK = "Готов ответить на этот вопрос подробно на созвоне или в переписке."
 
     # Плейсхолдеры, мета-комментарии про шаблоны и markdown — признаки ответа
     # «ассистента», а не кандидата (баг вечерней кампании 20.10.2026).
@@ -112,8 +110,14 @@ class ApplyVacanciesHelpersMixin:
         if salary.get("to"):
             salary_bits.append(f"до {salary['to']}")
         if salary_bits:
-            currency = {"RUR": "рублей"}.get(salary.get("currency") or "", salary.get("currency") or "")
-            parts.append("Вилка зарплаты в вакансии: " + " ".join(salary_bits) + (f" {currency}" if currency else ""))
+            currency = {"RUR": "рублей"}.get(
+                salary.get("currency") or "", salary.get("currency") or ""
+            )
+            parts.append(
+                "Вилка зарплаты в вакансии: "
+                + " ".join(salary_bits)
+                + (f" {currency}" if currency else "")
+            )
         else:
             parts.append("Вилка зарплаты в вакансии не указана.")
         return "\n".join(parts)
@@ -156,8 +160,7 @@ class ApplyVacanciesHelpersMixin:
 
         try:
             retry_prompt = (
-                prompt
-                + "\n\nПредыдущая попытка отклонена: получился шаблон или "
+                prompt + "\n\nПредыдущая попытка отклонена: получился шаблон или "
                 "плейсхолдер. Ответь от первого лица конкретным готовым "
                 "ответом на основе профиля, без квадратных скобок."
             )
@@ -219,9 +222,7 @@ class ApplyVacanciesHelpersMixin:
 
             if solutions:
                 if self.cover_letter_ai:
-                    options = "\n".join(
-                        f"{s['id']}: {strip_tags(s['text'])}" for s in solutions
-                    )
+                    options = "\n".join(f"{s['id']}: {strip_tags(s['text'])}" for s in solutions)
                     prompt = (
                         f"Вопрос: {question}\n"
                         f"Варианты:\n{options}\n"
@@ -234,8 +235,11 @@ class ApplyVacanciesHelpersMixin:
                         (
                             option
                             for option in solutions
-                            if strip_tags(str(option.get("text", ""))).strip().casefold()
-                            .rstrip(" .!") == "да"
+                            if strip_tags(str(option.get("text", "")))
+                            .strip()
+                            .casefold()
+                            .rstrip(" .!")
+                            == "да"
                         ),
                         None,
                     )
@@ -250,9 +254,7 @@ class ApplyVacanciesHelpersMixin:
                         "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
                     )
                 elif self.cover_letter_ai:
-                    answer = self._generate_task_answer(
-                        question, vacancy=vacancy, resume=resume
-                    )
+                    answer = self._generate_task_answer(question, vacancy=vacancy, resume=resume)
                 else:
                     answer = "Да"
 
@@ -339,9 +341,7 @@ class ApplyVacanciesHelpersMixin:
 
         return set(
             item
-            for item in chain.from_iterable(
-                item["name_value"].split() for item in r.json()
-            )
+            for item in chain.from_iterable(item["name_value"].split() for item in r.json())
             if not item.startswith("*.")
         )
 

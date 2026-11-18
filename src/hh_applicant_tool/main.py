@@ -57,6 +57,7 @@ class _SocksSMTPSSL(smtplib.SMTP_SSL):
         sock.connect((host, port))
         return self.context.wrap_socket(sock, server_hostname=host)
 
+
 # The Windows launcher can expose a legacy console encoding (for example
 # ``charmap``).  Status messages contain emoji, so make console writes
 # loss-tolerant instead of aborting a live operation after the API work starts.
@@ -255,7 +256,9 @@ class HHApplicantTool(MegaTool):
             logger.info("Use proxies for %s: %r", log_label, proxies)
             session.proxies = proxies
 
-        session.headers.update({"User-Agent": os.environ.get("HH_DESKTOP_USER_AGENT") or DESKTOP_USER_AGENT})
+        session.headers.update(
+            {"User-Agent": os.environ.get("HH_DESKTOP_USER_AGENT") or DESKTOP_USER_AGENT}
+        )
         return session
 
     @cached_property
@@ -345,17 +348,15 @@ class HHApplicantTool(MegaTool):
     def get_blacklisted(self) -> list[str]:
         rv = []
         for page in count():
-            r: api.datatypes.PaginatedItems[api.datatypes.EmployerShort] = (
-                self.api_client.get("/employers/blacklisted", page=page)
+            r: api.datatypes.PaginatedItems[api.datatypes.EmployerShort] = self.api_client.get(
+                "/employers/blacklisted", page=page
             )
             rv += [item["id"] for item in r["items"]]
             if page + 1 >= r["pages"]:
                 break
         return rv
 
-    def get_negotiations(
-        self, status: str = "active"
-    ) -> Iterable[api.datatypes.Negotiation]:
+    def get_negotiations(self, status: str = "active") -> Iterable[api.datatypes.Negotiation]:
         for page in count():
             r: dict[str, Any] = self.api_client.get(
                 "/negotiations",
@@ -386,18 +387,12 @@ class HHApplicantTool(MegaTool):
         check_auth: bool = True,
     ) -> dict[str, Any]:
         if response.status_code != 200:
-            raise RuntimeError(
-                f"Unexpected HH response: {response.status_code} {response.url}"
-            )
+            raise RuntimeError(f"Unexpected HH response: {response.status_code} {response.url}")
 
         try:
-            raw_config = response.text.split(
-                'id="HH-Lux-InitialState">'
-            )[1].split("</template>")[0]
+            raw_config = response.text.split('id="HH-Lux-InitialState">')[1].split("</template>")[0]
         except IndexError as exc:
-            raise RuntimeError(
-                f"HH-Lux-InitialState not found on {response.url}"
-            ) from exc
+            raise RuntimeError(f"HH-Lux-InitialState not found on {response.url}") from exc
 
         raw_config = html.unescape(raw_config)
         config = json.loads(raw_config)
@@ -415,9 +410,7 @@ class HHApplicantTool(MegaTool):
         return self.parse_redirect_config(self.session.get(url), check_auth)
 
     def save_token(self) -> bool:
-        if self.api_client.access_token != self.config.get("token", {}).get(
-            "access_token"
-        ):
+        if self.api_client.access_token != self.config.get("token", {}).get("access_token"):
             self.config.save(token=self.api_client.get_access_token())
             return True
         return False
@@ -428,9 +421,7 @@ class HHApplicantTool(MegaTool):
             self.session.cookies.save(ignore_discard=True, ignore_expires=True)
             logger.debug("Cookies saved to %s", self.cookies_file)
         else:
-            logger.warning(
-                f"Сессионные куки имеют неправильный тип: {type(self.session.cookies)}"
-            )
+            logger.warning(f"Сессионные куки имеют неправильный тип: {type(self.session.cookies)}")
 
     def get_cover_letter_ai(self, system_prompt: str) -> ai.ChatOpenAI:
         return self._init_ai_client(system_prompt, purpose="cover_letter")
@@ -452,16 +443,16 @@ class HHApplicantTool(MegaTool):
             "vacancy_filter": "openai_vacancy_filter",
             "captcha": "openai_captcha",
         }
-        
+
         if purpose not in config_sections:
             raise ValueError(
                 f"Неизвестная цель AI: {purpose}. "
                 f"Допустимые значения: {list(config_sections.keys())}"
             )
-        
+
         config_section = config_sections[purpose]
         c = self.config.get(config_section, {})
-        
+
         api_key = c.get("api_key")
         if not api_key:
             raise ValueError(
@@ -485,7 +476,7 @@ class HHApplicantTool(MegaTool):
                 "Примеры: 'gpt-4o-mini', 'gpt-3.5-turbo', 'openai/gpt-4'",
                 config_section,
             )
-    
+
         verify_ssl = not (
             purpose == "captcha"
             and os.environ.get("HH_CAPTCHA_VERIFY_SSL", "1").strip().lower()
@@ -588,13 +579,10 @@ class HHApplicantTool(MegaTool):
             logger.error("Требуется авторизация. Запустите: hh-applicant-tool authorize")
             return False
 
-        logger.warning(
-            "Токен авторизации не найден. "
-            "Требуется авторизация через Playwright."
-        )
-        print("\n" + "="*60)
+        logger.warning("Токен авторизации не найден. Требуется авторизация через Playwright.")
+        print("\n" + "=" * 60)
         print("⚠️  Требуется авторизация для работы приложения")
-        print("="*60)
+        print("=" * 60)
         print("\nПеред запуском основной операции необходимо авторизоваться.")
         print("Будет открыт браузер для ввода учетных данных HH.ru.\n")
 
@@ -602,7 +590,7 @@ class HHApplicantTool(MegaTool):
         from .operations import authorize
 
         auto_auth = input("Хотите авторизоваться сейчас? (y/n): ").strip().lower()
-        if auto_auth != 'y':
+        if auto_auth != "y":
             logger.error("Авторизация отменена пользователем")
             return False
 
@@ -713,9 +701,7 @@ class HHApplicantTool(MegaTool):
                             logger.debug(f"Не удалось обновить токен: {ex}")
                             # Если refresh_token тоже не сработал, требуем авторизацию
                             if self.no_auto_auth:
-                                logger.error(
-                                    "Операция отменена: требуется авторизация"
-                                )
+                                logger.error("Операция отменена: требуется авторизация")
                                 return 1
                             if not self._ensure_authorized():
                                 logger.error("Операция отменена: требуется авторизация")

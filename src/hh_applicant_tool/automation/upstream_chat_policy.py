@@ -39,9 +39,7 @@ def is_bot_message(message: Mapping[str, Any]) -> bool:
         message.get("sender"),
         message.get("payload"),
     ):
-        if isinstance(obj, Mapping) and (
-            obj.get("isBot") is True or obj.get("is_bot") is True
-        ):
+        if isinstance(obj, Mapping) and (obj.get("isBot") is True or obj.get("is_bot") is True):
             return True
     return False
 
@@ -108,6 +106,7 @@ def quick_reply_options(message: Mapping[str, Any]) -> tuple[str, ...]:
 
 def choose_quick_reply(response: str, options: tuple[str, ...]) -> str | None:
     """Accept exact/fuzzy choice only with sufficient unambiguous confidence."""
+
     def normalize(value: str) -> str:
         return re.sub(r"\s+", " ", value.strip().casefold().strip(" .!•-"))
 
