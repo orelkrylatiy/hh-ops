@@ -255,7 +255,7 @@ class HHApplicantTool(MegaTool):
             logger.info("Use proxies for %s: %r", log_label, proxies)
             session.proxies = proxies
 
-        session.headers.update({"User-Agent": DESKTOP_USER_AGENT})
+        session.headers.update({"User-Agent": os.environ.get("HH_DESKTOP_USER_AGENT") or DESKTOP_USER_AGENT})
         return session
 
     @cached_property

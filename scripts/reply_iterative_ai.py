@@ -19,6 +19,7 @@ from pathlib import Path
 
 from hh_applicant_tool.automation.reply_state import (
     EmployerContactStore,
+    FollowupStore,
     ManualChatQueue,
     ReplySendLog,
 )
@@ -55,6 +56,38 @@ def parse_args() -> argparse.Namespace:
         default=int(os.environ.get("REPLY_ROUND_INTERVAL", "60")),
         help="Seconds between scans when --rounds is greater than 1 (default: 60)",
     )
+    parser.add_argument(
+        "--human-cooldown-minutes",
+        type=float,
+        default=float(os.environ.get("HH_REPLY_HUMAN_COOLDOWN_MINUTES", "15")),
+        help="Let human employers receive a manual reply before automation (default: 15 min)",
+    )
+    parser.add_argument(
+        "--max-chat-age-days",
+        type=float,
+        default=float(os.environ.get("HH_REPLY_MAX_CHAT_AGE_DAYS", "30")),
+        help="Ignore stale chat turns (default: 30 days)",
+    )
+    parser.add_argument(
+        "--followup-after-days",
+        type=float,
+        default=float(os.environ.get("HH_REPLY_FOLLOWUP_AFTER_DAYS", "2")),
+        help="Send a single opt-in reminder after this many days (default: 2)",
+    )
+    parser.add_argument(
+        "--followups",
+        action="store_true",
+        default=os.environ.get("HH_REPLY_FOLLOWUPS_ENABLED", "off").lower()
+        in {"1", "true", "yes", "on"},
+        help="Enable at-most-once reminders to employers (off unless explicitly enabled)",
+    )
+    parser.add_argument(
+        "--auto-quick-replies",
+        action="store_true",
+        default=os.environ.get("HH_REPLY_AUTO_QUICK_REPLIES", "off").lower()
+        in {"1", "true", "yes", "on"},
+        help="Auto-send an option only when HH explicitly provides options and LLM matches confidently",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +109,15 @@ def main() -> int:
         print("--rounds must be 1..5 and --round-interval must be non-negative", file=sys.stderr)
         return 2
 
+    if (
+        args.human_cooldown_minutes < 0
+        or args.max_chat_age_days <= 0
+        or args.followup_after_days <= 0
+        or args.followup_after_days >= args.max_chat_age_days
+    ):
+        print("Invalid chat timing values", file=sys.stderr)
+        return 2
+
     dry_run = not args.live
     logging.basicConfig(
         level=logging.INFO,
@@ -89,6 +131,7 @@ def main() -> int:
     manual_queue = None
     send_log = None
     db_path = profile_dir(args.profile) / DATABASE_FILENAME
+    followup_store = FollowupStore(db_path) if args.followups else None
     contact_store = EmployerContactStore(db_path)
     if not dry_run:
         manual_queue = ManualChatQueue(db_path)
@@ -99,6 +142,11 @@ def main() -> int:
             profile_id=args.profile,
             dry_run=dry_run,
             max_chats=args.max_chats,
+            human_cooldown_minutes=args.human_cooldown_minutes,
+            max_chat_age_days=args.max_chat_age_days,
+            followup_enabled=args.followups,
+            followup_after_days=args.followup_after_days,
+            auto_quick_replies=args.auto_quick_replies,
             skip_chat_ids=tuple(
                 x.strip() for x in os.environ.get("HH_REPLY_SKIP", "").split(",") if x.strip()
             ),
@@ -108,6 +156,7 @@ def main() -> int:
         framework_writer=framework_writer,
         send_log=send_log,
         contact_store=contact_store,
+        followup_store=followup_store,
     )
     stats: dict[str, int] = {}
     for round_number in range(1, args.rounds + 1):
