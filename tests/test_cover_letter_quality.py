@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
+    append_application_contact,
     letter_quality_issues,
+    resolve_contact_url,
 )
 
 GOOD_LETTER = (
@@ -55,3 +57,21 @@ def test_truncated_letter_rejected():
 
 def test_bracket_ending_is_not_truncation():
     assert letter_quality_issues(GOOD_LETTER + " (опыт 5+ лет)") == []
+
+
+def test_unconfigured_contact_never_injects_another_accounts_telegram(monkeypatch):
+    monkeypatch.delenv("HH_TELEGRAM", raising=False)
+    assert resolve_contact_url({}) == ""
+    result = append_application_contact(GOOD_LETTER, "")
+    assert "t.me/" not in result
+    assert result.endswith("созвоне.")
+    assert letter_quality_issues(result) == []
+
+
+def test_account_telegram_appended_only_when_explicitly_configured(monkeypatch):
+    monkeypatch.delenv("HH_TELEGRAM", raising=False)
+    contact = resolve_contact_url({"contact": {"telegram": "@example_account"}})
+    assert contact == "https://t.me/example_account"
+    result = append_application_contact(GOOD_LETTER, contact)
+    assert result.count("https://t.me/example_account") == 1
+    assert letter_quality_issues(result, contact) == []

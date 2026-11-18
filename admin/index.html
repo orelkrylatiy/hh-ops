@@ -288,6 +288,9 @@
       <div class="nav-item" data-page="run" onclick="goPage('run')">
         <span class="icon">▶️</span><span>Запуск задач</span>
       </div>
+      <div class="nav-item" data-page="automation" onclick="goPage('automation')">
+        <span class="icon">🛡️</span><span>Автоматизация</span>
+      </div>
       <div class="nav-item" data-page="config" onclick="goPage('config')">
         <span class="icon">⚙️</span><span>Настройки</span>
       </div>
@@ -859,6 +862,7 @@ const PAGE_TITLES = {
   'letter-template': 'Шаблон письма',
   run: 'Запуск задач',
   config: 'Настройки',
+  automation: 'Автоматизация',
 };
 
 function goPage(page) {
@@ -877,7 +881,7 @@ function goPage(page) {
   content.classList.add('animate__fadeInUp');
 
   if (page === 'logs') page = 'run';
-  const pages = { home, dashboard, negotiations, vacancies, skipped, employers, resumes, inbox, letter, 'letter-template': letterTemplate, 'apply-form': applyForm, run, config };
+  const pages = { home, dashboard, negotiations, vacancies, skipped, employers, resumes, inbox, letter, 'letter-template': letterTemplate, 'apply-form': applyForm, run, config, automation: automationSettings };
   if (pages[page]) pages[page]();
 }
 
@@ -1140,6 +1144,53 @@ function timeAgo(dt) {
   return Math.floor(diff/86400) + ' д. назад';
 }
 
+let dashboardDays = 30;
+
+// Minimal responsive SVG chart: source values come only from SQLite,
+// never from fabricated or cached browser sample data.
+function dailyTrendChart(days) {
+  if (!Array.isArray(days) || !days.length) return '<p class="admin-empty">Нет данных за период</p>';
+  const w = 800, h = 202, left = 38, right = 14, top = 15, bottom = 31;
+  const xStep = (w - left - right) / Math.max(1, days.length - 1);
+  const max = Math.max(1, ...days.map(item => Number(item.cnt) || 0));
+  const y = value => top + (h - top - bottom) * (1 - (Number(value) || 0) / max);
+  const points = days.map((item, i) => [left + i * xStep, y(item.cnt)]);
+  const pointList = points.map(([x, yy]) => x.toFixed(1) + ',' + yy.toFixed(1)).join(' ');
+  const area = left + ',' + (h-bottom) + ' ' + pointList + ' ' + points[points.length-1][0].toFixed(1) + ',' + (h-bottom);
+  const ticks = [0, 1, 2, 3].map(i => {
+    const count = Math.round(max * i / 3);
+    const yy = y(count);
+    return '<line x1="' + left + '" y1="' + yy + '" x2="' + (w-right) + '" y2="' + yy + '" stroke="currentColor" stroke-opacity=".10" />' +
+           '<text x="' + (left-7) + '" y="' + (yy+4) + '" fill="currentColor" fill-opacity=".65" font-size="11" text-anchor="end">' + count + '</text>';
+  }).join('');
+  const labelEvery = Math.max(1, Math.ceil(days.length / 8));
+  const labels = days.map((item, i) => i % labelEvery === 0 || i === days.length-1
+    ? '<text x="' + points[i][0] + '" y="' + (h-6) + '" fill="currentColor" fill-opacity=".7" font-size="11" text-anchor="middle">' + escapeHtml(String(item.day || '').slice(5)) + '</text>' : '').join('');
+  const dots = days.map((item, i) => '<circle cx="' + points[i][0] + '" cy="' + points[i][1] + '" r="3" fill="#f97360"><title>' + escapeHtml(String(item.day || '')) + ': ' + (Number(item.cnt) || 0) + '</title></circle>').join('');
+  return '<svg class="admin-trend-chart" viewBox="0 0 800 202" role="img" aria-label="Отклики по дням, источник: локальная база SQLite">' +
+    '<polygon points="' + area + '" fill="#f97360" fill-opacity=".10" />' + ticks +
+    '<polyline points="' + pointList + '" fill="none" stroke="#f97360" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />' +
+    dots + labels + '</svg>';
+}
+
+async function refreshLiveSummary() {
+  if (!requireSingleAccount('Живые данные HH')) return;
+  const box = document.getElementById('hh-live-summary');
+  if (!box) return;
+  const profileAtStart = currentProfile;
+  box.textContent = 'Проверяем счётчики в HH API…';
+  try {
+    const result = await api('/api/live-summary');
+    if (profileAtStart !== currentProfile || !document.getElementById('hh-live-summary')) return;
+    box.innerHTML = '<strong>HH API · ' + escapeHtml(new Date(result.observed_at).toLocaleString('ru-RU')) + '</strong>' +
+      '<div class="admin-live-stats"><span>Переписок: <b>' + Number(result.negotiations) + '</b></span>' +
+      '<span>Резюме: <b>' + Number(result.resumes) + '</b></span></div>' +
+      '<small>Это актуальная проверка HH API. Исторический график ниже основан на локальной базе и может отличаться.</small>';
+  } catch (error) {
+    box.textContent = 'Не удалось проверить HH: ' + error.message;
+  }
+}
+
 function snapshotLabel(value) {
   if (!value) return 'Локальный снимок ещё не создан';
   const parsed = new Date(value);
@@ -1150,9 +1201,9 @@ async function dashboard() {
   const c = document.getElementById('content');
   c.innerHTML = '<div style="color:var(--text2)">Загрузка локальных снимков…</div>';
   document.getElementById('topbar-actions').innerHTML =
-    `<button class="btn btn-secondary" onclick="dashboard()">🔄 Обновить</button>`;
+    `<select id="dashboard-days" aria-label="Период статистики" onchange="dashboardDays=Number(this.value);dashboard()"><option value="14">14 дней</option><option value="30">30 дней</option><option value="90">90 дней</option></select> <button class="btn btn-secondary" onclick="dashboard()">🔄 Обновить</button>`;
   try {
-    const d = await api(CONSTANTS.endpoints.stats);
+    const d = await api(CONSTANTS.endpoints.stats + "?days=" + dashboardDays);
     const t = d.totals || {};
     const scopeColumn = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const scopeColspan = isAllAccounts() ? 5 : 4;
@@ -1193,15 +1244,20 @@ async function dashboard() {
     </tr>`).join('') || `<tr class="empty-row"><td colspan="${isAllAccounts() ? 4 : 3}">В снимке нет резюме</td></tr>`;
 
     const accountRows = (d.profile_totals || []).map(account => `<tr>
-      <td>${escapeHtml(account.profile)}</td><td>${Number(account.negotiations) || 0}</td><td>${Number(account.resumes) || 0}</td>
-      <td>${escapeHtml(snapshotLabel(account.snapshot_updated_at))}</td>
+      <td><strong>${escapeHtml(account.profile)}</strong></td><td>${Number(account.negotiations) || 0}</td>
+      <td>${Number((account.states || {}).invitation) || 0}</td>
+      <td>${Number((account.states || {}).interview) || 0}</td>
+      <td>${Number((account.states || {}).discard) || 0}</td>
+      <td>${Number(account.progress_rate) || 0}%</td>
+      <td>${Number(account.resumes) || 0}</td>
+      <td title="Локальная SQLite, не синхронизация с HH">${escapeHtml(timeAgo(account.last_negotiation_at))}</td>
     </tr>`).join('');
     const unavailable = (d.unavailable_profiles || []).map(item => `${escapeHtml(item.profile)} (${escapeHtml(item.reason)})`).join(', ');
 
     c.innerHTML = `
       <div class="section" style="padding:16px;margin-bottom:16px">
         <div class="section-title">${isAllAccounts() ? 'Все аккаунты' : `Аккаунт: ${escapeHtml(currentProfile)}`}</div>
-        <div style="font-size:12px;color:var(--text2)">${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Метрики считаются из локальных SQLite-снимков; страница никогда не обращается к живым данным HH.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
+        <div style="font-size:12px;color:var(--text2)">${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Метрики и графики — локальная SQLite, а время снимка означает изменение файла, НЕ момент синхронизации с HH. Для проверки HH используйте кнопку ниже.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
       </div>
       <div class="section"><div class="section-title">Обзор</div><div class="cards">
         <div class="card"><div class="card-label">Всего откликов</div><div class="card-value">${Number(t.negotiations) || 0}</div></div>
@@ -1209,11 +1265,13 @@ async function dashboard() {
         <div class="card"><div class="card-label">Работодателей</div><div class="card-value blue">${Number(t.employers) || 0}</div></div>
         <div class="card"><div class="card-label">Пропущено</div><div class="card-value">${Number(t.skipped) || 0}</div></div>${stateCards}
       </div></div>
-      ${isAllAccounts() ? `<div class="section"><div class="section-title">Покрытие аккаунтов</div><div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Откликов</th><th>Резюме</th><th>Свежесть снимка</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="4">Нет готовых аккаунтов</td></tr>'}</tbody></table></div></div>` : ''}
-      <div class="dashboard-grid-two"><div class="section"><div class="section-title">Отклики за 14 дней</div><div class="table-wrap" style="padding:16px"><div class="days-chart">${dayCols}</div></div></div>
+      ${isAllAccounts() ? `<div class="section"><div class="section-title">Результаты по аккаунтам · локальные данные</div><div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Откликов</th><th>Приглашений</th><th>Интервью</th><th>Отказов</th><th>Прогресс</th><th>Резюме</th><th>Посл. активность</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="8">Нет готовых аккаунтов</td></tr>'}</tbody></table></div></div>` : `<div class="section"><div class="section-title">Живые данные HH · только чтение</div><p class="admin-muted">Загрузка по запросу, без отправки откликов или сообщений.</p><button class="btn btn-secondary" onclick="refreshLiveSummary()">Проверить HH сейчас</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite">Проверка не выполнялась</div></div>`}
+      <div class="dashboard-grid-two"><div class="section"><div class="section-title">Динамика откликов за ${dashboardDays} дней</div><div class="admin-trend-wrap">${dailyTrendChart(days)}</div><div class="admin-muted" style="margin:6px 16px 14px">Количество записей переговоров по дате создания в SQLite (UTC), не счётчик действий в реальном времени.</div></div>
         <div class="section"><div class="section-title">Причины пропуска</div><div class="table-wrap" style="padding:16px">${skipBars || '<div style="color:var(--text2);font-size:13px">Нет данных</div>'}</div></div></div>
       <div class="dashboard-grid-main"><div class="section"><div class="section-title">Последние отклики <span class="badge">${(d.recent_negotiations || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Статус</th><th>Вакансия</th><th>Работодатель</th><th>Создан</th></tr></thead><tbody>${recentRows}</tbody></table></div></div>
         <div class="section"><div class="section-title">Просмотры резюме</div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Всего</th><th>Новые</th></tr></thead><tbody>${resumeRows}</tbody></table></div></div></div>`;
+    const selector = document.getElementById('dashboard-days');
+    if (selector) selector.value = String(dashboardDays);
   } catch(e) {
     c.innerHTML = `<div style="color:var(--red);padding:20px">Ошибка дашборда: ${escapeHtml(e.message)}</div>`;
   }
@@ -1600,7 +1658,7 @@ async function run() {
 
   // Определяем какие кнопки должны быть disabled
   const updateResumeRunning = activeOps.some(op => op.operation === CONSTANTS.operations.update_resumes || runningOps[op.op_id]?.name.includes('Обновить'));
-  const applyVacanciesRunning = activeOps.some(op => op.operation === CONSTANTS.operations.apply_vacancies || runningOps[op.op_id]?.name.includes('Автоотклики'));
+  const applyVacanciesRunning = activeOps.some(op => ['safe-apply', CONSTANTS.operations.apply_vacancies].includes(op.operation) || runningOps[op.op_id]?.name.includes('Автоотклики'));
 
   const updateResumeDisabled = updateResumeRunning ? 'disabled' : '';
   const applyVacanciesDisabled = applyVacanciesRunning ? 'disabled' : '';
@@ -1612,6 +1670,17 @@ async function run() {
 
   c.innerHTML = `
     <div class="run-grid">
+      <div class="run-card">
+        <div class="run-card-header"><h3>✅ Безопасный автопоиск</h3><span class="badge">Рекомендуется</span></div>
+        <p>Тот же Linux-скрипт <code>apply.sh</code>, что запускается по cron: Humanizer, фильтры, ограничение успешных откликов, пропуск тестов.</p>
+        <div class="form-row">
+          <div class="form-group"><label for="safe-apply-search">Поисковый запрос</label><input id="safe-apply-search" value="Frontend разработчик" maxlength="160"/></div>
+          <div class="form-group"><label for="safe-apply-limit">Лимит успешных откликов</label><input type="number" id="safe-apply-limit" min="1" max="100" value="10"/></div>
+          <div class="form-group"><label for="safe-apply-pages">Страниц поиска</label><input type="number" id="safe-apply-pages" min="1" max="100" value="5"/></div>
+        </div>
+        <div class="run-actions"><button class="btn btn-secondary" onclick="runSafeApply(true)" ${applyVacanciesDisabled}>Проверить (dry-run)</button><button class="btn btn-danger" onclick="runSafeApply(false)" ${applyVacanciesDisabled}>Реальные отклики</button></div>
+        <div class="run-output" id="out-safe-apply"></div>
+      </div>
       <div class="run-card ${doneMap.update_resumes ? 'done' : ''}">
         <div class="run-card-header">
           <h3>📤 Обновить резюме</h3>
@@ -1630,10 +1699,10 @@ async function run() {
       </div>
       <div class="run-card ${doneMap.apply_vacancies ? 'done' : ''}">
         <div class="run-card-header">
-          <h3>🎯 Автоотклики</h3>
+          <h3>🎯 Расширенный отклик (CLI)</h3>
           <span class="run-done-badge ${doneMap.apply_vacancies ? 'done' : ''}">${doneMap.apply_vacancies ? 'Выполнено' : 'Не выполнено'}</span>
         </div>
-        <p>Автоматически откликнуться на вакансии по настроенным параметрам.</p>
+        <p>Старый CLI-путь с расширенной формой. Для регулярной автономной работы используйте «Безопасный автопоиск».</p>
         <div style="margin-bottom:12px">
           <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Задержка между откликами (сек)</label>
           <input id="response-delay" type="text" placeholder="1-3" value="" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:7px 12px;font-size:13px;outline:none" />
@@ -1656,14 +1725,10 @@ async function run() {
         <div class="run-card-header">
           <h3>💬 Автоответы работодателям</h3>
         </div>
-        <p>Ответить во все переписки, где последнее сообщение от работодателя. AI пишет ответ по истории чата.</p>
+        <p>Актуальный ReplyWorker: фильтрация, Humanizer, защита от дублей и повторная проверка переписки.</p>
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;color:var(--text)">
-            <input type="checkbox" id="re-useai" checked> Отвечать через AI
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;color:var(--text)">
-            <input type="checkbox" id="re-onlyinv"> Только на приглашения
-          </label>
+          <div class="form-group"><label for="re-maxchats">Максимум переписок</label><input type="number" id="re-maxchats" min="1" max="500" value="30"/></div>
+          <div class="form-group"><label for="re-rounds">Число проходов (1–5)</label><input type="number" id="re-rounds" min="1" max="5" value="1"/></div>
         </div>
         <div class="run-actions">
           <button class="btn btn-secondary" id="reply-dry-button" onclick="runReplyEmployers(true)">🧪 Dry-run</button>
@@ -1904,6 +1969,34 @@ async function runOp(op, btn, dryRun, alreadyConfirmed = false) {
   }
 }
 
+async function runSafeApply(dryRun) {
+  if (!requireSingleAccount('Безопасные отклики')) return;
+  const outEl = document.getElementById('out-safe-apply');
+  if (!outEl) return;
+  const search = document.getElementById('safe-apply-search')?.value.trim() || '';
+  const limit = Number(document.getElementById('safe-apply-limit')?.value);
+  const pages = Number(document.getElementById('safe-apply-pages')?.value);
+  if (!search || limit < 1 || limit > 100 || !Number.isInteger(limit) || pages < 1 || pages > 100 || !Number.isInteger(pages)) {
+    toast('Проверьте запрос, лимит и глубину поиска', 'error');
+    return;
+  }
+  const confirmLive = !dryRun && confirm('Отправить реальные отклики от ' + currentProfile + '?');
+  if (!dryRun && !confirmLive) return;
+  outEl.style.display = 'block';
+  outEl.textContent = 'Запуск…';
+  try {
+    const result = await api('/api/run/safe-apply', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({profile: currentProfile, search, limit, pages, dry_run: dryRun, confirm_live: !dryRun}),
+    });
+    outEl.textContent = 'Операция ' + result.op_id + ' выполняется…';
+    await trackBackgroundOperation(result.op_id, '✅ Безопасные отклики', {outputEl: outEl});
+  } catch (error) {
+    outEl.textContent = 'Ошибка: ' + error.message;
+    toast(error.message, 'error');
+  }
+}
+
 async function runReplyEmployers(dryRun) {
   if (!requireSingleAccount('Автоответы')) return;
   const outEl = document.getElementById('out-reply-employers');
@@ -1912,15 +2005,15 @@ async function runReplyEmployers(dryRun) {
   outEl.style.display = 'block';
   outEl.textContent = 'Запуск...';
   try {
-    const r = await fetchJson(`/api/run/reply-employers?profile=${encodeURIComponent(currentProfile)}`, {
+    const r = await fetchJson(`/api/run/safe-reply?profile=${encodeURIComponent(currentProfile)}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         profile: currentProfile,
         dry_run: dryRun,
         confirm_live: !dryRun,
-        use_ai: document.getElementById('re-useai')?.checked ?? true,
-        only_invitations: document.getElementById('re-onlyinv')?.checked ?? false,
+        max_chats: Number(document.getElementById('re-maxchats')?.value) || 30,
+        rounds: Number(document.getElementById('re-rounds')?.value) || 1,
       }),
     });
     outEl.textContent = `Операция ${r.op_id} выполняется...`;
@@ -1990,6 +2083,79 @@ async function unblacklistEmployer(employerId, name) {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+
+
+// GLOBAL LINUX AUTOMATION
+async function automationSettings() {
+  const c = document.getElementById('content');
+  c.innerHTML = '<p class="admin-muted">Загрузка параметров cron…</p>';
+  document.getElementById('topbar-actions').innerHTML =
+    '<button class="btn btn-secondary" onclick="automationSettings()">Обновить</button>';
+  try {
+    const result = await api('/api/automation-settings');
+    const s = result.settings;
+    const field = (key, title, type='number', step='1', min='0', max='100') =>
+      '<div class="form-group"><label for="auto-' + key + '">' + title + '</label><input id="auto-' + key +
+      '" type="' + type + '" step="' + step + '" min="' + min + '" max="' + max +
+      '" value="' + escapeHtml(s[key]) + '"/></div>';
+    const toggle = (key, label) =>
+      '<label class="admin-toggle"><input type="checkbox" id="auto-' + key + '"' + (s[key] ? ' checked' : '') +
+      '/><span>' + label + '</span></label>';
+    c.innerHTML = '<div class="section admin-control-panel">' +
+      '<div class="section-title">Управление автономным Linux-процессом</div>' +
+      '<p class="admin-muted">Настройки общие для всех профилей. После сохранения применяются следующим запуском cron без перезапуска Docker. Отдельный ручной запуск в «Запуск задач» работает по явным параметрам.</p>' +
+      '<div class="admin-setting-grid"><div class="form-group"><label for="auto-mode">Режим запланированной автоматизации</label><select id="auto-mode">' +
+      ['off', 'dry-run', 'live'].map(mode => '<option value="' + mode + '"' + (s.mode === mode ? ' selected' : '') + '>' +
+      ({off:'Выключено', 'dry-run':'Предпросмотр (dry-run)', live:'Реальные действия (live)'}[mode]) + '</option>').join('') +
+      '</select></div>' +
+      field('search_query', 'Поисковый запрос', 'text') +
+      field('apply_limit', 'Лимит успешных откликов', 'number', '1', '1', '100') +
+      field('apply_pages', 'Страницы поиска', 'number', '1', '1', '100') +
+      field('apply_per_page', 'Вакансий на странице', 'number', '1', '1', '100') +
+      field('reply_chats', 'Переписок за проверку', 'number', '1', '1', '500') +
+      field('human_cooldown_minutes', 'Пауза перед ответом человеку, мин.', 'number', '1', '0', '120') +
+      field('max_chat_age_days', 'Возраст переписок, дней', 'number', '1', '1', '365') +
+      field('followup_after_days', 'Напоминание через, дней', 'number', '1', '1', '60') +
+      '</div><div class="admin-toggle-grid">' +
+      toggle('followups_enabled', 'Напоминать работодателям (не более раза на чат)') +
+      toggle('auto_quick_replies', 'Автоматически выбирать доступные варианты ответа') +
+      toggle('send_email', 'Письмо HR после отклика (если доступны контакты)') +
+      toggle('cleanup_delete_chat', 'Скрывать отклонённые переписки') +
+      '</div><div class="admin-run-controls"><button class="btn btn-primary" onclick="saveAutomationSettings()">Сохранить настройки</button>' +
+      '<span class="admin-muted">Источник: ' + escapeHtml(result.source) + '</span></div></div>';
+  } catch (error) {
+    c.innerHTML = '<p class="admin-error">Ошибка загрузки параметров: ' + escapeHtml(error.message) + '</p>';
+  }
+}
+
+async function saveAutomationSettings() {
+  const keys = ['apply_limit','apply_pages','apply_per_page','reply_chats',
+    'human_cooldown_minutes','max_chat_age_days','followup_after_days'];
+  const settings = {
+    mode: document.getElementById('auto-mode').value,
+    search_query: document.getElementById('auto-search_query').value.trim(),
+    followups_enabled: document.getElementById('auto-followups_enabled').checked,
+    auto_quick_replies: document.getElementById('auto-auto_quick_replies').checked,
+    send_email: document.getElementById('auto-send_email').checked,
+    cleanup_delete_chat: document.getElementById('auto-cleanup_delete_chat').checked,
+  };
+  keys.forEach(key => settings[key] = Number(document.getElementById('auto-' + key).value));
+  const confirmLive = settings.mode === 'live' ? confirm(
+    'Включить LIVE cron для ВСЕХ аккаунтов? Следующие задания будут отправлять реальные отклики и сообщения.'
+  ) : false;
+  if (settings.mode === 'live' && !confirmLive) return;
+  try {
+    const result = await api('/api/automation-settings', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({settings, confirm_live: confirmLive}),
+    });
+    toast('Сохранено. Применится на следующем запуске cron.');
+    if (result.settings) await automationSettings();
+  } catch (error) {
+    toast('Не удалось сохранить: ' + error.message, 'error');
+  }
+}
+
 // CONFIG
 async function config() {
   const c = document.getElementById('content');
@@ -2044,6 +2210,10 @@ async function config() {
           </div>
           <div class="form-row">
             <div class="form-group">
+              <label for="cfg-telegram">Контакт Telegram этого аккаунта</label>
+              <input id="cfg-telegram" placeholder="@username или https://t.me/username" value="${escapeHtml(data.contact?.telegram || '')}"/>
+            </div>
+            <div class="form-group">
               <label>Задержка между запросами к HH API (сек)</label>
               <input id="cfg-delay" type="number" step="0.1" min="0.1" value="${escapeHtml(data.api_delay ?? 0.345)}"/>
             </div>
@@ -2065,6 +2235,7 @@ async function saveConfig() {
   };
   const payload = {
     api_delay: Number.isFinite(delayValue) ? delayValue : 0.345,
+    contact: {telegram: document.getElementById('cfg-telegram')?.value.trim() || ''},
     // пишем в канонические секции CLI; бэкенд мёржит, api_key не затирается
     openai_cover_letter: aiSection,
     openai_reply: aiSection,
@@ -2116,6 +2287,7 @@ let inboxPage = 0;
 let inboxStatus = '';
 let openConvId = null;
 let inboxItemsById = {};
+let inboxLastMessageIds = {};
 
 async function inbox() {
   const c = document.getElementById('content');
@@ -2208,6 +2380,7 @@ async function openConversation(negId) {
   try {
     const r = await api(`/api/inbox/${negId}/messages`);
     let msgs = '';
+    inboxLastMessageIds[negId] = (r.messages || []).at(-1)?.id ?? null;
     r.messages.forEach(m => {
       const align = m.is_employer ? 'left' : 'right';
       const bg = m.is_employer ? 'var(--bg3)' : 'rgba(232,50,28,.12)';
@@ -2263,6 +2436,7 @@ async function sendReply(negId) {
         employer_name: employerName,
         send: true,
         confirm_live: true,
+        expected_last_message_id: inboxLastMessageIds[negId] == null ? null : String(inboxLastMessageIds[negId]),
       })
     }).then(r => { if(!r.ok) return r.json().then(e=>{throw new Error(e.detail)}); return r.json(); });
     toast('Сообщение отправлено!');

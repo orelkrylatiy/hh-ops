@@ -6,15 +6,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
+if [[ "${HH_ADMIN_AUTOMATION_OVERRIDE:-0}" != "1" && -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$PROJECT_ROOT/.env"
     set +a
 fi
 
-# Windows consoles otherwise default to a legacy charmap and crash when the
-# CLI prints Cyrillic or emoji status messages.
+# Ensure Cyrillic logs remain UTF-8 in Linux cron workers.
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 
@@ -117,9 +116,9 @@ if [[ "$COMMAND" == "boost" || "$COMMAND" == "update" ]]; then
     ARGS=("${FILTERED_ARGS[@]}")
 fi
 
-HAS_FLOCK=true
 if ! command -v flock >/dev/null 2>&1; then
-    HAS_FLOCK=false
+    echo "Linux fleet mode requires util-linux flock" >&2
+    exit 1
 fi
 
 # Keep wrapper logs persistent so daily ops snapshots can reconstruct every run.
@@ -128,33 +127,12 @@ LOG_DIR="${HH_PROFILES_LOG_DIR:-$PROJECT_ROOT/logs/profiles}"
 LOCK_DIR="${HH_PROFILES_LOCK_DIR:-/tmp/hh-profile-locks}"
 mkdir -p "$LOG_DIR" "$LOCK_DIR"
 
-# Git for Windows does not ship flock. In that environment use one non-blocking
-# fleet lock instead: it is stronger than the normal per-profile locks, but
-# still prevents two fleet runs from touching the same accounts concurrently.
-GLOBAL_LOCK_PATH=""
-if [[ "$HAS_FLOCK" != true ]]; then
-    GLOBAL_LOCK_PATH="$LOCK_DIR/fleet.lock"
-    if ! mkdir "$GLOBAL_LOCK_PATH" 2>/dev/null; then
-        echo "Another all-profiles run is already active; skipped" >&2
-        exit 0
-    fi
-    printf '%s\n' "$$" > "$GLOBAL_LOCK_PATH/pid"
-    cleanup_global_lock() {
-        rm -f "$GLOBAL_LOCK_PATH/pid"
-        rmdir "$GLOBAL_LOCK_PATH" 2>/dev/null || true
-    }
-    trap cleanup_global_lock EXIT INT TERM
-    echo "flock unavailable; using a Windows-compatible global fleet lock"
-fi
-
 echo "Running '$COMMAND' for ${#PROFILES_LIST[@]} profile(s), parallelism=$PARALLELISM"
 echo "Profiles: ${PROFILES_LIST[*]}"
 echo "Logs: $LOG_DIR/<profile>-$COMMAND.log"
 
 HH_EXECUTABLE="hh-applicant-tool"
-if [[ -f "$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe" ]]; then
-    HH_EXECUTABLE="$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe"
-elif [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
+if [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
     HH_EXECUTABLE="$PROJECT_ROOT/.venv/bin/hh-applicant-tool"
 fi
 
@@ -186,14 +164,12 @@ start_profile() {
     local lock="$LOCK_DIR/${profile_label}.lock"
 
     (
-        if [[ "$HAS_FLOCK" == true ]]; then
-            # File-descriptor locks are released by the kernel even on crash/OOM/SIGKILL.
-            exec 9>"$lock"
-            if ! flock -n 9; then
-                echo "[$(date '+%F %T')] HH_RUN_SKIP profile=$profile command=$COMMAND mode=$RUN_MODE_MARKER status=0"
-                echo "Profile $profile is already being processed; skipped"
-                exit 0
-            fi
+        # File-descriptor locks are released by the kernel even on crash/OOM/SIGKILL.
+        exec 9>"$lock"
+        if ! flock -n 9; then
+            echo "[$(date '+%F %T')] HH_RUN_SKIP profile=$profile command=$COMMAND mode=$RUN_MODE_MARKER status=0"
+            echo "Profile $profile is already being processed; skipped"
+            exit 0
         fi
 
         echo "[$(date '+%F %T')] HH_RUN_START profile=$profile command=$COMMAND mode=$RUN_MODE_MARKER"

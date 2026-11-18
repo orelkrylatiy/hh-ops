@@ -1,68 +1,36 @@
-# DevOps Шпаргалка
+# HH-OPS — Linux / Docker шпаргалка
 
-## Локальный Старт
+## Установка
 
-```bash
-git clone <repo> && cd hh-applicant-tool
-docker compose build
-docker compose up -d
-docker compose logs -f
-curl http://localhost:8000/health
-```
+    git clone https://github.com/orelkrylatiy/hh-ops.git
+    cd hh-ops
+    cp .env.example .env
+    # В .env установите ADMIN_USERNAME, ADMIN_PASSWORD, режим off.
+    docker compose up -d --build
+    docker compose ps
+    curl http://127.0.0.1:8000/health
 
-## Windows Без Docker
+Админка: http://127.0.0.1:8000 с Basic Auth.
+Для удаленного доступа: ssh -L 8000:127.0.0.1:8000 user@vps
 
-Скрипты `scripts/*.sh` вызывают `python3`, которого нет в виндовом venv.
-После создания venv добавьте шим:
+## Безопасная диагностика
 
-```bash
-cp .venv/Scripts/python.exe .venv/Scripts/python3.exe
-```
+    docker compose logs -f hh_applicant_tool
+    docker compose exec hh_applicant_tool hh-applicant-tool --profile-id default whoami
+    docker compose exec hh_applicant_tool bash scripts/apply.sh --profile default --dry-run
+    docker compose exec hh_applicant_tool bash scripts/reply.sh --profile default --dry-run
+    docker compose exec hh_applicant_tool hh-applicant-tool --profile-id default manual-chats
+    docker compose exec hh_applicant_tool python scripts/check_framework.py --purpose application
 
-Иначе `apply.sh`/`reply.sh`/`daily.sh` падают с `python3: command not found`.
-Также `envsubst` должен быть в PATH (идёт с Git for Windows).
+## Данные
 
-## Полезные Docker Команды
+- /api/stats: локальная SQLite; 14/30/90-дневная история.
+- /api/live-summary: живые read-only счётчики HH по запросу.
+- /api/inbox: живые переписки через HH API.
+- config/admin_automation.json: настройки cron из админки.
+- config/admin_automation.env: генерируемые shell-quoted overrides.
+- config/<profile>/data: SQLite; config/<profile>/config.json: секреты HH.
+- logs/profiles/: журнал запусков.
 
-```bash
-docker compose ps
-docker compose logs -f
-docker compose exec hh_applicant_tool bash
-docker compose down
-docker compose up -d --build
-```
-
-## Полезные CLI Команды
-
-```bash
-hh-applicant-tool whoami
-hh-applicant-tool list-resumes
-hh-applicant-tool update-resumes
-hh-applicant-tool apply-vacancies --dry-run
-hh-applicant-tool reply-employers --dry-run
-hh-applicant-tool config -p
-hh-applicant-tool log -f
-```
-
-## Что Проверить На VPS
-
-```bash
-docker ps
-docker compose ps
-docker exec -it hh_applicant_tool ls -la /app/config
-curl http://localhost:8000/health
-```
-
-## Где Данные
-
-- `/app/config/config.json`
-- `/app/config/data`
-- `/app/config/cookies.txt`
-- `/app/config/log.txt`
-
-## Если Что-то Сломалось
-
-- контейнер не стартует -> `docker compose logs`
-- нет данных профиля -> проверить `CONFIG_DIR`
-- не работает админка -> проверить `curl /health`
-- не обновляется токен -> проверить `config.json` и `whoami`
+Автоматизация off/dry-run/live настраивается через веб-админку
+и применяется к следующему cron запуску. Следует начать с off.

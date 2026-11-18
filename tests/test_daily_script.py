@@ -51,9 +51,7 @@ def _run(daily: Path, log: Path, *args: str, apply: int = 0, reply: int = 0, fle
     env["HH_DAILY_TEST_FLEET_EXIT"] = str(fleet)
     result = subprocess.run(
         [
-            str(Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Git/bin/bash.exe")
-            if os.name == "nt"
-            else "bash",
+            "bash",
             daily.as_posix(),
             *args,
         ],

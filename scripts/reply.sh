@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
+if [[ "${HH_ADMIN_AUTOMATION_OVERRIDE:-0}" != "1" && -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$PROJECT_ROOT/.env"
@@ -99,9 +99,7 @@ if [[ ! "$ROUNDS" =~ ^[1-5]$ || ! "$ROUND_INTERVAL" =~ ^[0-9]+$ ]]; then
 fi
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
-    if [[ -f "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
-        PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
-    elif [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
         PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
     else
         PYTHON_BIN="python3"
@@ -113,11 +111,7 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
 fi
 
 python_path() {
-    if [[ "$PYTHON_BIN" == *.exe && -n "$(command -v wslpath 2>/dev/null || true)" ]]; then
-        wslpath -w "$1"
-    else
-        printf '%s\n' "$1"
-    fi
+    printf '%s\n' "$1"
 }
 
 if [[ "$RUN_MODE" == "live" ]]; then

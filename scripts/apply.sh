@@ -6,17 +6,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
+if [[ "${HH_ADMIN_AUTOMATION_OVERRIDE:-0}" != "1" && -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$PROJECT_ROOT/.env"
     set +a
 fi
-
-# Keep the local Gmail OAuth path available even when a shell startup file
-# provides an empty override. The worker runs Windows Python from WSL, so the
-# Windows path is intentional here.
-export HH_GMAIL_DIR="${HH_GMAIL_DIR:-C:/Users/Maxim/.mail}"
 
 SEARCH_QUERY="${SEARCH_QUERY:-Frontend разработчик}"
 MAX_RESPONSES="${APPLY_LIMIT:-${LIMIT:-100}}"
@@ -34,9 +29,7 @@ RESUME_ALIAS=""
 AI_FILTER=""
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
-    if [[ -f "$PROJECT_ROOT/.venv/Scripts/python.exe" ]]; then
-        PYTHON_BIN="$PROJECT_ROOT/.venv/Scripts/python.exe"
-    elif [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
         PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
     else
         PYTHON_BIN="python3"
@@ -47,15 +40,9 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
-# When Bash is running under WSL but PYTHON_BIN is a Windows executable,
-# translate /mnt/c/... paths before passing them to Python.  Windows Python
-# interprets a WSL path as C:\\mnt\\c\\..., which breaks prompt rendering.
+# Linux-only paths: no Windows/WSL translation.
 python_path() {
-    if [[ "$PYTHON_BIN" == *.exe && -n "$(command -v wslpath 2>/dev/null || true)" ]]; then
-        wslpath -w "$1"
-    else
-        printf '%s\n' "$1"
-    fi
+    printf '%s\n' "$1"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -234,7 +221,7 @@ if [[ ! -f "$SYSTEM_PROMPT" ]]; then
 fi
 
 # render_prompt.py (venv-python, UTF-8 end-to-end) вместо envsubst:
-# envsubst на Windows портит кириллицу в значениях переменных (Максим -> ??????).
+# Render prompt with UTF-8 using the current Python environment.
 RENDERED_SYSTEM_PROMPT="$(mktemp "$PROJECT_ROOT/tmp/hh-apply-prompt.XXXXXX")"
 cleanup() {
     rm -f "$RENDERED_SYSTEM_PROMPT"
@@ -254,9 +241,7 @@ if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose a
 fi
 
 HH_EXECUTABLE="hh-applicant-tool"
-if [[ -f "$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe" ]]; then
-    HH_EXECUTABLE="$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe"
-elif [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
+if [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
     HH_EXECUTABLE="$PROJECT_ROOT/.venv/bin/hh-applicant-tool"
 fi
 HH_CMD=("$HH_EXECUTABLE" --no-auto-auth)

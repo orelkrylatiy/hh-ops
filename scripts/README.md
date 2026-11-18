@@ -21,11 +21,12 @@
 | `check.sh` | ручная диагностика аккаунта |
 | `open_browsers.py` | отдельные видимые HH-браузеры с cookies каждого профиля |
 
-Полный цикл по всем аккаунтам: `daily.bat --live --with-boost` (или `daily.bat --live --profiles 0555 1206 --with-boost` для выбранных).
+Полный цикл на Linux: `bash scripts/daily.sh --dry-run`; после проверки
+`bash scripts/daily.sh --live --with-boost`. Для выбранных профилей:
+`bash scripts/daily.sh --live --profiles 0555 1206 --with-boost`.
 
-На Windows запусти `open-browsers.bat` из корня проекта для всех сохранённых
-профилей или `open-browsers.bat 0555 1206` для выбранных. Окна подписаны ID
-профиля. Процесс работает, пока окна открыты; cookies на диске не перезаписываются.
+В графической Linux-сессии браузеры профилей доступны через
+`python scripts/open_browsers.py 0555 1206 --config-dir ./config`.
 
 Production использует только `crontab -> cron-job.sh -> all-profiles.sh`.
 Отдельных Python-daemon/systemd scheduler'ов нет, чтобы один аккаунт случайно
@@ -37,12 +38,10 @@ Production использует только `crontab -> cron-job.sh -> all-prof
 `rules/apply-lanes/<profile>.json` runner просто делегирует старому
 `apply.sh`, поэтому существующие аккаунты не меняют поведение.
 
-Для `0555` настроены отдельные frontend и AI/LLM lanes. Пока alias `primary`
-ещё не записан, frontend lane может вывести его только из единственного
-опубликованного резюме; при нескольких опубликованных резюме без alias запуск
-останавливается fail-closed. AI lanes активируются
-только после того, как `setup-ai-resume.sh --profile 0555 --live` создаст
-резюме и сохранит alias `ai-engineer`.
+Локальные конфигурации lanes в `rules/apply-lanes/<profile>.json` опциональны.
+Если их нет, используется `apply.sh`. Создание AI-варианта требует
+пользовательского TOML-файла `resumes/variants/<profile>-ai-engineer.toml`;
+в репозитории он не поставляется как готовый для реальных аккаунтов.
 
 Preview создания:
 

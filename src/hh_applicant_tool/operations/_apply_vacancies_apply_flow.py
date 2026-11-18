@@ -35,9 +35,11 @@ logger = logging.getLogger(__package__)
 LETTER_MIN_CHARS = 150
 LETTER_MAX_CHARS = 900
 LETTER_PLACEHOLDER_TOKENS = ("[", "]", "{", "}", "%(", "<имя>", "<name>")
-APPLICATION_CONTACT_URL = "https://t.me/maxxwyy"
+APPLICATION_CONTACT_URL = ""  # Never inherit another account's contact.
 APPLICATION_CONTACT_LINE = (
     f"Буду рад связаться и обсудить задачи в Telegram: {APPLICATION_CONTACT_URL}"
+    if APPLICATION_CONTACT_URL
+    else ""
 )
 # ")" допускаем: письмо может заканчиваться оговоркой в скобках
 _LETTER_SENTENCE_ENDINGS = ".!?…)"
@@ -66,17 +68,14 @@ def resolve_contact_url(config: Any = None) -> str:
         raw = str(contact.get("telegram") or "").strip()
     if not raw:
         raw = os.environ.get("HH_TELEGRAM", "").strip()
-    return normalize_telegram_url(raw) or APPLICATION_CONTACT_URL
+    return normalize_telegram_url(raw)
 
 
 def application_contact_line(contact_url: str = "") -> str:
-    return (
-        f"Буду рад связаться и обсудить задачи в Telegram: {contact_url or APPLICATION_CONTACT_URL}"
-    )
+    return f"Буду рад связаться и обсудить задачи в Telegram: {contact_url}" if contact_url else ""
 
 
 def letter_quality_issues(text: str, contact_url: str = "") -> list[str]:
-    contact_url = contact_url or APPLICATION_CONTACT_URL
     normalized = " ".join((text or "").split())
     if not normalized:
         return ["empty letter"]
@@ -95,14 +94,13 @@ def letter_quality_issues(text: str, contact_url: str = "") -> list[str]:
         issues.append("contains an AI-style cliche")
     if contains_smiley(normalized):
         issues.append("contains a smiley or emoji")
-    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not normalized.endswith(contact_url):
+    if normalized[-1] not in _LETTER_SENTENCE_ENDINGS and not (contact_url and normalized.endswith(contact_url)):
         issues.append("letter looks truncated")
     return issues
 
 
 def append_application_contact(text: str, contact_url: str = "") -> str:
     """Append the verified contact deterministically, without trusting the model."""
-    contact_url = contact_url or APPLICATION_CONTACT_URL
     # The model can copy a stale Telegram contact from the resume despite the
     # prompt. Remove contact lines before adding exactly one verified contact.
     clean_lines = []
@@ -115,7 +113,7 @@ def append_application_contact(text: str, contact_url: str = "") -> str:
     letter = _TELEGRAM_URL_RE.sub("", "\n".join(clean_lines))
     letter = _TELEGRAM_HANDLE_RE.sub("", letter)
     letter = re.sub(r"\n{3,}", "\n\n", letter).strip()
-    return f"{letter}\n\n{application_contact_line(contact_url)}"
+    return f"{letter}\n\n{application_contact_line(contact_url)}" if contact_url else letter
 
 
 @dataclass(frozen=True)

@@ -39,6 +39,7 @@ COPY admin /app/admin
 COPY config /app/config
 COPY prompts /app/prompts
 COPY rules /app/rules
+COPY resumes /app/resumes
 COPY scripts /app/scripts
 COPY crontab /app/crontab
 COPY container-entrypoint.sh /app/container-entrypoint.sh

@@ -106,11 +106,8 @@ clean:
 	rm -rf htmlcov/ .coverage coverage.xml
 
 setup-config:
-	@if [ ! -f .env ]; then cp .env.example .env && echo "✅ Created .env"; else echo "⚠️  .env already exists"; fi
-	@if [ ! -f config/config.yaml ]; then cp config/config.example.yaml config/config.yaml && echo "✅ Created config/config.yaml"; else echo "⚠️  config/config.yaml already exists"; fi
-	@echo "📝 Edit these files with your values:"
-	@echo "  - .env"
-	@echo "  - config/config.yaml"
+	@if [ ! -f .env ]; then cp .env.example .env && echo "Created .env"; else echo ".env already exists"; fi
+	@echo "Edit .env, configure ADMIN_USERNAME/ADMIN_PASSWORD, and authorize HH profiles."
 
 # === Scheduling / Auto-run ===
 

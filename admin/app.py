@@ -9,6 +9,7 @@ FastAPI backend
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import platform
@@ -21,6 +22,7 @@ import sys
 import threading
 import time
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,8 @@ from hh_applicant_tool.ai import ChatOpenAI, OpenAIError
 from hh_applicant_tool.api import errors as api_errors
 from hh_applicant_tool.storage.utils import init_db
 from hh_applicant_tool.utils.date import parse_api_datetime
+
+from .automation_settings import AutomationSettings, read_settings, save_settings
 
 app = FastAPI(title="HH Admin Panel", version="1.0.0")
 
@@ -58,6 +62,8 @@ def _admin_credentials() -> tuple[str, str] | None:
         raise RuntimeError(
             "Set both ADMIN_USERNAME and ADMIN_PASSWORD, or leave both unset."
         )
+    if not username and os.getenv("ADMIN_REQUIRE_AUTH", "").lower() in {"1", "true", "on", "yes"}:
+        raise RuntimeError("Admin login and password must be configured before access.")
     return (username, password) if username else None
 
 
@@ -313,12 +319,11 @@ def get_conn(profile: str = "default") -> sqlite3.Connection:
     db = _db_path(profile)
     if not db.exists():
         raise HTTPException(404, f"База данных не найдена: {db}")
-    conn = sqlite3.connect(str(db))
+    # Dashboards are read-only: opening them must not mutate SQLite, acquire
+    # database write locks, or fake a recent snapshot mtime. Migrations belong
+    # to profile initialization and regular worker lifecycle, not a GET route.
+    conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
     conn.row_factory = sqlite3.Row
-    # Existing profile snapshots are upgraded before dashboard queries use the
-    # newly persisted vacancy→employer relation.
-    init_db(conn)
-    conn.commit()
     return conn
 
 
@@ -620,6 +625,7 @@ def get_whoami(profile: str = Query("default")):
 def get_stats(
     profile: str = Query("default"),
     scope: str = Query("profile"),
+    days: int = Query(14, ge=7, le=90),
 ):
     """Aggregate dashboard metrics from explicitly scoped local SQLite snapshots.
 
@@ -635,10 +641,11 @@ def get_stats(
     recent_negotiations: list[dict[str, Any]] = []
     resume_views: list[dict[str, Any]] = []
     profile_totals: list[dict[str, Any]] = []
+    profile_daily: list[dict[str, Any]] = []
     # Дни считаем по UTC — date('now') в SQLite тоже UTC, иначе крайние дни теряются
     day_keys = [
         (datetime.now(timezone.utc).date() - timedelta(days=offset)).isoformat()
-        for offset in range(13, -1, -1)
+        for offset in range(days - 1, -1, -1)
     ]
 
     try:
@@ -651,7 +658,12 @@ def get_stats(
                 "skipped": 0,
                 "resumes": 0,
                 "snapshot_updated_at": _snapshot_updated_at(account_profile),
+                "states": {},
+                "progress_rate": 0.0,
+                "last_negotiation_at": None,
             }
+            account_states: Counter[str] = Counter()
+            account_daily: Counter[str] = Counter()
             for table, key in (
                 ("negotiations", "negotiations"),
                 ("vacancies", "vacancies"),
@@ -664,18 +676,22 @@ def get_stats(
                 totals[key] += count
 
             for row in q(conn, "SELECT state, count(*) AS cnt FROM negotiations GROUP BY state"):
-                states[row["state"] or "unknown"] += row["cnt"]
+                key = row["state"] or "unknown"
+                states[key] += row["cnt"]
+                account_states[key] += row["cnt"]
             for row in q(
                 conn,
                 """
                 SELECT date(created_at) AS day, count(*) AS cnt
                 FROM negotiations
-                WHERE date(created_at) >= date('now', '-13 days')
+                WHERE date(created_at) >= date('now', ?)
                 GROUP BY date(created_at)
                 """,
+                (f"-{days - 1} days",),
             ):
                 if row["day"] in day_keys:
                     daily_counts[row["day"]] += row["cnt"]
+                    account_daily[row["day"]] += row["cnt"]
             for row in q(
                 conn,
                 "SELECT reason, count(*) AS cnt FROM skipped_vacancies GROUP BY reason",
@@ -707,6 +723,21 @@ def get_stats(
                 """,
             ):
                 resume_views.append({"profile": account_profile, **row})
+            account_totals["states"] = dict(account_states)
+            progressed = sum(account_states[state] for state in ("invitation", "interview", "hired"))
+            account_totals["progress_rate"] = round(
+                100 * progressed / max(1, account_totals["negotiations"]), 1
+            )
+            last_negotiation = q1(
+                conn, "SELECT MAX(COALESCE(updated_at, created_at)) AS last_at FROM negotiations"
+            )
+            account_totals["last_negotiation_at"] = (
+                last_negotiation.get("last_at") if last_negotiation else None
+            )
+            profile_daily.extend(
+                {"profile": account_profile, "day": day, "cnt": account_daily[day]}
+                for day in day_keys
+            )
             profile_totals.append(account_totals)
     finally:
         for _, conn in connections:
@@ -722,6 +753,10 @@ def get_stats(
     return {
         "scope": normalized_scope,
         "profile": _validate_profile_name(profile),
+        "source": "local_sqlite",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "freshness_note": "SQLite file mtime is not the last HH synchronization time.",
+        "days": days,
         "profiles": [account_profile for account_profile, _ in connections],
         "unavailable_profiles": unavailable,
         "snapshot_updated_at": max(snapshots) if snapshots else None,
@@ -733,6 +768,7 @@ def get_stats(
             "resumes": totals["resumes"],
         },
         "profile_totals": profile_totals,
+        "daily_applications_by_profile": profile_daily,
         "negotiations_by_state": [
             {"state": state, "cnt": count}
             for state, count in states.most_common()
@@ -945,13 +981,16 @@ def list_resumes(
 # Routes: config
 # ---------------------------------------------------------------------------
 
-MASKED_KEYS = constants.MASKED_CONFIG_KEYS
+MASKED_KEYS = constants.MASKED_CONFIG_KEYS | {
+    "client_secret", "private_key", "credentials", "authorization",
+    "smtp_password", "secret_key", "cookie", "cookies",
+}
 
 
 def _mask_config(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, dict):
         return {
-            k: "***" if k in MASKED_KEYS else _mask_config(v, depth + 1)
+            k: "***" if k.lower() in MASKED_KEYS else _mask_config(v, depth + 1)
             for k, v in obj.items()
         }
     return obj
@@ -1069,6 +1108,7 @@ def update_config(body: ConfigUpdate, profile: str = Query("default")):
         "email_settings",
         "proxy_url",
         "letter_templates",
+        "contact",
     }
     for k, v in body.data.items():
         if k in safe_keys:
@@ -1375,7 +1415,7 @@ def run_apply_vacancies(body: RunRequest):
 def _requires_live_confirmation(op: str, cli_args: list[str]) -> bool:
     if op == "update-resumes":
         return True
-    return op in {"apply-vacancies", "reply-employers"} and "--dry-run" not in cli_args
+    return op in {"apply-vacancies", "reply-employers", "safe-reply", "safe-apply"} and "--dry-run" not in cli_args
 
 
 def _operation_key(profile: str, op: str) -> tuple[str, str]:
@@ -1500,7 +1540,18 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
     cli_args = ["--profile-id", profile]
     if op != "authorize":
         cli_args.append("--no-auto-auth")
-    cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+    if op == "safe-reply":
+        cmd = [sys.executable, str(PROJECT_ROOT / "scripts" / "reply_iterative_ai.py"),
+               "--profile", profile, *all_args]
+    elif op == "safe-apply":
+        cmd = ["bash", str(PROJECT_ROOT / "scripts" / "apply.sh"), "--profile", profile,
+               *all_args]
+    else:
+        cmd = _build_local_cli_cmd(cli_args + [op] + all_args)
+    # Linux admin and cron must share the same per-account flock.
+    lock_dir = Path(os.getenv("HH_PROFILES_LOCK_DIR", "/tmp/hh-profile-locks"))
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    cmd = ["flock", "-n", str(lock_dir / f"{profile}.lock"), *cmd]
 
     # Функция для выполнения в потоке
     def execute_operation():
@@ -1556,7 +1607,7 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
                 print(f"DEBUG: Process {op_id} completed with code {returncode}")
             except subprocess.TimeoutExpired:
                 print(f"DEBUG: Process {op_id} timeout - terminating")
-                process.terminate()
+                _terminate_operation_process(process)
                 try:
                     stdout, stderr = process.communicate(timeout=3)
                     returncode = process.returncode
@@ -1766,13 +1817,18 @@ def _hh_request(profile: str, method: str, path: str, **kwargs) -> Any:
         "Accept": "application/json",
         "Accept-Language": "ru-RU,ru;q=0.9",
     }
-    resp = _requests.request(
-        method,
-        f"https://api.hh.ru{path}",
-        headers=headers,
-        timeout=15,
-        **kwargs,
-    )
+    try:
+        resp = _requests.request(
+            method,
+            f"https://api.hh.ru{path}",
+            headers=headers,
+            timeout=15,
+            **kwargs,
+        )
+    except _requests.Timeout as exc:
+        raise HTTPException(504, "HH API request timed out") from exc
+    except _requests.RequestException as exc:
+        raise HTTPException(502, "HH API is temporarily unavailable") from exc
     if resp.status_code == 401:
         raise HTTPException(
             401,
@@ -1850,7 +1906,7 @@ def get_messages(neg_id: int, profile: str = Query("default")):
     """Получить историю сообщений переписки."""
     data = _hh_get(profile, f"/negotiations/{neg_id}/messages", {"per_page": 50})
     messages = []
-    for m in data.get("items", []):
+    for m in sorted(data.get("items", []), key=lambda msg: (str(msg.get("created_at") or ""), str(msg.get("id") or ""))):
         author = m.get("author") or {}
         messages.append({
             "id": m.get("id"),
@@ -1906,10 +1962,27 @@ class ReplyRequest(BaseModel):
     employer_name: str = Field("", max_length=500)
     send: bool = False
     confirm_live: bool = False
+    expected_last_message_id: str | None = None
     # Если передана история — AI учтёт контекст
     # Если не передана — endpoint сам загрузит её из HH API
     history: list[dict] | None = None
     fetch_history: bool = True   # автоматически загрузить историю если не передана
+
+
+@contextmanager
+def _manual_profile_lock(profile: str):
+    """Serialize manual HH writes with cron workers on Linux."""
+    lock_dir = Path(os.environ.get("HH_PROFILES_LOCK_DIR", "/tmp/hh-profile-locks"))
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with (lock_dir / f"{profile}.lock").open("a+b") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise HTTPException(409, "Profile is busy in another HH automation job") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @app.post("/api/inbox/{neg_id}/reply")
@@ -1986,7 +2059,21 @@ def send_reply(neg_id: int, body: ReplyRequest):
     if not body.confirm_live:
         raise HTTPException(409, "Sending a message requires confirm_live=true.")
 
-    _hh_post(profile, f"/negotiations/{neg_id}/messages", {"message": text})
+    with _manual_profile_lock(profile):
+        if body.expected_last_message_id is not None:
+            latest_payload = _hh_get(
+                profile, f"/negotiations/{neg_id}/messages", {"page": 0, "per_page": 100}
+            )
+            history = latest_payload.get("items") or []
+            newest = sorted(
+                (item for item in history if isinstance(item, dict)),
+                key=lambda msg: (str(msg.get("created_at") or ""), str(msg.get("id") or "")),
+            )[-1:] 
+            if not newest or str(newest[0].get("id")) != body.expected_last_message_id:
+                raise HTTPException(
+                    409, "Conversation changed after preview: reload messages before sending."
+                )
+        _hh_post(profile, f"/negotiations/{neg_id}/messages", {"message": text})
     return {"ok": True, "profile": profile, "sent": text, "draft": text}
 
 
@@ -2849,6 +2936,111 @@ def run_reply_employers(body: ReplyEmployersRequest):
 
     req = RunRequest(profile=body.profile, confirm_live=body.confirm_live)
     return _run_operation("reply-employers", req, extra=args)
+
+
+
+
+# ---------------------------------------------------------------------------
+# Observability and persistent Linux automation controls
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/live-summary")
+def get_live_summary(profile: str = Query("default")):
+    """Read-only, on-demand HH check; never pretend SQLite is live HH data."""
+    profile = _validate_profile_name(profile)
+    # Query one page only: HH provides the total via "found".
+    negotiations = _hh_get(profile, "/negotiations", {"page": 0, "per_page": 1})
+    resumes = _hh_get(profile, "/resumes/mine", {"page": 0, "per_page": 20})
+    return {
+        "profile": profile,
+        "source": "hh_api",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "negotiations": int(negotiations.get("found") or 0),
+        "resumes": int(resumes.get("found") or len(resumes.get("items") or [])),
+        "resume_views": [
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "total_views": (item.get("total_views") or {}).get("total")
+                if isinstance(item.get("total_views"), dict)
+                else item.get("total_views", 0),
+                "new_views": (item.get("new_views") or {}).get("total")
+                if isinstance(item.get("new_views"), dict)
+                else item.get("new_views", 0),
+            }
+            for item in (resumes.get("items") or [])[:20]
+            if isinstance(item, dict)
+        ],
+    }
+
+
+@app.get("/api/automation-settings")
+def get_automation_settings():
+    try:
+        settings, source = read_settings(_config_root())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(500, f"Cannot load automation settings: {exc}") from exc
+    return {"settings": settings.model_dump(), "source": source, "scope": "global",
+            "applies_to": "next scheduled cron job", "restart_required": False}
+
+
+class AutomationSettingsUpdate(BaseModel):
+    settings: AutomationSettings
+    confirm_live: bool = False
+
+
+@app.put("/api/automation-settings")
+def update_automation_settings(body: AutomationSettingsUpdate):
+    if body.settings.mode == "live" and not body.confirm_live:
+        raise HTTPException(409, "Enabling automatic live actions requires confirm_live=true.")
+    try:
+        save_settings(_config_root(), body.settings)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "settings": body.settings.model_dump(), "source": "admin_override",
+            "applies_to": "next scheduled cron job", "restart_required": False}
+
+
+class SafeReplyRequest(BaseModel):
+    profile: str = "default"
+    dry_run: bool = True
+    confirm_live: bool = False
+    max_chats: int = Field(30, ge=1, le=500)
+    rounds: int = Field(1, ge=1, le=5)
+
+
+@app.post("/api/run/safe-reply")
+def run_safe_reply(body: SafeReplyRequest):
+    params = ["--max-chats", str(body.max_chats), "--rounds", str(body.rounds)]
+    params.append("--dry-run" if body.dry_run else "--live")
+    return _run_operation(
+        "safe-reply",
+        RunRequest(profile=body.profile, dry_run=body.dry_run,
+                   confirm_live=body.confirm_live),
+        extra=params,
+    )
+
+
+class SafeApplyRequest(BaseModel):
+    profile: str = "default"
+    dry_run: bool = True
+    confirm_live: bool = False
+    limit: int = Field(10, ge=1, le=100)
+    pages: int = Field(5, ge=1, le=100)
+    search: str = Field(default="Frontend разработчик", min_length=1, max_length=160)
+
+
+@app.post("/api/run/safe-apply")
+def run_safe_apply(body: SafeApplyRequest):
+    params = ["--search", body.search, "--limit", str(body.limit),
+              "--pages", str(body.pages), "--dry-run" if body.dry_run else "--live"]
+    return _run_operation(
+        "safe-apply",
+        RunRequest(profile=body.profile, dry_run=body.dry_run,
+                   confirm_live=body.confirm_live),
+        extra=params,
+    )
 
 
 # ---------------------------------------------------------------------------
