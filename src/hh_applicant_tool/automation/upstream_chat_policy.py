@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -23,7 +23,7 @@ def message_age_seconds(message: Mapping[str, Any], now: datetime | None = None)
         return None
     if created.tzinfo is None:
         return None
-    reference = now or datetime.now(timezone.utc)
+    reference = now or datetime.now(UTC)
     if reference.tzinfo is None:
         return None
     elapsed = (reference - created).total_seconds()
@@ -60,9 +60,7 @@ def is_incoming_reply_due(
         return False
     if max_chat_age_days > 0 and age > max_chat_age_days * 86400:
         return False
-    if not is_bot_message(message) and age < max(0, human_cooldown_minutes) * 60:
-        return False
-    return True
+    return is_bot_message(message) or age >= max(0, human_cooldown_minutes) * 60
 
 
 def is_followup_due(

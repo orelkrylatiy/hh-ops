@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import Mock
 
@@ -774,7 +774,7 @@ def test_run_ignore_decision_does_not_call_ai() -> None:
 
 
 def _fresh_message(message_id: str, role: str, text: str, minutes_ago: float) -> dict:
-    timestamp = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+    timestamp = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
     return _message(message_id, role, text, timestamp)
 
 
