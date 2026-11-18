@@ -2287,6 +2287,7 @@ let inboxPage = 0;
 let inboxStatus = '';
 let openConvId = null;
 let inboxItemsById = {};
+let inboxLastMessageIds = {};
 
 async function inbox() {
   const c = document.getElementById('content');
@@ -2379,6 +2380,7 @@ async function openConversation(negId) {
   try {
     const r = await api(`/api/inbox/${negId}/messages`);
     let msgs = '';
+    inboxLastMessageIds[negId] = (r.messages || []).at(-1)?.id ?? null;
     r.messages.forEach(m => {
       const align = m.is_employer ? 'left' : 'right';
       const bg = m.is_employer ? 'var(--bg3)' : 'rgba(232,50,28,.12)';
@@ -2434,6 +2436,7 @@ async function sendReply(negId) {
         employer_name: employerName,
         send: true,
         confirm_live: true,
+        expected_last_message_id: inboxLastMessageIds[negId] == null ? null : String(inboxLastMessageIds[negId]),
       })
     }).then(r => { if(!r.ok) return r.json().then(e=>{throw new Error(e.detail)}); return r.json(); });
     toast('Сообщение отправлено!');

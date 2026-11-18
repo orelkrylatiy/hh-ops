@@ -9,6 +9,7 @@ FastAPI backend
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import platform
@@ -21,6 +22,7 @@ import sys
 import threading
 import time
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1816,13 +1818,18 @@ def _hh_request(profile: str, method: str, path: str, **kwargs) -> Any:
         "Accept": "application/json",
         "Accept-Language": "ru-RU,ru;q=0.9",
     }
-    resp = _requests.request(
-        method,
-        f"https://api.hh.ru{path}",
-        headers=headers,
-        timeout=15,
-        **kwargs,
-    )
+    try:
+        resp = _requests.request(
+            method,
+            f"https://api.hh.ru{path}",
+            headers=headers,
+            timeout=15,
+            **kwargs,
+        )
+    except _requests.Timeout as exc:
+        raise HTTPException(504, "HH API request timed out") from exc
+    except _requests.RequestException as exc:
+        raise HTTPException(502, "HH API is temporarily unavailable") from exc
     if resp.status_code == 401:
         raise HTTPException(
             401,
@@ -1900,7 +1907,7 @@ def get_messages(neg_id: int, profile: str = Query("default")):
     """Получить историю сообщений переписки."""
     data = _hh_get(profile, f"/negotiations/{neg_id}/messages", {"per_page": 50})
     messages = []
-    for m in data.get("items", []):
+    for m in sorted(data.get("items", []), key=lambda msg: (str(msg.get("created_at") or ""), str(msg.get("id") or ""))):
         author = m.get("author") or {}
         messages.append({
             "id": m.get("id"),
@@ -1956,10 +1963,27 @@ class ReplyRequest(BaseModel):
     employer_name: str = Field("", max_length=500)
     send: bool = False
     confirm_live: bool = False
+    expected_last_message_id: str | None = None
     # Если передана история — AI учтёт контекст
     # Если не передана — endpoint сам загрузит её из HH API
     history: list[dict] | None = None
     fetch_history: bool = True   # автоматически загрузить историю если не передана
+
+
+@contextmanager
+def _manual_profile_lock(profile: str):
+    """Serialize manual HH writes with cron workers on Linux."""
+    lock_dir = Path(os.environ.get("HH_PROFILES_LOCK_DIR", "/tmp/hh-profile-locks"))
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with (lock_dir / f"{profile}.lock").open("a+b") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise HTTPException(409, "Profile is busy in another HH automation job") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @app.post("/api/inbox/{neg_id}/reply")
@@ -2036,7 +2060,21 @@ def send_reply(neg_id: int, body: ReplyRequest):
     if not body.confirm_live:
         raise HTTPException(409, "Sending a message requires confirm_live=true.")
 
-    _hh_post(profile, f"/negotiations/{neg_id}/messages", {"message": text})
+    with _manual_profile_lock(profile):
+        if body.expected_last_message_id is not None:
+            latest_payload = _hh_get(
+                profile, f"/negotiations/{neg_id}/messages", {"page": 0, "per_page": 100}
+            )
+            history = latest_payload.get("items") or []
+            newest = sorted(
+                (item for item in history if isinstance(item, dict)),
+                key=lambda msg: (str(msg.get("created_at") or ""), str(msg.get("id") or "")),
+            )[-1:] 
+            if not newest or str(newest[0].get("id")) != body.expected_last_message_id:
+                raise HTTPException(
+                    409, "Conversation changed after preview: reload messages before sending."
+                )
+        _hh_post(profile, f"/negotiations/{neg_id}/messages", {"message": text})
     return {"ok": True, "profile": profile, "sent": text, "draft": text}
 
 
