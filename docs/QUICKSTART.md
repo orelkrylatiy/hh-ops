@@ -1,110 +1,25 @@
-# Agent Quick Start
+# HH-OPS — быстрый запуск на Linux
 
-Этот файл поможет агенту быстро включиться в работу без изучения всей документации.
+1. Создайте .env по .env.example, задайте ADMIN_USERNAME и
+   ADMIN_PASSWORD. Сохраните HH_AUTOMATION_MODE=off.
+2. Запустите docker compose up -d --build.
+3. Откройте http://127.0.0.1:8000 по localhost/SSH-туннелю.
+4. В меню профилей проверьте авторизацию. Первичный вход в HH
+   может потребовать отдельной консольной/графической авторизации.
+5. В «Дашборд» увидите снимки SQLite, графики, статусы по аккаунтам.
+   Кнопка «Проверить HH сейчас» делает read-only запросы к HH API.
+6. В «Настройки» измените контакт и модель конкретного профиля.
+7. В «Автоматизация» задайте общие лимиты и dry-run/off.
+8. В «Запуск задач» проверьте safe-apply и safe-reply в dry-run.
+9. После проверки включайте live с явным подтверждением.
 
----
+Проверка:
 
-## 🔐 Авторизация
+    docker compose logs --tail 100 hh_applicant_tool
+    docker compose exec hh_applicant_tool bash scripts/reply.sh --profile default --dry-run
 
-Проверить:
-```bash
-hh-applicant-tool whoami
-```
+Режим off останавливает запланированные внешние действия. Режим live
+действует на все настроенные аккаунты; новые follow-ups и quick replies
+изначально выключены.
 
-Если ошибка — запустить:
-```bash
-hh-applicant-tool authorize
-```
-
----
-
-## 📊 Контекст
-
-**Пользователь:** `${HH_NAME}`
-**Роль:** Frontend-разработчик (React/TypeScript/Redux)  
-**Опыт:** 5+ лет (прежние компании)  
-**Локация:** Москва, удалёнка OK  
-**Контакты:** 
-- Telegram: **${HH_TELEGRAM}** (основной)
-- Email: укажи локально
-
-**Резюме:** https://hh.ru/resume/YOUR_RESUME_ID
-
----
-
-## 🎯 Ежедневные задачи
-
-### 1. Утро (первый запуск)
-
-```bash
-# Проверить состояние
-hh-applicant-tool whoami
-hh-applicant-tool list-resumes
-
-# Поднять резюме в топ
-hh-applicant-tool boost-resume
-```
-
-### 2. Отклики (80-120 в день)
-
-```bash
-# Dry-run сначала!
-./scripts/apply.sh --dry-run
-
-# Если всё ок — запуск
-./scripts/apply.sh
-```
-
-**Варианты поиска:**
-- `"Frontend разработчик"` — основной
-- `"React TypeScript"` — узкий
-- `"JavaScript"` — широкий
-
-### 3. Ответы работодателям
-
-```bash
-# Шаблонное сообщение (быстро)
-./scripts/reply.sh --dry-run
-
-# Интерактивный режим (персонально)
-hh-applicant-tool reply-employers
-```
-
----
-
-## 📈 KPI
-
-| Метрика | Цель |
-|---------|------|
-| Откликов в день | 80-120 |
-| Ответов работодателям | Все новые за 2 дня |
-| Автоподнятие резюме | 1 раз в день |
-| Просмотры резюме | Растут |
-
----
-
-## ⚠️ Важно
-
-1. **Всегда упоминать Telegram `${HH_TELEGRAM}`** в ответах
-2. **Dry-run перед live** запуском откликов
-3. **Исключать:** junior, стажёры, bitrix, web3, crypto, blockchain
-4. **Лимит HH:** ~100-150 откликов в сутки
-
----
-
-## 🛠 Troubleshooting
-
-| Проблема | Решение |
-|----------|---------|
-| "Требуется авторизация" | `hh-applicant-tool authorize` |
-| "Лимит откликов" | Ждать до завтра |
-| "Токен протух" | `hh-applicant-tool refresh-token` |
-| "Нет вакансий" | Расширить поиск, убрать фильтры |
-
----
-
-## 📚 Документация
-
-- [AGENT_GUIDE.md](AGENT_GUIDE.md) — полное руководство
-- [AUTONOMOUS_AGENT_WORKFLOW.md](AUTONOMOUS_AGENT_WORKFLOW.md) — автономный контур
-- [README.md](../README.md) — обзор проекта
+Документация: docs/DEPLOYMENT.md, docs/ARCHITECTURE.md.
