@@ -59,39 +59,7 @@ live     разрешает реальные отклики, ответы, clean
 
 Требуется Python 3.11+.
 
-### Windows / PowerShell
-
-Запускай команды из корня репозитория. Bash-скрипты из `scripts/` требуют
-Git Bash или WSL; установка и авторизация выполняются напрямую из PowerShell:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\setup-windows.ps1
-```
-
-Скрипт идемпотентен: его можно повторить после обновления зависимостей.
-
-Проверка CLI:
-
-```powershell
-.\hh.bat --help
-.\hh.bat --profile-id default whoami
-.\hh.bat --profile-id default list-resumes
-```
-
-Первичная авторизация с видимым окном браузера:
-
-```powershell
-.\hh.bat --profile-id default authorize "89990000000" --no-headless
-```
-
-Если удобнее полностью ввести номер, код и капчу в браузере:
-
-```powershell
-.\hh.bat --profile-id default authorize --manual --no-headless
-```
-
-### Linux / macOS / Git Bash / WSL
+### Linux / Docker
 
 ```bash
 python -m venv .venv
@@ -151,7 +119,7 @@ hh-applicant-tool --profile-id account2 whoami
 Batch по всем профилям:
 
 ```bash
-# Git Bash, WSL или Linux
+# Linux
 ./scripts/all-profiles.sh apply --dry-run
 ./scripts/all-profiles.sh reply --dry-run
 ```
@@ -168,10 +136,7 @@ Batch по всем профилям:
 ./scripts/apply-profile.sh --profile default --live
 ```
 
-Эти `*.sh` команды не являются командами PowerShell. На Windows запускай их
-из полностью настроенного WSL/Linux-окружения или из Git Bash с доступным
-`python3` и установленными зависимостями проекта. Не смешивай Windows `.venv`
-с Python внутри WSL.
+Все `scripts/*.sh` рассчитаны на Linux и используют Bash, Python 3.11+ и `flock`.
 
 Параллелизм ограничен и по умолчанию рассчитан на десять аккаунтов:
 
@@ -290,7 +255,7 @@ resume IDs и персональные данные в Git не коммитят
 ./scripts/setup-ai-resume.sh --profile 0555 --live
 ```
 
-Для `0555` tracked variant находится в
+Если для профиля `0555` создан локальный файл variant, он может находиться в
 `resumes/variants/0555-ai-engineer.toml`. Он позиционирует профиль как
 `AI Engineer / LLM Automation Engineer` на основе собственных AI/automation
 проектов и не подменяет предыдущую коммерческую компанию вымышленным AI-опытом.
@@ -573,6 +538,31 @@ CI также smoke-тестирует shell-safe cron runtime env и парал
 - [docs/development/TESTING.md](docs/development/TESTING.md) — тестирование;
 - [docs/PRODUCTION_REVIEW_2026-09-04.md](docs/PRODUCTION_REVIEW_2026-09-04.md) — результаты hardening review.
 
+
+## Админка Linux: актуальные данные и управление
+
+Веб-интерфейс доступен по `http://127.0.0.1:8000`, работает через
+`admin.ui_app:app`. В контейнере `ADMIN_REQUIRE_AUTH=1`: задайте
+`ADMIN_USERNAME` и `ADMIN_PASSWORD` в локальном `.env` до первого запуска.
+
+- «Дашборд» показывает локальные SQLite-снимки, 14/30/90-дневный график
+  и сравнение результатов аккаунтов. Время изменения SQLite НЕ равно
+  времени последней синхронизации с HH.
+- Кнопка «Проверить HH сейчас» делает ограниченные read-only запросы
+  к HH для одного выбранного профиля и помечает время полученного ответа.
+- «Автоматизация» позволяет менять общий режим cron, лимиты, поиск, ожидание
+  ответа человеку и опциональные follow-up/quick replies; данные сохраняются
+  в `config/admin_automation.json`, а следующие cron-запуски читают сгенерированный
+  `config/admin_automation.env`.
+- «Запуск задач» содержит безопасные Linux worker'ы `safe-apply` и
+  `safe-reply`, которые используют те же локальные блокировки аккаунтов,
+  что и cron. Реальные действия требуют подтверждения.
+- «Настройки» позволяют проверить и отредактировать контакт Telegram профиля,
+  параметры AI и задержку API. Пароли и токены скрываются.
+- Старый расширенный CLI-отклик оставлен для совместимости; для регулярной
+  автономной работы используйте `safe-apply`.
+
+Подробно: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Upstream compatibility (November 2026)
 

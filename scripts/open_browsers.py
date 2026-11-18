@@ -117,7 +117,7 @@ def main() -> int:
             os.environ.get(
                 "CONFIG_DIR",
                 str(
-                    Path(os.environ.get("APPDATA", str(Path.home() / ".config")))
+                    Path.home() / ".config"
                     / "hh-applicant-tool"
                 ),
             )

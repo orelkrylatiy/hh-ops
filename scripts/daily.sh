@@ -13,8 +13,7 @@ if [[ "${HH_ADMIN_AUTOMATION_OVERRIDE:-0}" != "1" && -f "$PROJECT_ROOT/.env" ]];
     set +a
 fi
 
-# Windows consoles otherwise default to a legacy charmap and crash when the
-# CLI prints Cyrillic or emoji status messages.
+# Keep Linux cron output and log messages UTF-8.
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 
