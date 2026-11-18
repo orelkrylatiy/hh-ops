@@ -132,9 +132,7 @@ echo "Profiles: ${PROFILES_LIST[*]}"
 echo "Logs: $LOG_DIR/<profile>-$COMMAND.log"
 
 HH_EXECUTABLE="hh-applicant-tool"
-if [[ -f "$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe" ]]; then
-    HH_EXECUTABLE="$PROJECT_ROOT/.venv/Scripts/hh-applicant-tool.exe"
-elif [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
+if [[ -x "$PROJECT_ROOT/.venv/bin/hh-applicant-tool" ]]; then
     HH_EXECUTABLE="$PROJECT_ROOT/.venv/bin/hh-applicant-tool"
 fi
 

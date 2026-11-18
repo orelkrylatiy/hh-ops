@@ -43,11 +43,6 @@ class AutomationSettings(BaseModel):
             raise ValueError("Search query cannot contain control characters")
         return cleaned
 
-    @field_validator("followup_after_days")
-    @classmethod
-    def valid_followup_days(cls, value: float) -> float:
-        return value
-
     def to_env(self) -> dict[str, str]:
         if self.followup_after_days >= self.max_chat_age_days:
             raise ValueError("Follow-up delay must be shorter than maximum chat age")

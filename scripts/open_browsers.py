@@ -116,10 +116,7 @@ def main() -> int:
         default=Path(
             os.environ.get(
                 "CONFIG_DIR",
-                str(
-                    Path.home() / ".config"
-                    / "hh-applicant-tool"
-                ),
+                str(Path.home() / ".config" / "hh-applicant-tool"),
             )
         ),
     )
