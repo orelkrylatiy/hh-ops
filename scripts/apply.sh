@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
+if [[ "${HH_ADMIN_AUTOMATION_OVERRIDE:-0}" != "1" && -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$PROJECT_ROOT/.env"

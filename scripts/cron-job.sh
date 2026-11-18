@@ -19,6 +19,15 @@ if [[ -f /tmp/hh-runtime.env ]]; then
     source /tmp/hh-runtime.env
 fi
 
+# UI overrides are validated and shell-quoted by admin/automation_settings.py.
+# They take priority over both .env and Docker's startup snapshot.
+ADMIN_RUNTIME_ENV="${CONFIG_DIR:-/app/config}/admin_automation.env"
+if [[ -f "$ADMIN_RUNTIME_ENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$ADMIN_RUNTIME_ENV"
+    export HH_ADMIN_AUTOMATION_OVERRIDE=1
+fi
+
 MODE="${HH_AUTOMATION_MODE:-off}"
 JOB="${1:-}"
 

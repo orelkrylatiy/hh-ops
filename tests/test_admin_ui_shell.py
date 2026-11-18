@@ -56,13 +56,13 @@ def test_admin_ui_assets_cover_responsive_accessible_behaviour():
 
 
 def test_runtime_launchers_use_enhanced_admin_app():
-    windows_launcher = (ROOT / "admin.bat").read_text(encoding="utf-8")
     container_launcher = (ROOT / "container-entrypoint.sh").read_text(encoding="utf-8")
 
-    assert "admin.ui_app:app" in windows_launcher
     assert "admin.ui_app:app" in container_launcher
-    assert "admin.app:app" not in windows_launcher
     assert "admin.app:app" not in container_launcher
+    assert not (ROOT / "admin.bat").exists()
+    assert not (ROOT / "daily.bat").exists()
+    assert not (ROOT / "hh.bat").exists()
 
 
 def test_enhanced_admin_app_imports_with_single_root_route():
