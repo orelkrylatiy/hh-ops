@@ -6,6 +6,8 @@ import json
 from http.cookiejar import Cookie, CookieJar
 from unittest.mock import MagicMock
 
+import pytest
+
 from hh_applicant_tool.main import HHApplicantTool
 from hh_applicant_tool.operations.apply_vacancies import Operation as ApplyOperation
 from hh_applicant_tool.operations.authorize import Operation as AuthorizeOperation
