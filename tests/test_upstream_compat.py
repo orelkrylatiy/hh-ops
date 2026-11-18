@@ -151,3 +151,19 @@ def test_parse_scalar_is_case_insensitive() -> None:
     assert parse_scalar("TRUE") is True
     assert parse_scalar("False") is False
     assert parse_scalar("NULL") is None
+
+
+
+def test_upstream_hh_test_answer_must_be_one_of_current_options() -> None:
+    from hh_applicant_tool.operations._apply_vacancies_helpers import (
+        InvalidVacancyTestChoice,
+        verified_test_choice_id,
+    )
+
+    options = [{"id": 100, "text": "Да"}, {"id": 200, "text": "Нет"}]
+    assert verified_test_choice_id("200", options) == 200
+    assert verified_test_choice_id("Ответ: 100", options) == 100
+    with pytest.raises(InvalidVacancyTestChoice):
+        verified_test_choice_id("Скорее 999; возможно 100", options)
+    with pytest.raises(InvalidVacancyTestChoice):
+        verified_test_choice_id("999", options)
