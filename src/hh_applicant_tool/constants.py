@@ -23,7 +23,7 @@ COOKIES_FILENAME = "cookies.txt"
 DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/153.0.0.0 Safari/537.36"
+    "Chrome/156.0.0.0 Safari/537.36"
 )
 
 # Влияет на язык контента. Может проверяться антиботом hh
@@ -73,7 +73,7 @@ ADMIN_LOCALHOST = "127.0.0.1"
 ADMIN_DEFAULT_PORT = 8000
 ADMIN_OPERATION_TIMEOUT = 300  # seconds
 ADMIN_LOG_OUTPUT_LIMIT = 5000  # chars for stdout
-ADMIN_LOG_ERROR_LIMIT = 2000   # chars for stderr
+ADMIN_LOG_ERROR_LIMIT = 2000  # chars for stderr
 
 # Response delays
 RESPONSE_DELAY_MIN = 1.0  # seconds

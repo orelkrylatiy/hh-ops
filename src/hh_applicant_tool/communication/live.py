@@ -20,7 +20,11 @@ class FrameworkWriter:
         self._framework = framework or CommunicationFramework(provider=generation_provider())
 
     def application(
-        self, *, vacancy_name: str, employer_name: str, source_context: str,
+        self,
+        *,
+        vacancy_name: str,
+        employer_name: str,
+        source_context: str,
         profile: str = "frontend-react",
     ) -> CommunicationResult:
         return self._framework.generate(
@@ -36,8 +40,13 @@ class FrameworkWriter:
     # chat voice here too; currently build_chat_reply_request() uses its defaults.
     # The resume_context below is factual context, not a style selector.
     def chat_reply(
-        self, *, context: list[str], initiated_by_us: bool,
-        vacancy_name: str, employer_name: str, latest_message_text: str,
+        self,
+        *,
+        context: list[str],
+        initiated_by_us: bool,
+        vacancy_name: str,
+        employer_name: str,
+        latest_message_text: str,
         resume_context: str = "",
     ) -> CommunicationResult:
         return self._framework.generate(

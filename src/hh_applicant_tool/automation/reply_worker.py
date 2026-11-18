@@ -14,8 +14,15 @@ from typing import Any
 from hh_applicant_tool.automation.contact_collector import extract_contacts
 from hh_applicant_tool.automation.reply_state import (
     EmployerContactStore,
+    FollowupStore,
     ManualChatQueue,
     ReplySendLog,
+)
+from hh_applicant_tool.automation.upstream_chat_policy import (
+    choose_quick_reply,
+    is_followup_due,
+    is_incoming_reply_due,
+    quick_reply_options,
 )
 from hh_applicant_tool.communication import FrameworkWriter
 from hh_applicant_tool.constants import CONFIG_DIR
@@ -33,6 +40,8 @@ MAX_REPLY_CHARS = 2000
 ACTION_REPLY = "REPLY_TEXT"
 ACTION_IGNORE = "IGNORE"
 ACTION_MANUAL = "MANUAL"
+ACTION_FOLLOWUP = "FOLLOWUP"
+ACTION_QUICK_REPLY = "QUICK_REPLY"
 
 AI_CLICHES = (
     "важно отметить",
@@ -104,6 +113,11 @@ class ReplyWorkerConfig:
     max_chats: int = 100
     send_retries: int = 2
     send_retry_delay: float = 1.0
+    human_cooldown_minutes: float = 0.0
+    max_chat_age_days: float = 0.0
+    followup_enabled: bool = False
+    followup_after_days: float = 2.0
+    auto_quick_replies: bool = False
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
     skip_chat_ids: tuple[str, ...] = ()
 
@@ -120,6 +134,7 @@ class ReplyDecision:
     reason: str = "employer_message"
     latest_message_text: str = ""
     resume_context: str = ""
+    quick_options: tuple[str, ...] = ()
 
 
 class HHCLI:
@@ -408,6 +423,7 @@ class ReplyWorker:
         framework_writer: FrameworkWriter,
         send_log: ReplySendLog | None = None,
         contact_store: EmployerContactStore | None = None,
+        followup_store: FollowupStore | None = None,
     ) -> None:
         self.config = config
         self.hh = hh
@@ -415,6 +431,7 @@ class ReplyWorker:
         self.framework_writer = framework_writer
         self.send_log = send_log
         self.contact_store = contact_store
+        self.followup_store = followup_store
         self.contacts_collected_last_scan = 0
         self.resume_aliases = self._load_resume_aliases()
 
@@ -487,14 +504,44 @@ class ReplyWorker:
                     continue
                 latest = ordered[-1]
                 latest_id = message_id(latest)
-                if message_role(latest) != EMPLOYER_ROLE:
+                latest_role = message_role(latest)
+                if latest_role != EMPLOYER_ROLE:
                     if self.manual_queue is not None and not self.config.dry_run:
                         self.manual_queue.resolve_chat(negotiation_id)
+                    if (
+                        latest_role == APPLICANT_ROLE
+                        and self.config.followup_enabled
+                        and self.followup_store is not None
+                        and not self.followup_store.is_recorded(negotiation_id)
+                        and is_followup_due(
+                            latest,
+                            after_days=self.config.followup_after_days,
+                            max_chat_age_days=self.config.max_chat_age_days,
+                        )
+                        and not any(
+                            is_system_notification(message_text(item))
+                            for item in ordered[-6:]
+                            if message_role(item) == EMPLOYER_ROLE
+                        )
+                    ):
+                        chats.append(item)
                     continue
-                if self.send_log is not None and latest_id and self.send_log.is_recorded(
-                    negotiation_id, latest_id
+                if not is_incoming_reply_due(
+                    latest,
+                    human_cooldown_minutes=self.config.human_cooldown_minutes,
+                    max_chat_age_days=self.config.max_chat_age_days,
                 ):
-                    logger.info("Chat %s already answered for employer message %s", negotiation_id, latest_id)
+                    continue
+                if (
+                    self.send_log is not None
+                    and latest_id
+                    and self.send_log.is_recorded(negotiation_id, latest_id)
+                ):
+                    logger.info(
+                        "Chat %s already answered for employer message %s",
+                        negotiation_id,
+                        latest_id,
+                    )
                     continue
                 if self.manual_queue is not None and not self.config.dry_run and latest_id:
                     self.manual_queue.resolve_chat(
@@ -622,10 +669,30 @@ class ReplyWorker:
             return None
 
         latest = self._latest_message(detail)
-        if latest is None or message_role(latest) != EMPLOYER_ROLE:
+        if latest is None:
             return None
         latest_id = message_id(latest)
         if not latest_id:
+            return None
+        latest_role = message_role(latest)
+        followup = latest_role == APPLICANT_ROLE
+        if followup:
+            if (
+                not self.config.followup_enabled
+                or self.followup_store is None
+                or self.followup_store.is_recorded(chat_id)
+                or not is_followup_due(
+                    latest,
+                    after_days=self.config.followup_after_days,
+                    max_chat_age_days=self.config.max_chat_age_days,
+                )
+            ):
+                return None
+        elif latest_role != EMPLOYER_ROLE or not is_incoming_reply_due(
+            latest,
+            human_cooldown_minutes=self.config.human_cooldown_minutes,
+            max_chat_age_days=self.config.max_chat_age_days,
+        ):
             return None
 
         raw_messages = detail.get("messages")
@@ -637,7 +704,14 @@ class ReplyWorker:
         context, initiated_by_us = build_context(messages)
         if not context:
             return None
-        action, reason = classify_chat(messages)
+        if followup:
+            action, reason = ACTION_FOLLOWUP, "unanswered_application"
+            options = ()
+        else:
+            action, reason = classify_chat(messages)
+            options = quick_reply_options(latest)
+            if self.config.auto_quick_replies and options and action != ACTION_IGNORE:
+                action, reason = ACTION_QUICK_REPLY, "structured_send_options"
         vacancy_name, employer_name = self._vacancy_info(chat)
         resume = chat.get("resume")
         resume_id = str(resume.get("id") or "") if isinstance(resume, dict) else ""
@@ -665,16 +739,35 @@ class ReplyWorker:
             reason=reason,
             latest_message_text=message_text(latest),
             resume_context=resume_context,
+            quick_options=options,
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
+        if decision.action == ACTION_FOLLOWUP:
+            title = " ".join(decision.vacancy_name.split())[:100]
+            if not title:
+                title = "вакансия"
+            return (
+                f"Здравствуйте! Подскажите, пожалуйста, актуальна ли ещё вакансия "
+                f"«{title}»? Буду благодарен за обратную связь."
+            )
         if self.config.dry_run:
+            if decision.action == ACTION_QUICK_REPLY:
+                return f"[preview: выбор из {len(decision.quick_options)} вариантов]"
             return safe_preview_reply(decision.initiated_by_us)
         if self.framework_writer is None:
             raise ValueError("FrameworkWriter is required for live replies")
         try:
             result = self.framework_writer.chat_reply(
-                context=decision.context,
+                context=(
+                    [
+                        *decision.context,
+                        "Выбери только один точный ответ из вариантов: "
+                        + " | ".join(decision.quick_options),
+                    ]
+                    if decision.action == ACTION_QUICK_REPLY
+                    else decision.context
+                ),
                 initiated_by_us=decision.initiated_by_us,
                 vacancy_name=decision.vacancy_name,
                 employer_name=decision.employer_name,
@@ -685,14 +778,25 @@ class ReplyWorker:
             logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
             return None
         reply = sanitize_reply_text(result.text.strip())
+        if decision.action == ACTION_QUICK_REPLY:
+            matched = choose_quick_reply(reply, decision.quick_options)
+            if matched is None:
+                logger.warning("No confident structured option for chat %s", decision.chat_id)
+                return None
+            reply = matched
         issues = reply_quality_issues(reply)
         if issues:
-            logger.warning("Framework reply rejected for chat %s: %s", decision.chat_id,
-                           ", ".join(issues))
+            logger.warning(
+                "Framework reply rejected for chat %s: %s", decision.chat_id, ", ".join(issues)
+            )
             return None
-        logger.info("Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
-                    decision.chat_id, result.plan.action.value, result.provider,
-                    [issue.code for issue in result.issues])
+        logger.info(
+            "Framework reply generated for chat %s: plan=%s provider=%s issues=%s",
+            decision.chat_id,
+            result.plan.action.value,
+            result.provider,
+            [issue.code for issue in result.issues],
+        )
         return reply
 
     def is_still_current(self, decision: ReplyDecision) -> bool:
@@ -702,8 +806,9 @@ class ReplyWorker:
         latest = self._latest_message(detail)
         if latest is None:
             return False
+        expected_role = APPLICANT_ROLE if decision.action == ACTION_FOLLOWUP else EMPLOYER_ROLE
         return (
-            message_role(latest) == EMPLOYER_ROLE
+            message_role(latest) == expected_role
             and message_id(latest) == decision.expected_last_message_id
         )
 
@@ -788,7 +893,19 @@ class ReplyWorker:
                     continue
                 reply = self.generate_reply(decision)
                 if not reply:
-                    stats["errors"] += 1
+                    if decision.action == ACTION_QUICK_REPLY:
+                        if self.manual_queue is not None and not self.config.dry_run:
+                            self.manual_queue.enqueue(
+                                chat_id=decision.chat_id,
+                                message_id=decision.expected_last_message_id,
+                                message_text=decision.latest_message_text,
+                                vacancy_name=decision.vacancy_name,
+                                employer_name=decision.employer_name,
+                                reason="quick_reply_uncertain",
+                            )
+                        stats["manual"] += 1
+                    else:
+                        stats["errors"] += 1
                     continue
                 if self.config.dry_run:
                     logger.info("DRY-RUN chat=%s reply=%s", decision.chat_id, reply)
@@ -800,16 +917,23 @@ class ReplyWorker:
                     )
                     stats["stale"] += 1
                     continue
-                if self.send_log is not None and not self.send_log.claim(
+                if decision.action == ACTION_FOLLOWUP:
+                    if self.followup_store is None or not self.followup_store.claim(
+                        decision.chat_id, decision.expected_last_message_id
+                    ):
+                        stats["skipped"] += 1
+                        continue
+                elif self.send_log is not None and not self.send_log.claim(
                     decision.chat_id, decision.expected_last_message_id
                 ):
                     stats["skipped"] += 1
                     continue
                 if self.send_reply(decision, reply):
-                    if self.send_log is not None:
-                        self.send_log.mark_sent(
-                            decision.chat_id, decision.expected_last_message_id
-                        )
+                    if decision.action == ACTION_FOLLOWUP:
+                        if self.followup_store is not None:
+                            self.followup_store.mark_sent(decision.chat_id)
+                    elif self.send_log is not None:
+                        self.send_log.mark_sent(decision.chat_id, decision.expected_last_message_id)
                     stats["sent"] += 1
                 else:
                     stats["errors"] += 1

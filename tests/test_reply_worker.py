@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
 
+from hh_applicant_tool.automation.reply_state import FollowupStore
 from hh_applicant_tool.automation.reply_worker import (
+    ACTION_FOLLOWUP,
     ACTION_IGNORE,
     ACTION_MANUAL,
+    ACTION_QUICK_REPLY,
     ACTION_REPLY,
     APPLICANT_ROLE,
     EMPLOYER_ROLE,
@@ -219,7 +223,9 @@ def test_collect_candidate_chats_bounds_inspected_negotiations() -> None:
         "pages": 1,
     }
     worker = ReplyWorker(
-        ReplyWorkerConfig(max_chats=1), hh=hh, framework_writer=Mock(),
+        ReplyWorkerConfig(max_chats=1),
+        hh=hh,
+        framework_writer=Mock(),
     )
 
     assert worker.collect_candidate_chats() == []
@@ -467,9 +473,7 @@ def test_failed_send_returns_false_when_message_is_not_visible() -> None:
 
 
 def test_run_dry_run_plans_without_revalidation_or_send() -> None:
-    worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock()
-    )
+    worker = ReplyWorker(ReplyWorkerConfig(dry_run=True), hh=Mock(), framework_writer=Mock())
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     worker.make_decision = Mock(return_value=_decision())
     worker.generate_reply = Mock(return_value="preview")
@@ -766,3 +770,107 @@ def test_run_ignore_decision_does_not_call_ai() -> None:
 
     assert stats["ignored"] == 1
     worker.generate_reply.assert_not_called()
+
+
+def _fresh_message(message_id: str, role: str, text: str, minutes_ago: float) -> dict:
+    timestamp = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    return _message(message_id, role, text, timestamp)
+
+
+def test_upstream_human_reply_cooldown_skips_recent_employer() -> None:
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [_fresh_message("m", EMPLOYER_ROLE, "Когда созвон?", 1)],
+        "pages": 1,
+    }
+    worker = ReplyWorker(
+        ReplyWorkerConfig(human_cooldown_minutes=15, max_chat_age_days=30),
+        hh=hh,
+        framework_writer=Mock(),
+    )
+    assert worker.make_decision({"id": "c"}) is None
+
+
+def test_upstream_chat_bot_bypasses_human_cooldown() -> None:
+    message = _fresh_message("m", EMPLOYER_ROLE, "Когда созвон?", 1)
+    message["author"]["is_bot"] = True
+    hh = Mock()
+    hh.call_api.return_value = {"items": [message], "pages": 1}
+    worker = ReplyWorker(
+        ReplyWorkerConfig(human_cooldown_minutes=15, max_chat_age_days=30),
+        hh=hh,
+        framework_writer=Mock(),
+    )
+    decision = worker.make_decision({"id": "c"})
+    assert decision is not None
+    assert decision.action == ACTION_REPLY
+
+
+def test_upstream_structured_quick_reply_uses_only_presented_options() -> None:
+    message = _fresh_message("m", EMPLOYER_ROLE, "Выберите вариант", 60)
+    message["payload"] = {
+        "text": "Выберите вариант",
+        "quick_replies": [
+            {"type": "send", "text": "Удалённо"},
+            {"type": "send", "text": "Гибрид"},
+        ],
+    }
+    hh = Mock()
+    hh.call_api.return_value = {"items": [message], "pages": 1}
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result("Удалённо.")
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, auto_quick_replies=True),
+        hh=hh,
+        framework_writer=writer,
+    )
+    decision = worker.make_decision({"id": "c"})
+    assert decision is not None
+    assert decision.action == ACTION_QUICK_REPLY
+    assert worker.generate_reply(decision) == "Удалённо"
+
+
+def test_upstream_followup_revalidates_applicant_turn_and_is_one_shot(tmp_path) -> None:
+    message = _fresh_message("applicant-1", APPLICANT_ROLE, "Добрый день", 3 * 1440)
+    hh = Mock()
+    hh.call_api.return_value = {"items": [message], "pages": 1}
+    store = FollowupStore(tmp_path / "state.sqlite")
+    worker = ReplyWorker(
+        ReplyWorkerConfig(
+            dry_run=False,
+            followup_enabled=True,
+            followup_after_days=2,
+            max_chat_age_days=30,
+        ),
+        hh=hh,
+        framework_writer=Mock(),
+        followup_store=store,
+    )
+    decision = worker.make_decision({"id": "c"})
+    assert decision is not None
+    assert decision.action == ACTION_FOLLOWUP
+    assert worker.is_still_current(decision)
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "c"}])
+    worker.make_decision = Mock(return_value=decision)
+    worker.send_reply = Mock(return_value=True)
+    stats = worker.run()
+    assert stats["sent"] == 1
+    assert store.is_recorded("c")
+    assert worker.run()["skipped"] == 1
+
+
+def test_upstream_quick_reply_with_no_confident_match_moves_to_manual() -> None:
+    worker = _live_worker()
+    decision = _decision(
+        action=ACTION_QUICK_REPLY,
+        quick_options=("Да", "Нет"),
+    )
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "c"}])
+    worker.make_decision = Mock(return_value=decision)
+    worker.generate_reply = Mock(return_value=None)
+    manual_queue = Mock()
+    worker.manual_queue = manual_queue
+    stats = worker.run()
+    assert stats["manual"] == 1
+    assert stats["errors"] == 0
+    manual_queue.enqueue.assert_called_once()

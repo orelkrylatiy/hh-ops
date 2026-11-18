@@ -150,11 +150,14 @@ def test_provider_error_dict_without_message_is_still_wrapped() -> None:
         make_client(session)._execute_with_retry(PROBE_PAYLOAD)
 
 
-@pytest.mark.parametrize('raw', [
-    "Sorry, I can't help solve CAPTCHAs.",
-    'I cannot help solve this image.',
-    'Не могу помочь с решением капчи.',
-    'recaptcha',
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Sorry, I can't help solve CAPTCHAs.",
+        "I cannot help solve this image.",
+        "Не могу помочь с решением капчи.",
+        "recaptcha",
+    ],
+)
 def test_normalize_captcha_refusal_is_not_a_token(raw):
-    assert _normalize_captcha_text(raw) == ''
+    assert _normalize_captcha_text(raw) == ""

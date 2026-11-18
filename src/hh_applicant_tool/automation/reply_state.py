@@ -37,7 +37,6 @@ class ManualChatQueue:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path, timeout=10)
 
-
     def enqueue(
         self,
         *,
@@ -255,3 +254,50 @@ class EmployerContactStore:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+
+class FollowupStore:
+    """Per-profile at-most-once follow-up guard, durable across cron runs.
+
+    A pending claim is deliberately not retried automatically: after an
+    ambiguous network failure, repeating an unsolicited reminder is worse
+    than leaving it for human review.
+    """
+
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn, conn:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS reply_followups (
+                    chat_id TEXT PRIMARY KEY,
+                    source_message_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    sent_at TEXT
+                )"""
+            )
+
+    def is_recorded(self, chat_id: str) -> bool:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM reply_followups WHERE chat_id=?", (chat_id,)
+            ).fetchone()
+        return row is not None
+
+    def claim(self, chat_id: str, source_message_id: str) -> bool:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn, conn:
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO reply_followups
+                   (chat_id, source_message_id, status) VALUES (?, ?, 'pending')""",
+                (chat_id, source_message_id),
+            )
+            return cursor.rowcount == 1
+
+    def mark_sent(self, chat_id: str) -> None:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as conn, conn:
+            conn.execute(
+                """UPDATE reply_followups SET status='sent', sent_at=CURRENT_TIMESTAMP
+                   WHERE chat_id=?""",
+                (chat_id,),
+            )

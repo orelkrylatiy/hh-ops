@@ -6,6 +6,8 @@ import json
 from http.cookiejar import Cookie, CookieJar
 from unittest.mock import MagicMock
 
+import pytest
+
 from hh_applicant_tool.main import HHApplicantTool
 from hh_applicant_tool.operations.apply_vacancies import Operation as ApplyOperation
 from hh_applicant_tool.operations.authorize import Operation as AuthorizeOperation
@@ -70,9 +72,7 @@ def _tool_with_session(session: FakeSession) -> HHApplicantTool:
 
 def _xsrf_html(*tokens: str, escaped: bool = False) -> str:
     quote = "&quot;" if escaped else '"'
-    return "".join(
-        f",{quote}xsrfToken{quote}:{quote}{token}{quote}" for token in tokens
-    )
+    return "".join(f",{quote}xsrfToken{quote}:{quote}{token}{quote}" for token in tokens)
 
 
 def test_xsrf_prefers_cookie_and_skips_network() -> None:
@@ -99,9 +99,7 @@ def test_redirect_config_parses_escaped_hh_initial_state() -> None:
         "account": {"firstName": "Test"},
     }
     escaped = html.escape(json.dumps(payload), quote=True)
-    response = FakeResponse(
-        f'<template id="HH-Lux-InitialState">{escaped}</template>'
-    )
+    response = FakeResponse(f'<template id="HH-Lux-InitialState">{escaped}</template>')
     tool = HHApplicantTool.__new__(HHApplicantTool)
 
     parsed = tool.parse_redirect_config(response)
@@ -151,3 +149,18 @@ def test_parse_scalar_is_case_insensitive() -> None:
     assert parse_scalar("TRUE") is True
     assert parse_scalar("False") is False
     assert parse_scalar("NULL") is None
+
+
+def test_upstream_hh_test_answer_must_be_one_of_current_options() -> None:
+    from hh_applicant_tool.operations._apply_vacancies_helpers import (
+        InvalidVacancyTestChoice,
+        verified_test_choice_id,
+    )
+
+    options = [{"id": 100, "text": "Да"}, {"id": 200, "text": "Нет"}]
+    assert verified_test_choice_id("200", options) == 200
+    assert verified_test_choice_id("Ответ: 100", options) == 100
+    with pytest.raises(InvalidVacancyTestChoice):
+        verified_test_choice_id("Скорее 999; возможно 100", options)
+    with pytest.raises(InvalidVacancyTestChoice):
+        verified_test_choice_id("999", options)

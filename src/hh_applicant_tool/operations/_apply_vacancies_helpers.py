@@ -23,6 +23,28 @@ from ..utils.string import bool2str, rand_text, strip_tags
 logger = logging.getLogger(__package__)
 
 
+class InvalidVacancyTestChoice(ValueError):
+    """AI did not choose an actual option: never submit an invented answer."""
+
+
+def verified_test_choice_id(answer: str, solutions: list[dict[str, Any]]) -> Any:
+    """Validate the answer against current HH option identifiers.
+
+    The model is instructed to return only an ID. Allow a brief 'Ответ: ID'
+    wrapper, but never take the first number from arbitrary free-form text.
+    """
+    possible = {str(option["id"]): option["id"] for option in solutions}
+    value = answer.strip().strip(" .!\"'")
+    if value not in possible:
+        match = re.fullmatch(r"(?:ответ\s*[:№]?\s*)(\d+)", value, re.IGNORECASE)
+        value = match.group(1) if match else ""
+    if value not in possible:
+        raise InvalidVacancyTestChoice(
+            "AI returned no valid HH option ID; skipping this test rather than guessing"
+        )
+    return possible[value]
+
+
 class ApplyVacanciesHelpersMixin:
     json_decoder = JSONDecoder()
 
@@ -49,9 +71,7 @@ class ApplyVacanciesHelpersMixin:
         return tests if isinstance(tests, dict) else None
 
     # Безопасный ответ, если обе генерации ушли в шаблонный мусор.
-    _TASK_ANSWER_FALLBACK = (
-        "Готов ответить на этот вопрос подробно на созвоне или в переписке."
-    )
+    _TASK_ANSWER_FALLBACK = "Готов ответить на этот вопрос подробно на созвоне или в переписке."
 
     # Плейсхолдеры, мета-комментарии про шаблоны и markdown — признаки ответа
     # «ассистента», а не кандидата (баг вечерней кампании 20.10.2026).
@@ -90,8 +110,14 @@ class ApplyVacanciesHelpersMixin:
         if salary.get("to"):
             salary_bits.append(f"до {salary['to']}")
         if salary_bits:
-            currency = {"RUR": "рублей"}.get(salary.get("currency") or "", salary.get("currency") or "")
-            parts.append("Вилка зарплаты в вакансии: " + " ".join(salary_bits) + (f" {currency}" if currency else ""))
+            currency = {"RUR": "рублей"}.get(
+                salary.get("currency") or "", salary.get("currency") or ""
+            )
+            parts.append(
+                "Вилка зарплаты в вакансии: "
+                + " ".join(salary_bits)
+                + (f" {currency}" if currency else "")
+            )
         else:
             parts.append("Вилка зарплаты в вакансии не указана.")
         return "\n".join(parts)
@@ -134,8 +160,7 @@ class ApplyVacanciesHelpersMixin:
 
         try:
             retry_prompt = (
-                prompt
-                + "\n\nПредыдущая попытка отклонена: получился шаблон или "
+                prompt + "\n\nПредыдущая попытка отклонена: получился шаблон или "
                 "плейсхолдер. Ответь от первого лица конкретным готовым "
                 "ответом на основе профиля, без квадратных скобок."
             )
@@ -197,39 +222,39 @@ class ApplyVacanciesHelpersMixin:
 
             if solutions:
                 if self.cover_letter_ai:
-                    options = "\n".join(
-                        f"{s['id']}: {strip_tags(s['text'])}" for s in solutions
-                    )
+                    options = "\n".join(f"{s['id']}: {strip_tags(s['text'])}" for s in solutions)
                     prompt = (
                         f"Вопрос: {question}\n"
                         f"Варианты:\n{options}\n"
                         f"Выбери ID правильного ответа. Пришли только ID."
                     )
                     ai_answer = self.cover_letter_ai.complete(prompt).strip()
-                    match = re.search(r"\d+", ai_answer)
-                    selected_id = (
-                        match.group(0) if match else solutions[0]["id"]
-                    )
-                    payload[field_name] = selected_id
+                    payload[field_name] = verified_test_choice_id(ai_answer, solutions)
                 else:
                     yes_solution = next(
-                        filter(lambda x: x["text"].lower() == "да", solutions),
+                        (
+                            option
+                            for option in solutions
+                            if strip_tags(str(option.get("text", "")))
+                            .strip()
+                            .casefold()
+                            .rstrip(" .!")
+                            == "да"
+                        ),
                         None,
                     )
-                    payload[field_name] = (
-                        yes_solution["id"]
-                        if yes_solution
-                        else solutions[len(solutions) // 2]["id"]
-                    )
+                    if yes_solution is None:
+                        raise InvalidVacancyTestChoice(
+                            "No AI or unambiguous affirmative answer for HH test"
+                        )
+                    payload[field_name] = yes_solution["id"]
             else:
                 if "://" in question:
                     answer = rand_text(
                         "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
                     )
                 elif self.cover_letter_ai:
-                    answer = self._generate_task_answer(
-                        question, vacancy=vacancy, resume=resume
-                    )
+                    answer = self._generate_task_answer(question, vacancy=vacancy, resume=resume)
                 else:
                     answer = "Да"
 
@@ -316,9 +341,7 @@ class ApplyVacanciesHelpersMixin:
 
         return set(
             item
-            for item in chain.from_iterable(
-                item["name_value"].split() for item in r.json()
-            )
+            for item in chain.from_iterable(item["name_value"].split() for item in r.json())
             if not item.startswith("*.")
         )
 
