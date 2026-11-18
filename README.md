@@ -572,3 +572,31 @@ CI также smoke-тестирует shell-safe cron runtime env и парал
 - [docs/SCHEDULING.md](docs/SCHEDULING.md) — дополнительные варианты запуска;
 - [docs/development/TESTING.md](docs/development/TESTING.md) — тестирование;
 - [docs/PRODUCTION_REVIEW_2026-09-04.md](docs/PRODUCTION_REVIEW_2026-09-04.md) — результаты hardening review.
+
+
+## Upstream compatibility (November 2026)
+
+Selected behavioural fixes from [s3rgeym/hh-applicant-tool](https://github.com/s3rgeym/hh-applicant-tool)
+v2.5.5 have been adapted to our profile-aware HH worker. This is **not**
+a Git merge or a replacement of our architecture; the projects have diverged.
+
+Live chat scans now wait 15 minutes before replying to a human employer and
+ignore chat turns older than 30 days. Messages identified by authoritative
+HH bot metadata bypass the human cooldown. When bot metadata is missing,
+messages are treated as human.
+
+Optional outbound flows default to **off**:
+
+- HH_REPLY_FOLLOWUPS_ENABLED=on: one follow-up after two days, recorded in
+  SQLite so a chat cannot be reminded twice by this worker.
+- HH_REPLY_AUTO_QUICK_REPLIES=on: choose only from text options explicitly
+  supplied in the HH payload. Ambiguous matches return to the manual queue.
+  This does not implement the upstream private browser chatik endpoint.
+- HH_REPLY_HUMAN_COOLDOWN_MINUTES=15: human response grace period.
+- HH_REPLY_MAX_CHAT_AGE_DAYS=30: stale chat cutoff.
+- HH_REPLY_FOLLOWUP_AFTER_DAYS=2: minimum age of unanswered applicant turn.
+- HH_DESKTOP_USER_AGENT: optional desktop browser UA override.
+
+Check with ./scripts/reply.sh --profile default --chats 20 --dry-run
+before enabling live automation. See docs/UPSTREAM_SYNC_2026-11-18.md for
+detailed parity decisions and the remaining differences.
