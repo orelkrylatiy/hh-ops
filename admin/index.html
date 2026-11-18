@@ -288,6 +288,9 @@
       <div class="nav-item" data-page="run" onclick="goPage('run')">
         <span class="icon">▶️</span><span>Запуск задач</span>
       </div>
+      <div class="nav-item" data-page="automation" onclick="goPage('automation')">
+        <span class="icon">🛡️</span><span>Автоматизация</span>
+      </div>
       <div class="nav-item" data-page="config" onclick="goPage('config')">
         <span class="icon">⚙️</span><span>Настройки</span>
       </div>
@@ -859,6 +862,7 @@ const PAGE_TITLES = {
   'letter-template': 'Шаблон письма',
   run: 'Запуск задач',
   config: 'Настройки',
+  automation: 'Автоматизация',
 };
 
 function goPage(page) {
@@ -877,7 +881,7 @@ function goPage(page) {
   content.classList.add('animate__fadeInUp');
 
   if (page === 'logs') page = 'run';
-  const pages = { home, dashboard, negotiations, vacancies, skipped, employers, resumes, inbox, letter, 'letter-template': letterTemplate, 'apply-form': applyForm, run, config };
+  const pages = { home, dashboard, negotiations, vacancies, skipped, employers, resumes, inbox, letter, 'letter-template': letterTemplate, 'apply-form': applyForm, run, config, automation: automationSettings };
   if (pages[page]) pages[page]();
 }
 
@@ -1140,6 +1144,53 @@ function timeAgo(dt) {
   return Math.floor(diff/86400) + ' д. назад';
 }
 
+let dashboardDays = 30;
+
+// Minimal responsive SVG chart: source values come only from SQLite,
+// never from fabricated or cached browser sample data.
+function dailyTrendChart(days) {
+  if (!Array.isArray(days) || !days.length) return '<p class="admin-empty">Нет данных за период</p>';
+  const w = 800, h = 202, left = 38, right = 14, top = 15, bottom = 31;
+  const xStep = (w - left - right) / Math.max(1, days.length - 1);
+  const max = Math.max(1, ...days.map(item => Number(item.cnt) || 0));
+  const y = value => top + (h - top - bottom) * (1 - (Number(value) || 0) / max);
+  const points = days.map((item, i) => [left + i * xStep, y(item.cnt)]);
+  const pointList = points.map(([x, yy]) => x.toFixed(1) + ',' + yy.toFixed(1)).join(' ');
+  const area = left + ',' + (h-bottom) + ' ' + pointList + ' ' + points[points.length-1][0].toFixed(1) + ',' + (h-bottom);
+  const ticks = [0, 1, 2, 3].map(i => {
+    const count = Math.round(max * i / 3);
+    const yy = y(count);
+    return '<line x1="' + left + '" y1="' + yy + '" x2="' + (w-right) + '" y2="' + yy + '" stroke="currentColor" stroke-opacity=".10" />' +
+           '<text x="' + (left-7) + '" y="' + (yy+4) + '" fill="currentColor" fill-opacity=".65" font-size="11" text-anchor="end">' + count + '</text>';
+  }).join('');
+  const labelEvery = Math.max(1, Math.ceil(days.length / 8));
+  const labels = days.map((item, i) => i % labelEvery === 0 || i === days.length-1
+    ? '<text x="' + points[i][0] + '" y="' + (h-6) + '" fill="currentColor" fill-opacity=".7" font-size="11" text-anchor="middle">' + escapeHtml(String(item.day || '').slice(5)) + '</text>' : '').join('');
+  const dots = days.map((item, i) => '<circle cx="' + points[i][0] + '" cy="' + points[i][1] + '" r="3" fill="#f97360"><title>' + escapeHtml(String(item.day || '')) + ': ' + (Number(item.cnt) || 0) + '</title></circle>').join('');
+  return '<svg class="admin-trend-chart" viewBox="0 0 800 202" role="img" aria-label="Отклики по дням, источник: локальная база SQLite">' +
+    '<polygon points="' + area + '" fill="#f97360" fill-opacity=".10" />' + ticks +
+    '<polyline points="' + pointList + '" fill="none" stroke="#f97360" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />' +
+    dots + labels + '</svg>';
+}
+
+async function refreshLiveSummary() {
+  if (!requireSingleAccount('Живые данные HH')) return;
+  const box = document.getElementById('hh-live-summary');
+  if (!box) return;
+  const profileAtStart = currentProfile;
+  box.textContent = 'Проверяем счётчики в HH API…';
+  try {
+    const result = await api('/api/live-summary');
+    if (profileAtStart !== currentProfile || !document.getElementById('hh-live-summary')) return;
+    box.innerHTML = '<strong>HH API · ' + escapeHtml(new Date(result.observed_at).toLocaleString('ru-RU')) + '</strong>' +
+      '<div class="admin-live-stats"><span>Переписок: <b>' + Number(result.negotiations) + '</b></span>' +
+      '<span>Резюме: <b>' + Number(result.resumes) + '</b></span></div>' +
+      '<small>Это актуальная проверка HH API. Исторический график ниже основан на локальной базе и может отличаться.</small>';
+  } catch (error) {
+    box.textContent = 'Не удалось проверить HH: ' + error.message;
+  }
+}
+
 function snapshotLabel(value) {
   if (!value) return 'Локальный снимок ещё не создан';
   const parsed = new Date(value);
@@ -1150,9 +1201,9 @@ async function dashboard() {
   const c = document.getElementById('content');
   c.innerHTML = '<div style="color:var(--text2)">Загрузка локальных снимков…</div>';
   document.getElementById('topbar-actions').innerHTML =
-    `<button class="btn btn-secondary" onclick="dashboard()">🔄 Обновить</button>`;
+    `<select id="dashboard-days" aria-label="Период статистики" onchange="dashboardDays=Number(this.value);dashboard()"><option value="14">14 дней</option><option value="30">30 дней</option><option value="90">90 дней</option></select> <button class="btn btn-secondary" onclick="dashboard()">🔄 Обновить</button>`;
   try {
-    const d = await api(CONSTANTS.endpoints.stats);
+    const d = await api(CONSTANTS.endpoints.stats + "?days=" + dashboardDays);
     const t = d.totals || {};
     const scopeColumn = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const scopeColspan = isAllAccounts() ? 5 : 4;
@@ -1193,15 +1244,20 @@ async function dashboard() {
     </tr>`).join('') || `<tr class="empty-row"><td colspan="${isAllAccounts() ? 4 : 3}">В снимке нет резюме</td></tr>`;
 
     const accountRows = (d.profile_totals || []).map(account => `<tr>
-      <td>${escapeHtml(account.profile)}</td><td>${Number(account.negotiations) || 0}</td><td>${Number(account.resumes) || 0}</td>
-      <td>${escapeHtml(snapshotLabel(account.snapshot_updated_at))}</td>
+      <td><strong>${escapeHtml(account.profile)}</strong></td><td>${Number(account.negotiations) || 0}</td>
+      <td>${Number((account.states || {}).invitation) || 0}</td>
+      <td>${Number((account.states || {}).interview) || 0}</td>
+      <td>${Number((account.states || {}).discard) || 0}</td>
+      <td>${Number(account.progress_rate) || 0}%</td>
+      <td>${Number(account.resumes) || 0}</td>
+      <td title="Локальная SQLite, не синхронизация с HH">${escapeHtml(timeAgo(account.last_negotiation_at))}</td>
     </tr>`).join('');
     const unavailable = (d.unavailable_profiles || []).map(item => `${escapeHtml(item.profile)} (${escapeHtml(item.reason)})`).join(', ');
 
     c.innerHTML = `
       <div class="section" style="padding:16px;margin-bottom:16px">
         <div class="section-title">${isAllAccounts() ? 'Все аккаунты' : `Аккаунт: ${escapeHtml(currentProfile)}`}</div>
-        <div style="font-size:12px;color:var(--text2)">${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Метрики считаются из локальных SQLite-снимков; страница никогда не обращается к живым данным HH.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
+        <div style="font-size:12px;color:var(--text2)">${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Метрики и графики — локальная SQLite, а время снимка означает изменение файла, НЕ момент синхронизации с HH. Для проверки HH используйте кнопку ниже.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
       </div>
       <div class="section"><div class="section-title">Обзор</div><div class="cards">
         <div class="card"><div class="card-label">Всего откликов</div><div class="card-value">${Number(t.negotiations) || 0}</div></div>
@@ -1209,11 +1265,13 @@ async function dashboard() {
         <div class="card"><div class="card-label">Работодателей</div><div class="card-value blue">${Number(t.employers) || 0}</div></div>
         <div class="card"><div class="card-label">Пропущено</div><div class="card-value">${Number(t.skipped) || 0}</div></div>${stateCards}
       </div></div>
-      ${isAllAccounts() ? `<div class="section"><div class="section-title">Покрытие аккаунтов</div><div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Откликов</th><th>Резюме</th><th>Свежесть снимка</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="4">Нет готовых аккаунтов</td></tr>'}</tbody></table></div></div>` : ''}
-      <div class="dashboard-grid-two"><div class="section"><div class="section-title">Отклики за 14 дней</div><div class="table-wrap" style="padding:16px"><div class="days-chart">${dayCols}</div></div></div>
+      ${isAllAccounts() ? `<div class="section"><div class="section-title">Результаты по аккаунтам · локальные данные</div><div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Откликов</th><th>Приглашений</th><th>Интервью</th><th>Отказов</th><th>Прогресс</th><th>Резюме</th><th>Посл. активность</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="8">Нет готовых аккаунтов</td></tr>'}</tbody></table></div></div>` : `<div class="section"><div class="section-title">Живые данные HH · только чтение</div><p class="admin-muted">Загрузка по запросу, без отправки откликов или сообщений.</p><button class="btn btn-secondary" onclick="refreshLiveSummary()">Проверить HH сейчас</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite">Проверка не выполнялась</div></div>`}
+      <div class="dashboard-grid-two"><div class="section"><div class="section-title">Динамика откликов за ${dashboardDays} дней</div><div class="admin-trend-wrap">${dailyTrendChart(days)}</div><div class="admin-muted" style="margin:6px 16px 14px">Количество записей переговоров по дате создания в SQLite (UTC), не счётчик действий в реальном времени.</div></div>
         <div class="section"><div class="section-title">Причины пропуска</div><div class="table-wrap" style="padding:16px">${skipBars || '<div style="color:var(--text2);font-size:13px">Нет данных</div>'}</div></div></div>
       <div class="dashboard-grid-main"><div class="section"><div class="section-title">Последние отклики <span class="badge">${(d.recent_negotiations || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Статус</th><th>Вакансия</th><th>Работодатель</th><th>Создан</th></tr></thead><tbody>${recentRows}</tbody></table></div></div>
         <div class="section"><div class="section-title">Просмотры резюме</div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Всего</th><th>Новые</th></tr></thead><tbody>${resumeRows}</tbody></table></div></div></div>`;
+    const selector = document.getElementById('dashboard-days');
+    if (selector) selector.value = String(dashboardDays);
   } catch(e) {
     c.innerHTML = `<div style="color:var(--red);padding:20px">Ошибка дашборда: ${escapeHtml(e.message)}</div>`;
   }
