@@ -821,7 +821,7 @@ def test_upstream_structured_quick_reply_uses_only_presented_options() -> None:
     writer = Mock()
     writer.chat_reply.return_value = _framework_result("Удалённо.")
     worker = ReplyWorker(
-        ReplyWorkerConfig(auto_quick_replies=True),
+        ReplyWorkerConfig(dry_run=False, auto_quick_replies=True),
         hh=hh,
         framework_writer=writer,
     )
