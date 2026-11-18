@@ -319,12 +319,11 @@ def get_conn(profile: str = "default") -> sqlite3.Connection:
     db = _db_path(profile)
     if not db.exists():
         raise HTTPException(404, f"База данных не найдена: {db}")
-    conn = sqlite3.connect(str(db))
+    # Dashboards are read-only: opening them must not mutate SQLite, acquire
+    # database write locks, or fake a recent snapshot mtime. Migrations belong
+    # to profile initialization and regular worker lifecycle, not a GET route.
+    conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
     conn.row_factory = sqlite3.Row
-    # Existing profile snapshots are upgraded before dashboard queries use the
-    # newly persisted vacancy→employer relation.
-    init_db(conn)
-    conn.commit()
     return conn
 
 

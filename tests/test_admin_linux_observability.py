@@ -261,3 +261,19 @@ def test_admin_inline_javascript_parses_if_node_available() -> None:
         [node, "--check"], input=scripts[0], text=True, capture_output=True, check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_sqlite_dashboard_is_read_only_and_does_not_update_freshness(
+    client: TestClient, tmp_path: Path
+) -> None:
+    response = client.post("/api/profiles", json={"profile": "snapshot"})
+    assert response.status_code == 200
+    db = tmp_path / "snapshot" / "data"
+    os.utime(db, (1_600_000_000, 1_600_000_000))
+    previous_modified = db.stat().st_mtime_ns
+    first = client.get("/api/stats?profile=snapshot")
+    second = client.get("/api/stats?profile=snapshot")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["source"] == "local_sqlite"
+    assert db.stat().st_mtime_ns == previous_modified
