@@ -35,9 +35,11 @@ logger = logging.getLogger(__package__)
 LETTER_MIN_CHARS = 150
 LETTER_MAX_CHARS = 900
 LETTER_PLACEHOLDER_TOKENS = ("[", "]", "{", "}", "%(", "<имя>", "<name>")
-APPLICATION_CONTACT_URL = ""  # Never inherit another account\u0027s contact.
+APPLICATION_CONTACT_URL = ""  # Never inherit another account's contact.
 APPLICATION_CONTACT_LINE = (
-    f"Буду рад связаться и обсудить задачи в Telegram: {APPLICATION_CONTACT_URL}"\n    if APPLICATION_CONTACT_URL else ""
+    f"Буду рад связаться и обсудить задачи в Telegram: {APPLICATION_CONTACT_URL}"
+    if APPLICATION_CONTACT_URL
+    else ""
 )
 # ")" допускаем: письмо может заканчиваться оговоркой в скобках
 _LETTER_SENTENCE_ENDINGS = ".!?…)"
