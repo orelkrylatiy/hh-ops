@@ -20,8 +20,7 @@ from hh_applicant_tool.communication import (
     conversation_from_context,
 )
 from hh_applicant_tool.operations._apply_vacancies_apply_flow import (
-    APPLICATION_CONTACT_LINE,
-    APPLICATION_CONTACT_URL,
+    application_contact_line,
     append_application_contact,
     letter_quality_issues,
 )
@@ -160,11 +159,12 @@ def test_application_contact_is_appended_once_and_passes_quality_checks() -> Non
         "Более пяти лет работаю с React и TypeScript и готов обсудить опыт подробнее."
     )
 
-    with_contact = append_application_contact(letter)
+    contact = "https://t.me/recruiting_account"
+    with_contact = append_application_contact(letter, contact)
 
-    assert with_contact.endswith(APPLICATION_CONTACT_LINE)
-    assert append_application_contact(with_contact) == with_contact
-    assert letter_quality_issues(with_contact) == []
+    assert with_contact.endswith(application_contact_line(contact))
+    assert append_application_contact(with_contact, contact) == with_contact
+    assert letter_quality_issues(with_contact, contact) == []
 
 
 def test_application_contact_removes_stale_model_contacts() -> None:
