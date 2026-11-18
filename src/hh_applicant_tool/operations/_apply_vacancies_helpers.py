@@ -23,6 +23,28 @@ from ..utils.string import bool2str, rand_text, strip_tags
 logger = logging.getLogger(__package__)
 
 
+class InvalidVacancyTestChoice(ValueError):
+    """AI did not choose an actual option: never submit an invented answer."""
+
+
+def verified_test_choice_id(answer: str, solutions: list[dict[str, Any]]) -> Any:
+    """Validate the answer against current HH option identifiers.
+
+    The model is instructed to return only an ID. Allow a brief 'Ответ: ID'
+    wrapper, but never take the first number from arbitrary free-form text.
+    """
+    possible = {str(option["id"]): option["id"] for option in solutions}
+    value = answer.strip().strip(" .!\"'")
+    if value not in possible:
+        match = re.fullmatch(r"(?:ответ\s*[:№]?\s*)(\d+)", value, re.IGNORECASE)
+        value = match.group(1) if match else ""
+    if value not in possible:
+        raise InvalidVacancyTestChoice(
+            "AI returned no valid HH option ID; skipping this test rather than guessing"
+        )
+    return possible[value]
+
+
 class ApplyVacanciesHelpersMixin:
     json_decoder = JSONDecoder()
 
@@ -206,21 +228,22 @@ class ApplyVacanciesHelpersMixin:
                         f"Выбери ID правильного ответа. Пришли только ID."
                     )
                     ai_answer = self.cover_letter_ai.complete(prompt).strip()
-                    match = re.search(r"\d+", ai_answer)
-                    selected_id = (
-                        match.group(0) if match else solutions[0]["id"]
-                    )
-                    payload[field_name] = selected_id
+                    payload[field_name] = verified_test_choice_id(ai_answer, solutions)
                 else:
                     yes_solution = next(
-                        filter(lambda x: x["text"].lower() == "да", solutions),
+                        (
+                            option
+                            for option in solutions
+                            if strip_tags(str(option.get("text", ""))).strip().casefold()
+                            .rstrip(" .!") == "да"
+                        ),
                         None,
                     )
-                    payload[field_name] = (
-                        yes_solution["id"]
-                        if yes_solution
-                        else solutions[len(solutions) // 2]["id"]
-                    )
+                    if yes_solution is None:
+                        raise InvalidVacancyTestChoice(
+                            "No AI or unambiguous affirmative answer for HH test"
+                        )
+                    payload[field_name] = yes_solution["id"]
             else:
                 if "://" in question:
                     answer = rand_text(

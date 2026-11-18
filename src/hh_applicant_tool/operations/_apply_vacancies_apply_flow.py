@@ -24,6 +24,7 @@ from ..communication.gmail_api import GmailAPISender
 from ..constants import CONFIG_DIR
 from ..storage.repositories.errors import RepositoryError
 from ..utils.description_links import extract_vacancy_links, vacancy_response_link
+from ._apply_vacancies_helpers import InvalidVacancyTestChoice
 from ..utils.string import contains_smiley, rand_text, render_template
 from ..utils.vacancy_routing import VacancyRouting
 
@@ -586,6 +587,13 @@ class ApplyVacanciesApplyFlowMixin:
                     vacancy=vacancy,
                     resume=resume,
                 )
+            except InvalidVacancyTestChoice as ex:
+                logger.warning(
+                    "Пропуск отклика: неоднозначный вариант ответа на тест %s: %s",
+                    vacancy["alternate_url"],
+                    ex,
+                )
+                return VacancyResponseResult(should_continue=True, accepted=False)
             except ValueError as ex:
                 logger.warning(
                     "Не удалось обработать тест (%s), пробую обычный отклик: %s",
