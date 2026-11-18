@@ -64,7 +64,7 @@ def test_unconfigured_contact_never_injects_another_accounts_telegram(monkeypatc
     assert resolve_contact_url({}) == ""
     result = append_application_contact(GOOD_LETTER, "")
     assert "t.me/" not in result
-    assert result.endswith("Telegram.")
+    assert result.endswith("созвоне.")
     assert letter_quality_issues(result) == []
 
 
