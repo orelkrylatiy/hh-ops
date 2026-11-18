@@ -1,0 +1,56 @@
+name: Format upstream-sync branch (temporary)
+
+on:
+  push:
+    branches:
+      - feat/upstream-parity-20261118
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/upstream-parity-20261118
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Run pinned Ruff formatter
+        run: |
+          python -m pip install ruff==0.16.5
+          ruff format \
+            src/hh_applicant_tool/automation/upstream_chat_policy.py \
+            src/hh_applicant_tool/automation/reply_worker.py \
+            src/hh_applicant_tool/automation/reply_state.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_helpers.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_apply_flow.py \
+            src/hh_applicant_tool/main.py \
+            src/hh_applicant_tool/constants.py \
+            scripts/reply_iterative_ai.py \
+            tests/test_reply_worker.py \
+            tests/test_upstream_chat_policy.py \
+            tests/test_reply_state.py \
+            tests/test_upstream_compat.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/hh_applicant_tool/automation/upstream_chat_policy.py \
+            src/hh_applicant_tool/automation/reply_worker.py \
+            src/hh_applicant_tool/automation/reply_state.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_helpers.py \
+            src/hh_applicant_tool/operations/_apply_vacancies_apply_flow.py \
+            src/hh_applicant_tool/main.py \
+            src/hh_applicant_tool/constants.py \
+            scripts/reply_iterative_ai.py \
+            tests/test_reply_worker.py \
+            tests/test_upstream_chat_policy.py \
+            tests/test_reply_state.py \
+            tests/test_upstream_compat.py
+          if ! git diff --cached --quiet; then
+            git commit -m "style: format upstream parity files with Ruff"
+            git push origin HEAD:refs/heads/feat/upstream-parity-20261118
+          fi
