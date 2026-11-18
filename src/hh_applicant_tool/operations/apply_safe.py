@@ -170,7 +170,8 @@ class Operation(BaseApplyOperation):
         if self.ai_error_count or self.email_error_count:
             logger.error(
                 "AI or email failed: AI=%d, email=%d; run marked unsuccessful",
-                self.ai_error_count, self.email_error_count,
+                self.ai_error_count,
+                self.email_error_count,
             )
             return 1
         return None
