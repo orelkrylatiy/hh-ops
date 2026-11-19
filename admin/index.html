@@ -39,6 +39,10 @@
   .nav-item:hover { background: var(--bg3); color: var(--text); }
   .nav-item.active { background: rgba(232,50,28,.12); color: var(--accent2); border-left-color: var(--accent); }
   .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+  .nav-more { padding: 4px 0; }
+  .nav-more summary { padding: 9px 16px; color: var(--text2); cursor: pointer; list-style: none; }
+  .nav-more summary::-webkit-details-marker { display: none; }
+  .nav-more[open] summary { color: var(--text); }
   .sidebar-profile { padding: 12px 16px; border-top: 1px solid var(--border); position: relative; }
   .profile-trigger { width: 100%; background: var(--bg3); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 13px; cursor: pointer; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .profile-trigger:hover { border-color: var(--accent2); }
@@ -249,7 +253,7 @@
   <nav class="sidebar animate__animated animate__fadeInLeft">
     <div class="sidebar-logo">
       <div class="logo-icon">HH</div>
-      <span>Admin Panel</span>
+      <span>HH · Управление</span>
     </div>
     <div class="nav" id="nav">
       <div class="nav-item active" data-page="home" onclick="goPage('home')">
@@ -264,29 +268,8 @@
       <div class="nav-item" data-page="vacancies" onclick="goPage('vacancies')">
         <span class="icon">💼</span><span>Вакансии</span>
       </div>
-      <div class="nav-item" data-page="skipped" onclick="goPage('skipped')">
-        <span class="icon">🚫</span><span>Пропущенные</span>
-      </div>
-      <div class="nav-item" data-page="employers" onclick="goPage('employers')">
-        <span class="icon">🏢</span><span>Работодатели</span>
-      </div>
       <div class="nav-item" data-page="resumes" onclick="goPage('resumes')">
         <span class="icon">📄</span><span>Резюме</span>
-      </div>
-      <div class="nav-item" data-page="inbox" onclick="goPage('inbox')">
-        <span class="icon">📨</span><span>Сообщения</span>
-      </div>
-      <div class="nav-item" data-page="apply-form" onclick="goPage('apply-form')">
-        <span class="icon">🎯</span><span>Форма отклика</span>
-      </div>
-      <div class="nav-item" data-page="letter" onclick="goPage('letter')">
-        <span class="icon">✉️</span><span>Генератор писем</span>
-      </div>
-      <div class="nav-item" data-page="letter-template" onclick="goPage('letter-template')">
-        <span class="icon">📝</span><span>Шаблон письма</span>
-      </div>
-      <div class="nav-item" data-page="run" onclick="goPage('run')">
-        <span class="icon">▶️</span><span>Запуск задач</span>
       </div>
       <div class="nav-item" data-page="automation" onclick="goPage('automation')">
         <span class="icon">🛡️</span><span>Автоматизация</span>
@@ -294,6 +277,16 @@
       <div class="nav-item" data-page="config" onclick="goPage('config')">
         <span class="icon">⚙️</span><span>Настройки</span>
       </div>
+      <details class="nav-more">
+        <summary>Ещё разделы ▾</summary>
+        <div class="nav-item" data-page="inbox" onclick="goPage('inbox')"><span class="icon">📨</span><span>Сообщения</span></div>
+        <div class="nav-item" data-page="skipped" onclick="goPage('skipped')"><span class="icon">🚫</span><span>Пропущенные</span></div>
+        <div class="nav-item" data-page="employers" onclick="goPage('employers')"><span class="icon">🏢</span><span>Работодатели</span></div>
+        <div class="nav-item" data-page="apply-form" onclick="goPage('apply-form')"><span class="icon">🎯</span><span>Форма отклика</span></div>
+        <div class="nav-item" data-page="letter" onclick="goPage('letter')"><span class="icon">✉️</span><span>Генератор писем</span></div>
+        <div class="nav-item" data-page="letter-template" onclick="goPage('letter-template')"><span class="icon">📝</span><span>Шаблон письма</span></div>
+        <div class="nav-item" data-page="run" onclick="goPage('run')"><span class="icon">▶️</span><span>Запуск задач</span></div>
+      </details>
     </div>
     <div class="sidebar-profile">
       <button class="profile-trigger" id="profile-trigger" onclick="toggleProfilePopover(event)">
@@ -396,7 +389,7 @@ const API = '';
 let currentProfile = 'default';
 let availableProfiles = [];
 let accountSummaries = [];
-let viewScope = localStorage.getItem('lastScope') === 'all' ? 'all' : 'profile';
+let viewScope = 'all';
 let currentPage = 'home';
 let CONSTANTS = null;
 const RUN_CARD_DONE_KEY = 'hh-admin-run-card-done';
@@ -462,7 +455,8 @@ async function init() {
   } catch(e) {}
 
   // Восстанавливаем последнюю посещённую страницу
-  const lastPage = localStorage.getItem('lastPage') || 'home';
+  const savedPage = localStorage.getItem('lastPage');
+  const lastPage = !savedPage || savedPage === 'home' ? 'dashboard' : savedPage;
   goPage(lastPage);
 }
 
@@ -1144,7 +1138,7 @@ function timeAgo(dt) {
   return Math.floor(diff/86400) + ' д. назад';
 }
 
-let dashboardDays = 30;
+let dashboardDays = 90;
 
 // Minimal responsive SVG chart: source values come only from SQLite,
 // never from fabricated or cached browser sample data.
@@ -1189,6 +1183,27 @@ async function refreshLiveSummary() {
   } catch (error) {
     box.textContent = 'Не удалось проверить HH: ' + error.message;
   }
+}
+
+async function refreshAllLiveSummaries() {
+  const box = document.getElementById('hh-live-summary');
+  if (!box) return;
+  box.textContent = 'Проверяю аккаунты напрямую в HH…';
+  const results = [];
+  for (const profile of availableProfiles) {
+    try {
+      const result = await api(`/api/live-summary?profile=${encodeURIComponent(profile)}`);
+      results.push({profile, result});
+    } catch (error) {
+      results.push({profile, error: error.message});
+    }
+  }
+  box.innerHTML = '<strong>Проверка HH · ' + escapeHtml(new Date().toLocaleString('ru-RU')) + '</strong>' +
+    '<div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Переписки в HH</th><th>Последняя переписка</th><th>Резюме в HH</th><th>Актуальные резюме</th></tr></thead><tbody>' +
+    results.map(({profile, result, error}) => result
+      ? `<tr><td>${escapeHtml(profile)}</td><td>${Number(result.negotiations) || 0}</td><td>${result.latest_negotiation_at ? escapeHtml(new Date(result.latest_negotiation_at).toLocaleString('ru-RU')) : '—'}</td><td>${Number(result.resumes) || 0}</td><td>${(result.resume_views || []).map(r => `${escapeHtml(r.title || 'Без названия')} · ${escapeHtml(r.status_name || 'статус неизвестен')}`).join('<br>') || '—'}</td></tr>`
+      : `<tr><td>${escapeHtml(profile)}</td><td colspan="4">Ошибка HH: ${escapeHtml(error || 'не удалось получить данные')}</td></tr>`).join('') +
+    '</tbody></table></div><small>Это текущий ответ HH API. Исторические списки ниже берутся из локальных снимков и могут быть неполными или устаревшими.</small>';
 }
 
 function snapshotLabel(value) {
@@ -1240,36 +1255,41 @@ async function dashboard() {
 
     const resumeRows = (d.resume_views || []).map(resume => `<tr>
       ${accountCell(resume)}<td>${linkHtml(resume.alternate_url || resume.url, resume.title)}</td>
+      <td>${Number(resume.applications_count) || 0}</td>
       <td>${Number(resume.total_views) || 0}</td><td style="color:${Number(resume.new_views) > 0 ? 'var(--green)' : 'var(--text2)'}">${Number(resume.new_views) || 0}</td>
     </tr>`).join('') || `<tr class="empty-row"><td colspan="${isAllAccounts() ? 4 : 3}">В снимке нет резюме</td></tr>`;
 
+    const automationProfiles = new Set(['0056', '0555', '1206', '1558', '5457', '8755']);
+    const accountMeta = new Map(accountSummaries.map(item => [item.profile, item]));
     const accountRows = (d.profile_totals || []).map(account => `<tr>
-      <td><strong>${escapeHtml(account.profile)}</strong></td><td>${Number(account.negotiations) || 0}</td>
+      <td><strong>${escapeHtml(account.profile)}</strong><br><small>${automationProfiles.has(account.profile) ? 'В автоцикле' : 'Выключен из автоцикла'}</small></td>
+      <td>${({ok:'Активен', expired:'Токен истёк', no_token:'Нет токена', no_config:'Нет авторизации'}[(accountMeta.get(account.profile)?.token || {}).status] || 'Проверьте авторизацию')}</td>
+      <td>${Number(account.negotiations) || 0}</td>
       <td>${Number((account.states || {}).invitation) || 0}</td>
       <td>${Number((account.states || {}).interview) || 0}</td>
       <td>${Number((account.states || {}).discard) || 0}</td>
       <td>${Number(account.progress_rate) || 0}%</td>
       <td>${Number(account.resumes) || 0}</td>
-      <td title="Локальная SQLite, не синхронизация с HH">${escapeHtml(timeAgo(account.last_negotiation_at))}</td>
+      <td>${escapeHtml(account.last_negotiation_at ? new Date(account.last_negotiation_at).toLocaleDateString('ru-RU') : '—')}</td>
     </tr>`).join('');
     const unavailable = (d.unavailable_profiles || []).map(item => `${escapeHtml(item.profile)} (${escapeHtml(item.reason)})`).join(', ');
 
     c.innerHTML = `
       <div class="section" style="padding:16px;margin-bottom:16px">
         <div class="section-title">${isAllAccounts() ? 'Все аккаунты' : `Аккаунт: ${escapeHtml(currentProfile)}`}</div>
-        <div style="font-size:12px;color:var(--text2)">${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Метрики и графики — локальная SQLite, а время снимка означает изменение файла, НЕ момент синхронизации с HH. Для проверки HH используйте кнопку ниже.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
+        <div style="font-size:12px;color:var(--text2)">Показаны ${d.profiles.length} аккаунтов · ${Number(t.negotiations) || 0} записей переписок · ${Number(t.resumes) || 0} резюме в локальных снимках. Снимки: ${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Это история локальной базы; свежесть HH проверяется отдельно.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
       </div>
       <div class="section"><div class="section-title">Обзор</div><div class="cards">
-        <div class="card"><div class="card-label">Всего откликов</div><div class="card-value">${Number(t.negotiations) || 0}</div></div>
+        <div class="card"><div class="card-label">Переписки и отклики</div><div class="card-value">${Number(t.negotiations) || 0}</div></div>
         <div class="card"><div class="card-label">Вакансий в базе</div><div class="card-value blue">${Number(t.vacancies) || 0}</div></div>
         <div class="card"><div class="card-label">Работодателей</div><div class="card-value blue">${Number(t.employers) || 0}</div></div>
         <div class="card"><div class="card-label">Пропущено</div><div class="card-value">${Number(t.skipped) || 0}</div></div>${stateCards}
       </div></div>
-      ${isAllAccounts() ? `<div class="section"><div class="section-title">Результаты по аккаунтам · локальные данные</div><div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Откликов</th><th>Приглашений</th><th>Интервью</th><th>Отказов</th><th>Прогресс</th><th>Резюме</th><th>Посл. активность</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="8">Нет готовых аккаунтов</td></tr>'}</tbody></table></div></div>` : `<div class="section"><div class="section-title">Живые данные HH · только чтение</div><p class="admin-muted">Загрузка по запросу, без отправки откликов или сообщений.</p><button class="btn btn-secondary" onclick="refreshLiveSummary()">Проверить HH сейчас</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite">Проверка не выполнялась</div></div>`}
+      <div class="section"><div class="section-title">Аккаунты · состояние, отклики и резюме</div><div class="table-wrap"><table><thead><tr><th>Профиль</th><th>HH</th><th>Переписки</th><th>Приглашения</th><th>Интервью</th><th>Отказы</th><th>Продвижение</th><th>Резюме</th><th>Последний отклик</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="9">Нет готовых аккаунтов</td></tr>'}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Переписки и отклики — локальная история. Число аккаунтов в автоматизации: ${automationProfiles.size} из ${d.profiles.length}; остальные показаны, но не запускаются по расписанию.</div><div style="padding:0 16px 16px"><button class="btn btn-secondary" onclick="refreshAllLiveSummaries()">Проверить все аккаунты прямо в HH</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite" style="margin-top:12px">Ещё не проверяли</div></div></div>
       <div class="dashboard-grid-two"><div class="section"><div class="section-title">Динамика откликов за ${dashboardDays} дней</div><div class="admin-trend-wrap">${dailyTrendChart(days)}</div><div class="admin-muted" style="margin:6px 16px 14px">Количество записей переговоров по дате создания в SQLite (UTC), не счётчик действий в реальном времени.</div></div>
         <div class="section"><div class="section-title">Причины пропуска</div><div class="table-wrap" style="padding:16px">${skipBars || '<div style="color:var(--text2);font-size:13px">Нет данных</div>'}</div></div></div>
-      <div class="dashboard-grid-main"><div class="section"><div class="section-title">Последние отклики <span class="badge">${(d.recent_negotiations || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Статус</th><th>Вакансия</th><th>Работодатель</th><th>Создан</th></tr></thead><tbody>${recentRows}</tbody></table></div></div>
-        <div class="section"><div class="section-title">Просмотры резюме</div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Всего</th><th>Новые</th></tr></thead><tbody>${resumeRows}</tbody></table></div></div></div>`;
+      <div class="dashboard-grid-main"><div class="section"><div class="section-title">Последние записи переписок <span class="badge">${(d.recent_negotiations || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Статус</th><th>Вакансия</th><th>Работодатель</th><th>Создан</th></tr></thead><tbody>${recentRows}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Показываются последние 5 записей. Вся история и фильтры — в разделе «Отклики».</div></div>
+        <div class="section"><div class="section-title">Все резюме <span class="badge">${(d.resume_views || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Откликов</th><th>Просмотры</th><th>Новые</th></tr></thead><tbody>${resumeRows}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Число откликов считается из локальной истории по каждому резюме.</div></div></div>`;
     const selector = document.getElementById('dashboard-days');
     if (selector) selector.value = String(dashboardDays);
   } catch(e) {

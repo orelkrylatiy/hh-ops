@@ -68,12 +68,12 @@ PROFILES="0056 0555 1206 1558 5457 8755" /bin/bash scripts/all-profiles.sh boost
 
 ## Расписание VPS
 
-Cron запускает `cycle` в 09:00, 14:00 и 19:00 по Москве (06:00, 11:00 и 16:00
+Cron запускает `cycle` в 09:00, 15:00 и 21:00 по Москве (06:00, 12:00 и 18:00
 UTC). Каждый цикл сначала пробует поднять опубликованные резюме, затем
 обрабатывает чаты по всем шести профилям. Интервал между boost составляет
-пять часов; [справка hh.ru](https://feedback.hh.ru/knowledge-base/article/0012145?hhtmFrom=main&hhtmFromLabel=simular)
+шесть часов; [справка hh.ru](https://feedback.hh.ru/knowledge-base/article/0012145?hhtmFrom=main&hhtmFromLabel=simular)
 указывает, что ручное бесплатное поднятие доступно раз в четыре часа. По
-времени Алматы (UTC+5) это 11:00, 16:00 и 21:00.
+времени Алматы (UTC+5) это 11:00, 17:00 и 23:00.
 
 ## Admin panel
 

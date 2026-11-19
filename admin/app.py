@@ -717,7 +717,9 @@ def get_stats(
                 conn,
                 """
                 SELECT id, title, url, alternate_url, status_id, status_name,
-                       can_publish_or_update, total_views, new_views, created_at, updated_at
+                       can_publish_or_update, total_views, new_views, created_at, updated_at,
+                       (SELECT count(*) FROM negotiations n WHERE n.resume_id = resumes.id)
+                           AS applications_count
                 FROM resumes
                 ORDER BY updated_at DESC
                 """,
@@ -2957,11 +2959,15 @@ def get_live_summary(profile: str = Query("default")):
         "source": "hh_api",
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "negotiations": int(negotiations.get("found") or 0),
+        "latest_negotiation_at": (negotiations.get("items") or [{}])[0].get("created_at"),
         "resumes": int(resumes.get("found") or len(resumes.get("items") or [])),
         "resume_views": [
             {
                 "id": item.get("id"),
                 "title": item.get("title"),
+                "status_name": item.get("status", {}).get("name")
+                if isinstance(item.get("status"), dict)
+                else item.get("status_name"),
                 "total_views": (item.get("total_views") or {}).get("total")
                 if isinstance(item.get("total_views"), dict)
                 else item.get("total_views", 0),
