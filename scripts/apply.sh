@@ -222,6 +222,7 @@ fi
 
 # render_prompt.py (venv-python, UTF-8 end-to-end) вместо envsubst:
 # Render prompt with UTF-8 using the current Python environment.
+mkdir -p "$PROJECT_ROOT/tmp"
 RENDERED_SYSTEM_PROMPT="$(mktemp "$PROJECT_ROOT/tmp/hh-apply-prompt.XXXXXX")"
 cleanup() {
     rm -f "$RENDERED_SYSTEM_PROMPT"
