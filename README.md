@@ -18,6 +18,8 @@ LLM только там, где нужен текст
 
 Подробная схема с Mermaid-диаграммами и привязкой к файлам кода: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Краткая инструкция по запуску, проверке логов и расписанию VPS: [docs/OPS_RUNBOOK.md](docs/OPS_RUNBOOK.md).
+
 Для ежедневного цикла MCP не требуется. Скрипты уже дают стабильную command surface для cron, CI и внешнего агента.
 
 ## Что Автоматизировано
@@ -383,6 +385,10 @@ Gmail API OAuth (`config.json`, `credentials.json`, `token.json`) и прове�
 сетевым каталогом.
 
 ## Расписание
+
+Расписание конкретного VPS и команды ручного управления описаны в
+[docs/OPS_RUNBOOK.md](docs/OPS_RUNBOOK.md). Там запускаются только resume boost
+и ответы в чатах; автоматические отклики на вакансии (`apply`) — отдельная операция.
 
 Container `crontab` по умолчанию:
 

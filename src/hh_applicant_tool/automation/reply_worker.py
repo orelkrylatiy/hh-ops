@@ -297,29 +297,27 @@ def normalize_message_text(text: str) -> str:
     return normalized.strip(" .,!?:;…-")
 
 
-def repeated_employer_message_after_reply(
-    messages: list[dict[str, Any]],
-) -> bool:
-    """Detect the employer repeating a message they already sent before.
-
-    Повтор вопроса — с нашим ответом между повторами или подряд, без ответа —
-    означает, что второй автоматический ответ не нужен: чат уходит в ручную
-    очередь (кнопка, анкета, недопонимание или глюк отправки).
-    """
+def repeated_employer_message_count(messages: list[dict[str, Any]]) -> int:
+    """Count earlier exact matches for the latest employer message."""
     ordered = sorted_messages(messages)
     if len(ordered) < 2 or message_role(ordered[-1]) != EMPLOYER_ROLE:
-        return False
+        return 0
 
     latest_text = normalize_message_text(message_text(ordered[-1]))
     if not latest_text:
-        return False
+        return 0
 
-    for item in ordered[:-1]:
-        if message_role(item) != EMPLOYER_ROLE:
-            continue
-        if normalize_message_text(message_text(item)) == latest_text:
-            return True
-    return False
+    return sum(
+        1
+        for item in ordered[:-1]
+        if message_role(item) == EMPLOYER_ROLE
+        and normalize_message_text(message_text(item)) == latest_text
+    )
+
+
+def repeated_employer_message_after_reply(messages: list[dict[str, Any]]) -> bool:
+    """Compatibility helper: true when the latest employer message is repeated."""
+    return repeated_employer_message_count(messages) > 0
 
 
 def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
@@ -345,7 +343,17 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         and not FOLLOWUP_HINT_RE.search(text)
     ):
         return ACTION_IGNORE, "questionnaire_completed"
-    if repeated_employer_message_after_reply(ordered):
+    repeated_count = repeated_employer_message_count(ordered)
+    if repeated_count:
+        is_question = (
+            "?" in text
+            or QUESTION_HINT_RE.search(text) is not None
+            or FOLLOWUP_HINT_RE.search(text) is not None
+        )
+        # On the first exact repeat (second occurrence), acknowledge once.
+        # If it appears again (third occurrence or later), leave the chat manual.
+        if is_question and repeated_count == 1:
+            return ACTION_REPLY, "first_repeated_employer_question"
         return ACTION_MANUAL, "repeated_employer_question"
     if (
         "?" not in text
@@ -743,6 +751,8 @@ class ReplyWorker:
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
+        if decision.reason == "first_repeated_employer_question":
+            return "Да."
         if decision.action == ACTION_FOLLOWUP:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:
