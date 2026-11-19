@@ -75,6 +75,33 @@ UTC). Каждый цикл сначала пробует поднять опу�
 указывает, что ручное бесплатное поднятие доступно раз в четыре часа. По
 времени Алматы (UTC+5) это 11:00, 16:00 и 21:00.
 
+## Admin panel
+
+Панель доступна по адресу [https://getbrainflow.pro/hh-ops](https://getbrainflow.pro/hh-ops)
+под Basic Auth. Локальный файл входа —
+`/home/maxim/.config/hh-ops-admin.credentials` (права `0600`). Не копируйте его
+в Git или в общий чат.
+
+Страница «Автоматизация» управляет запланированными циклами: `off` пропускает
+запуск, `dry-run` проверяет чаты без отправки и пропускает boost, `live` сначала
+поднимает резюме, затем отвечает в чатах. Новые отклики на вакансии этой cron
+задачей не запускаются.
+
+Состояние службы и её журналы:
+
+```bash
+sudo systemctl status hh-ops-admin
+sudo journalctl -u hh-ops-admin -f
+```
+
+После обновления кода из Git перезапустите панель:
+
+```bash
+cd /home/ubuntu/hh-ops
+git pull --ff-only
+sudo systemctl restart hh-ops-admin
+```
+
 Посмотреть расписание:
 
 ```bash
