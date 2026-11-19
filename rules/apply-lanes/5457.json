@@ -1,0 +1,9 @@
+{
+  "lanes": [
+    {
+      "name": "ai-engineer",
+      "search": "AI Engineer",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt"
+    }
+  ]
+}

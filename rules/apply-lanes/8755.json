@@ -1,0 +1,9 @@
+{
+  "lanes": [
+    {
+      "name": "frontend-parked",
+      "enabled": false,
+      "_parked": "2026-10-28: one web-market resume per TG (maxxrreact -> 1558). Flip enabled:true to unpark."
+    }
+  ]
+}

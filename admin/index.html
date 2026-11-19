@@ -2124,6 +2124,7 @@ async function automationSettings() {
     c.innerHTML = '<div class="section admin-control-panel">' +
       '<div class="section-title">Управление автономным Linux-процессом</div>' +
       '<p class="admin-muted">Настройки общие для всех профилей. После сохранения применяются следующим запуском cron без перезапуска Docker. Отдельный ручной запуск в «Запуск задач» работает по явным параметрам.</p>' +
+      '<p class="admin-muted">В каждом live-цикле cron выполняет поднятие резюме, до заданного лимита откликов по включённым профильным правилам, затем ответы работодателям. Поиск и шаблон письма могут задаваться отдельно для каждого профиля. Автоотклики идут 3 раза в день; письма HR выключены.</p>' +
       '<div class="admin-setting-grid"><div class="form-group"><label for="auto-mode">Режим запланированной автоматизации</label><select id="auto-mode">' +
       ['off', 'dry-run', 'live'].map(mode => '<option value="' + mode + '"' + (s.mode === mode ? ' selected' : '') + '>' +
       ({off:'Выключено', 'dry-run':'Предпросмотр (dry-run)', live:'Реальные действия (live)'}[mode]) + '</option>').join('') +

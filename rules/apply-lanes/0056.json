@@ -1,0 +1,9 @@
+{
+  "lanes": [
+    {
+      "name": "fullstack",
+      "search": "Fullstack разработчик",
+      "system_prompt": "prompts/cover_letter_frontend.txt"
+    }
+  ]
+}

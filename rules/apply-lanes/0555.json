@@ -1,0 +1,10 @@
+{
+  "lanes": [
+    {
+      "name": "ml-engineer",
+      "resume_alias": "primary",
+      "search": "ML-инженер",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt"
+    }
+  ]
+}
