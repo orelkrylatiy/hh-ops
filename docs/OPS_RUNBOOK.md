@@ -46,6 +46,12 @@ PROFILES="0056 0555 1206 1558 5457 8755" /bin/bash scripts/all-profiles.sh reply
 PROFILES="0056 0555 1206 1558 5457 8755" /bin/bash scripts/all-profiles.sh boost --live
 ```
 
+Один полный production-цикл (boost, затем reply) запускается так:
+
+```bash
+/home/ubuntu/bin/hh-ops-reply-boost cycle
+```
+
 ## Повтор вопроса работодателя
 
 Сравнивается точный текст после нормализации пробелов и пунктуации. При первом
@@ -56,12 +62,12 @@ PROFILES="0056 0555 1206 1558 5457 8755" /bin/bash scripts/all-profiles.sh boost
 
 ## Расписание VPS
 
-Cron запускает `cycle` в 09:00, 13:00 и 17:00 по Москве (06:00, 10:00 и 14:00
+Cron запускает `cycle` в 09:00, 14:00 и 19:00 по Москве (06:00, 11:00 и 16:00
 UTC). Каждый цикл сначала пробует поднять опубликованные резюме, затем
 обрабатывает чаты по всем шести профилям. Интервал между boost составляет
-четыре часа; [справка hh.ru](https://feedback.hh.ru/knowledge-base/article/0012145?hhtmFrom=main&hhtmFromLabel=simular)
-указывает такой интервал для ручного бесплатного поднятия. По времени Алматы
-(UTC+5) это 11:00, 15:00 и 19:00.
+пять часов; [справка hh.ru](https://feedback.hh.ru/knowledge-base/article/0012145?hhtmFrom=main&hhtmFromLabel=simular)
+указывает, что ручное бесплатное поднятие доступно раз в четыре часа. По
+времени Алматы (UTC+5) это 11:00, 16:00 и 21:00.
 
 Посмотреть расписание:
 
