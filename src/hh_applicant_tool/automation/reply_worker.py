@@ -752,7 +752,7 @@ class ReplyWorker:
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
         if decision.reason == "first_repeated_employer_question":
-            return "Да."
+            return "Да"
         if decision.action == ACTION_FOLLOWUP:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:
