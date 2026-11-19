@@ -501,14 +501,10 @@ class ApplyVacanciesApplyFlowMixin:
                         rejected_text,
                     )
                 logger.warning(
-                    "Framework application failed; using static cover-letter fallback: %s",
+                    "Framework application failed; skipping vacancy instead of using a static letter: %s",
                     exc,
                 )
-                letter = render_template(
-                    rand_text(self.cover_letter),
-                    message_placeholders,
-                    "сопроводительном письме fallback",
-                ).strip()
+                raise AIError(f"framework cover letter unavailable: {exc}") from exc
             if result is not None:
                 logger.info(
                     "Framework application generated: plan=%s provider=%s issues=%s",
@@ -525,14 +521,13 @@ class ApplyVacanciesApplyFlowMixin:
                 issues = letter_quality_issues(letter, self._contact_url())
                 if issues:
                     logger.warning(
-                        "Framework letter failed quality checks; using static fallback: %s",
+                        "Framework letter failed quality checks; skipping vacancy: %s",
                         ", ".join(issues),
                     )
-                    letter = render_template(
-                        rand_text(self.cover_letter),
-                        message_placeholders,
-                        "сопроводительном письме fallback",
-                    ).strip()
+                    raise AIError(
+                        "framework cover letter failed quality checks: "
+                        + ", ".join(issues)
+                    )
         else:
             # Правило Макса (11.10.2026): отклики ходят только с AI-письмами.
             # Заглушка без --use-ai = брак; делаем её видимой в логах, чтобы

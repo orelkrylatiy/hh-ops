@@ -235,10 +235,11 @@ if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/render_prompt.py")" \
     exit 1
 fi
 
-# AI preferred; a static cover-letter fallback is used per vacancy if the
-# framework is unavailable or returns text that fails local quality checks.
+# Live applications require a healthy cover-letter AI provider. Fail closed
+# before searching if the provider cannot answer the preflight probe.
 if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose application; then
-    echo "Cover-letter AI preflight failed; live run will use static fallback letters" >&2
+    echo "Cover-letter AI preflight failed; stopping before HH searches or applications" >&2
+    exit 1
 fi
 
 HH_EXECUTABLE="hh-applicant-tool"
