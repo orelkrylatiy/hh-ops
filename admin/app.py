@@ -2952,7 +2952,11 @@ def get_live_summary(profile: str = Query("default")):
     """Read-only, on-demand HH check; never pretend SQLite is live HH data."""
     profile = _validate_profile_name(profile)
     # Query one page only: HH provides the total via "found".
-    negotiations = _hh_get(profile, "/negotiations", {"page": 0, "per_page": 1})
+    negotiations = _hh_get(
+        profile,
+        "/negotiations",
+        {"page": 0, "per_page": 1, "order_by": "created_at"},
+    )
     resumes = _hh_get(profile, "/resumes/mine", {"page": 0, "per_page": 20})
     return {
         "profile": profile,
