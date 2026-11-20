@@ -303,3 +303,33 @@ def test_partial_resume_sync_preserves_last_known_counters_as_stale() -> None:
     finally:
         conn.close()
 
+
+def test_automation_can_be_paused_without_enabling_live_actions(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    client = TestClient(admin_app.app)
+
+    paused = client.put("/api/automation-settings", json={
+        "settings": {"mode": "live", "paused": True},
+        "confirm_live": False,
+    })
+    assert paused.status_code == 200
+    assert paused.json()["settings"]["mode"] == "live"
+    assert paused.json()["settings"]["paused"] is True
+    env_text = (tmp_path / "admin_automation.env").read_text(encoding="utf-8")
+    assert 'HH_AUTOMATION_MODE=off' in env_text
+    assert 'HH_AUTOMATION_PAUSED=on' in env_text
+
+    resume_without_confirmation = client.put("/api/automation-settings", json={
+        "settings": {"mode": "live", "paused": False},
+        "confirm_live": False,
+    })
+    assert resume_without_confirmation.status_code == 409
+
+    resume_confirmed = client.put("/api/automation-settings", json={
+        "settings": {"mode": "live", "paused": False},
+        "confirm_live": True,
+    })
+    assert resume_confirmed.status_code == 200
+
