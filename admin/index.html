@@ -390,6 +390,9 @@ let currentProfile = 'default';
 let availableProfiles = [];
 let accountSummaries = [];
 let viewScope = 'all';
+let dashboardProfiles = [];
+let dashboardProfilesDraft = [];
+let runProfiles = [];
 let currentPage = 'home';
 let CONSTANTS = null;
 const RUN_CARD_DONE_KEY = 'hh-admin-run-card-done';
@@ -545,6 +548,24 @@ async function loadProfiles(preferredProfile = null) {
     }
     const scopeSelect = document.getElementById('profile-scope');
     if (scopeSelect) scopeSelect.value = viewScope;
+    try {
+      const savedDashboard = JSON.parse(localStorage.getItem('dashboardProfiles') || '[]');
+      dashboardProfiles = Array.isArray(savedDashboard)
+        ? savedDashboard.filter(profile => availableProfiles.includes(profile)).slice(0, 5)
+        : [];
+    } catch (_) {
+      dashboardProfiles = [];
+    }
+    dashboardProfilesDraft = [...dashboardProfiles];
+    try {
+      const savedRunProfiles = JSON.parse(localStorage.getItem('runProfiles') || '[]');
+      runProfiles = Array.isArray(savedRunProfiles)
+        ? savedRunProfiles.filter(profile => availableProfiles.includes(profile)).slice(0, 5)
+        : [];
+    } catch (_) {
+      runProfiles = [];
+    }
+    if (!runProfiles.length && currentProfile) runProfiles = [currentProfile];
     setProfileLabels();
   } catch(e) {}
 }
@@ -886,10 +907,14 @@ async function api(path, opts = {}) {
   if (!path) {
     throw new Error('API endpoint is not defined');
   }
-  const url = path + (path.includes('?') ? '&' : '?') +
-    'profile=' + encodeURIComponent(currentProfile) +
-    '&scope=' + encodeURIComponent(viewScope);
-  const resp = await fetch(url, opts);
+  const target = new URL(path, window.location.origin);
+  if (!target.searchParams.has('profile')) {
+    target.searchParams.set('profile', currentProfile);
+  }
+  if (!target.searchParams.has('scope')) {
+    target.searchParams.set('scope', viewScope);
+  }
+  const resp = await fetch(target.toString(), opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({detail: resp.statusText}));
     throw new Error(err.detail || resp.statusText);
@@ -936,8 +961,10 @@ function linkHtml(url, label, fallback = '—') {
     : safeLabel;
 }
 
-function accountCell(row) {
-  return isAllAccounts() ? `<td><span class="badge">${escapeHtml(row.profile || '—')}</span></td>` : '';
+function accountCell(row, forceProfile = false) {
+  return (forceProfile || isAllAccounts())
+    ? `<td><span class="badge">${escapeHtml(row.profile || '—')}</span></td>`
+    : '';
 }
 
 // Канонические статусы HH: response, invitation, discard, interview, hired
@@ -1172,14 +1199,18 @@ async function refreshLiveSummary() {
   const box = document.getElementById('hh-live-summary');
   if (!box) return;
   const profileAtStart = currentProfile;
-  box.textContent = 'Проверяем счётчики в HH API…';
+  box.innerHTML = '<div class="admin-skeleton-line" aria-hidden="true"></div>';
   try {
     const result = await api('/api/live-summary');
     if (profileAtStart !== currentProfile || !document.getElementById('hh-live-summary')) return;
+    const resumeRows = (result.resume_views || []).map(resume =>
+      `<div class="admin-live-resume"><strong>${escapeHtml(resume.title || 'Без названия')}</strong><span>Просмотры: ${resumeCounterCell(resume.total_views, resume.views_updated_at)} · Новые: ${resumeCounterCell(resume.new_views, resume.views_updated_at)}</span></div>`
+    ).join('');
     box.innerHTML = '<strong>HH API · ' + escapeHtml(new Date(result.observed_at).toLocaleString('ru-RU')) + '</strong>' +
       '<div class="admin-live-stats"><span>Переписок: <b>' + Number(result.negotiations) + '</b></span>' +
       '<span>Резюме: <b>' + Number(result.resumes) + '</b></span></div>' +
-      '<small>Это актуальная проверка HH API. Исторический график ниже основан на локальной базе и может отличаться.</small>';
+      (resumeRows || '<p class="admin-muted">HH не вернул счётчики резюме.</p>') +
+      '<small>Это текущий ответ HH API. Проверка не меняет локальную базу; для сохранения счётчиков используйте «Синхронизировать из HH».</small>';
   } catch (error) {
     box.textContent = 'Не удалось проверить HH: ' + error.message;
   }
@@ -1188,7 +1219,7 @@ async function refreshLiveSummary() {
 async function refreshAllLiveSummaries() {
   const box = document.getElementById('hh-live-summary');
   if (!box) return;
-  box.textContent = 'Проверяю аккаунты напрямую в HH…';
+  box.innerHTML = '<div class="admin-skeleton-line" aria-hidden="true"></div>';
   const results = [];
   for (const profile of availableProfiles) {
     try {
@@ -1199,11 +1230,11 @@ async function refreshAllLiveSummaries() {
     }
   }
   box.innerHTML = '<strong>Проверка HH · ' + escapeHtml(new Date().toLocaleString('ru-RU')) + '</strong>' +
-    '<div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Переписки в HH</th><th>Последняя переписка</th><th>Резюме в HH</th><th>Актуальные резюме</th></tr></thead><tbody>' +
+    '<div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Переписки</th><th>Резюме</th><th>Счётчики резюме · просмотры / новые</th></tr></thead><tbody>' +
     results.map(({profile, result, error}) => result
-      ? `<tr><td>${escapeHtml(profile)}</td><td>${Number(result.negotiations) || 0}</td><td>${result.latest_negotiation_at ? escapeHtml(new Date(result.latest_negotiation_at).toLocaleString('ru-RU')) : '—'}</td><td>${Number(result.resumes) || 0}</td><td>${(result.resume_views || []).map(r => `${escapeHtml(r.title || 'Без названия')} · ${escapeHtml(r.status_name || 'статус неизвестен')}`).join('<br>') || '—'}</td></tr>`
-      : `<tr><td>${escapeHtml(profile)}</td><td colspan="4">Ошибка HH: ${escapeHtml(error || 'не удалось получить данные')}</td></tr>`).join('') +
-    '</tbody></table></div><small>Это текущий ответ HH API. Исторические списки ниже берутся из локальных снимков и могут быть неполными или устаревшими.</small>';
+      ? `<tr><td>${escapeHtml(profile)}</td><td>${Number(result.negotiations) || 0}</td><td>${Number(result.resumes) || 0}</td><td>${(result.resume_views || []).map(resume => `<div class="admin-live-resume"><strong>${escapeHtml(resume.title || 'Без названия')}</strong><span>${resumeCounterCell(resume.total_views, resume.views_updated_at)} / ${resumeCounterCell(resume.new_views, resume.views_updated_at)}</span></div>`).join('') || '—'}</td></tr>`
+      : `<tr><td>${escapeHtml(profile)}</td><td colspan="3">Ошибка HH: ${escapeHtml(error || 'не удалось получить данные')}</td></tr>`).join('') +
+    '</tbody></table></div><small>Проверка выполняется напрямую в HH API. Локальные снимки обновляются отдельно.</small>';
 }
 
 function snapshotLabel(value) {
@@ -1212,57 +1243,160 @@ function snapshotLabel(value) {
   return Number.isNaN(parsed.getTime()) ? 'Время снимка неизвестно' : `Снимок обновлён ${parsed.toLocaleString('ru-RU')}`;
 }
 
+function skeletonTable(columns = 6, rows = 5) {
+  const cell = '<td><span class="admin-skeleton-line" aria-hidden="true"></span></td>';
+  return '<div class="table-wrap admin-skeleton-table" aria-hidden="true"><table><tbody>' +
+    Array.from({length: rows}, () => '<tr>' + cell.repeat(columns) + '</tr>').join('') +
+    '</tbody></table></div>';
+}
+
+function skeletonCards(count = 4) {
+  return '<div class="cards" aria-hidden="true">' +
+    Array.from({length: count}, () => '<div class="card admin-skeleton-card"><span class="admin-skeleton-line short"></span><span class="admin-skeleton-line value"></span><span class="admin-skeleton-line medium"></span></div>').join('') +
+    '</div>';
+}
+
+function dashboardSkeleton() {
+  return '<div class="section">' + skeletonCards(6) + '</div>' +
+    '<div class="dashboard-grid-two"><div class="section"><div class="admin-skeleton-line medium"></div>' + skeletonTable(1, 4) + '</div>' +
+    '<div class="section"><div class="admin-skeleton-line medium"></div>' + skeletonTable(2, 4) + '</div></div>' +
+    skeletonTable(5, 5);
+}
+
+function resumeCounterCell(value, updatedAt) {
+  const numeric = value === null || value === undefined ? null : Number(value);
+  if (!updatedAt || numeric === null || !Number.isFinite(numeric)) {
+    return '<span class="admin-counter-unknown" title="Нет подтверждённого счётчика HH. Синхронизируйте резюме.">—</span>';
+  }
+  const observed = new Date(updatedAt);
+  const title = Number.isNaN(observed.getTime()) ? 'Счётчик получен из HH API' : 'HH API · ' + observed.toLocaleString('ru-RU');
+  return '<span title="' + escapeHtml(title) + '">' + numeric.toLocaleString('ru-RU') + '</span>';
+}
+
+function renderDashboardProfilePicker() {
+  const summary = dashboardProfiles.length ? `Выбрано ${dashboardProfiles.length} из 5` : 'Все аккаунты';
+  const options = availableProfiles.map(profile =>
+    `<label class="dashboard-profile-option"><input type="checkbox" value="${escapeHtml(profile)}" ${dashboardProfilesDraft.includes(profile) ? 'checked' : ''} onchange="toggleDashboardProfile(this)"/><span>${escapeHtml(profile)}</span></label>`
+  ).join('') || '<p class="admin-muted">Аккаунты пока не настроены.</p>';
+  return `<details class="dashboard-profile-picker"><summary>${summary}</summary><div class="dashboard-profile-picker-body"><div class="dashboard-profile-options">${options}</div><div class="admin-run-controls"><span id="dashboard-profile-count" class="admin-muted">${dashboardProfilesDraft.length ? dashboardProfilesDraft.length + ' выбрано' : 'Пустой выбор — все аккаунты'}</span><button class="btn btn-primary" type="button" onclick="applyDashboardProfiles()">Применить</button><button class="btn btn-secondary" type="button" onclick="resetDashboardProfiles()">Все аккаунты</button></div></div></details>`;
+}
+
+function toggleDashboardProfile(checkbox) {
+  const selected = new Set(dashboardProfilesDraft);
+  if (checkbox.checked) {
+    if (selected.size >= 5) {
+      checkbox.checked = false;
+      toast('Для аналитики можно выбрать не более пяти аккаунтов.', 'error');
+      return;
+    }
+    selected.add(checkbox.value);
+  } else {
+    selected.delete(checkbox.value);
+  }
+  dashboardProfilesDraft = [...selected];
+  const count = document.getElementById('dashboard-profile-count');
+  if (count) count.textContent = dashboardProfilesDraft.length ? dashboardProfilesDraft.length + ' выбрано' : 'Пустой выбор — все аккаунты';
+}
+
+function applyDashboardProfiles() {
+  if (dashboardProfilesDraft.length > 5) {
+    toast('Выберите не более пяти аккаунтов.', 'error');
+    return;
+  }
+  dashboardProfiles = [...dashboardProfilesDraft];
+  localStorage.setItem('dashboardProfiles', JSON.stringify(dashboardProfiles));
+  dashboard();
+}
+
+function resetDashboardProfiles() {
+  dashboardProfiles = [];
+  dashboardProfilesDraft = [];
+  localStorage.setItem('dashboardProfiles', '[]');
+  dashboard();
+}
+
+function dailyTrendChartByProfile(rows, profiles) {
+  if (!Array.isArray(rows) || !rows.length || !profiles.length) return '<p class="admin-empty">Нет данных за период</p>';
+  const days = [...new Set(rows.map(row => row.day).filter(Boolean))].sort();
+  if (!days.length) return '<p class="admin-empty">Нет данных за период</p>';
+  const colors = ['#f97360', '#5b8ff9', '#2fcb72', '#f7b84b', '#b58cf6'];
+  const w = 800, h = 202, left = 38, right = 14, top = 15, bottom = 31;
+  const xStep = (w - left - right) / Math.max(1, days.length - 1);
+  const byProfile = new Map(profiles.map(profile => [profile, new Map()]));
+  rows.forEach(row => byProfile.get(row.profile)?.set(row.day, Number(row.cnt) || 0));
+  const max = Math.max(1, ...rows.map(row => Number(row.cnt) || 0));
+  const y = value => top + (h - top - bottom) * (1 - value / max);
+  const ticks = [0, 1, 2, 3].map(i => {
+    const count = Math.round(max * i / 3), yy = y(count);
+    return '<line x1="' + left + '" y1="' + yy + '" x2="' + (w-right) + '" y2="' + yy + '" stroke="currentColor" stroke-opacity=".10"/>' +
+      '<text x="' + (left-7) + '" y="' + (yy+4) + '" fill="currentColor" fill-opacity=".65" font-size="11" text-anchor="end">' + count + '</text>';
+  }).join('');
+  const labelEvery = Math.max(1, Math.ceil(days.length / 8));
+  const labels = days.map((day, index) => index % labelEvery === 0 || index === days.length - 1
+    ? '<text x="' + (left + index*xStep) + '" y="' + (h-6) + '" fill="currentColor" fill-opacity=".7" font-size="11" text-anchor="middle">' + escapeHtml(day.slice(5)) + '</text>' : '').join('');
+  const lines = profiles.map((profile, index) => {
+    const values = byProfile.get(profile) || new Map();
+    const points = days.map((day, dayIndex) => [left + dayIndex*xStep, y(values.get(day) || 0)]);
+    const pointList = points.map(point => point[0].toFixed(1) + ',' + point[1].toFixed(1)).join(' ');
+    const dots = points.map((point, dayIndex) => '<circle cx="' + point[0] + '" cy="' + point[1] + '" r="2.5" fill="' + colors[index % colors.length] + '"><title>' + escapeHtml(profile) + ' · ' + escapeHtml(days[dayIndex]) + ': ' + (values.get(days[dayIndex]) || 0) + '</title></circle>').join('');
+    return '<polyline points="' + pointList + '" fill="none" stroke="' + colors[index % colors.length] + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' + dots;
+  }).join('');
+  const legend = profiles.map((profile, index) =>
+    '<span class="admin-chart-legend-item"><i style="background:' + colors[index % colors.length] + '"></i>' + escapeHtml(profile) + '</span>'
+  ).join('');
+  return '<div class="admin-profile-trend"><svg class="admin-trend-chart" viewBox="0 0 800 202" role="img" aria-label="Сравнение откликов по выбранным аккаунтам, локальная SQLite">' + ticks + lines + labels + '</svg><div class="admin-chart-legend">' + legend + '</div></div>';
+}
+
 async function dashboard() {
   const c = document.getElementById('content');
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка локальных снимков…</div>';
+  c.setAttribute('aria-busy', 'true');
+  dashboardProfilesDraft = [...dashboardProfiles];
+  c.innerHTML = dashboardSkeleton();
   document.getElementById('topbar-actions').innerHTML =
     `<select id="dashboard-days" aria-label="Период статистики" onchange="dashboardDays=Number(this.value);dashboard()"><option value="14">14 дней</option><option value="30">30 дней</option><option value="90">90 дней</option></select> <button class="btn btn-secondary" onclick="dashboard()">🔄 Обновить</button>`;
   try {
-    const d = await api(CONSTANTS.endpoints.stats + "?days=" + dashboardDays);
+    const params = new URLSearchParams({
+      days: String(dashboardDays),
+      scope: dashboardProfiles.length ? 'selected' : 'all',
+    });
+    dashboardProfiles.forEach(profile => params.append('profiles', profile));
+    const d = await api(CONSTANTS.endpoints.stats + '?' + params.toString());
     const t = d.totals || {};
-    const scopeColumn = isAllAccounts() ? '<th>Аккаунт</th>' : '';
-    const scopeColspan = isAllAccounts() ? 5 : 4;
-    // Канонические статусы HH: response, invitation, discard, interview, hired
+    const includeProfileColumn = (d.profiles || []).length > 1;
+    const scopeColumn = includeProfileColumn ? '<th>Аккаунт</th>' : '';
+    const scopeColspan = includeProfileColumn ? 5 : 4;
+    const resumeColspan = includeProfileColumn ? 5 : 4;
     const stateColors = { invitation: 'green', discard: 'red', response: 'yellow', interview: 'blue', hired: 'green' };
     const stateLabels = { invitation: 'Приглашения', response: 'Отклики', interview: 'Собеседования', discard: 'Отказы', hired: 'Принят' };
-    const stateMap = Object.fromEntries((d.negotiations_by_state || []).map(s => [s.state, s.cnt]));
+    const stateMap = Object.fromEntries((d.negotiations_by_state || []).map(item => [item.state, item.cnt]));
     const stateCards = Object.entries(stateLabels).map(([state, label]) =>
       `<div class="card"><div class="card-label">${label}</div><div class="card-value ${stateColors[state] || ''}">${Number(stateMap[state]) || 0}</div></div>`
     ).join('');
 
     const days = Array.isArray(d.daily_applications) ? d.daily_applications : [];
-    const maxDay = Math.max(1, ...days.map(x => Number(x?.cnt) || 0));
-    const dayCols = days.map(day => {
-      const count = Number(day?.cnt) || 0;
-      const height = Math.round((count / maxDay) * 64) + 4;
-      const rawDay = typeof day?.day === 'string' ? day.day : '';
-      return `<div class="day-col"><div style="font-size:10px;color:var(--text2);margin-bottom:2px">${count}</div><div class="day-bar" style="height:${height}px"></div><div class="day-label">${escapeHtml(rawDay.slice(5) || '—')}</div></div>`;
-    }).join('') || '<div style="color:var(--text2);font-size:13px;padding:20px">Нет данных</div>';
-
-    const maxSkip = Math.max(1, ...(d.skip_reasons || []).map(x => Number(x.cnt) || 0));
+    const maxSkip = Math.max(1, ...(d.skip_reasons || []).map(item => Number(item.cnt) || 0));
     const skipBars = (d.skip_reasons || []).map(reason => {
       const count = Number(reason.cnt) || 0;
       const percent = Math.round((count / maxSkip) * 100);
       const rawLabel = String(reason.reason || 'Неизвестно');
-      const label = escapeHtml(skipReasonLabel(rawLabel));
-      return `<div class="bar-row"><div class="bar-label" title="${escapeHtml(rawLabel)}">${label}</div><div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div><div class="bar-count">${count}</div></div>`;
+      return `<div class="bar-row"><div class="bar-label" title="${escapeHtml(rawLabel)}">${escapeHtml(skipReasonLabel(rawLabel))}</div><div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div><div class="bar-count">${count}</div></div>`;
     }).join('');
 
-    const recentRows = (d.recent_negotiations || []).map(n => `<tr>
-      ${accountCell(n)}<td>${stateHtml(n.state)}</td><td>${linkHtml(n.vacancy_url, n.vacancy_name)}</td>
-      <td>${escapeHtml(n.employer_name || '—')}</td><td style="color:var(--text2)">${escapeHtml(timeAgo(n.created_at))}</td>
+    const recentRows = (d.recent_negotiations || []).map(item => `<tr>
+      ${accountCell(item, includeProfileColumn)}<td>${stateHtml(item.state)}</td><td>${linkHtml(item.vacancy_url, item.vacancy_name)}</td>
+      <td>${escapeHtml(item.employer_name || '—')}</td><td style="color:var(--text2)">${escapeHtml(timeAgo(item.created_at))}</td>
     </tr>`).join('') || `<tr class="empty-row"><td colspan="${scopeColspan}">В снимке нет откликов</td></tr>`;
 
     const resumeRows = (d.resume_views || []).map(resume => `<tr>
-      ${accountCell(resume)}<td>${linkHtml(resume.alternate_url || resume.url, resume.title)}</td>
+      ${accountCell(resume, includeProfileColumn)}<td>${linkHtml(resume.alternate_url || resume.url, resume.title)}</td>
       <td>${Number(resume.applications_count) || 0}</td>
-      <td>${Number(resume.total_views) || 0}</td><td style="color:${Number(resume.new_views) > 0 ? 'var(--green)' : 'var(--text2)'}">${Number(resume.new_views) || 0}</td>
-    </tr>`).join('') || `<tr class="empty-row"><td colspan="${isAllAccounts() ? 4 : 3}">В снимке нет резюме</td></tr>`;
+      <td>${resumeCounterCell(resume.total_views, resume.views_updated_at)}</td>
+      <td>${resumeCounterCell(resume.new_views, resume.views_updated_at)}</td>
+    </tr>`).join('') || `<tr class="empty-row"><td colspan="${resumeColspan}">В снимке нет резюме</td></tr>`;
 
-    const automationProfiles = new Set(['0056', '0555', '1206', '1558', '5457', '8755']);
     const accountMeta = new Map(accountSummaries.map(item => [item.profile, item]));
     const accountRows = (d.profile_totals || []).map(account => `<tr>
-      <td><strong>${escapeHtml(account.profile)}</strong><br><small>${automationProfiles.has(account.profile) ? 'В автоцикле' : 'Выключен из автоцикла'}</small></td>
+      <td><strong>${escapeHtml(account.profile)}</strong></td>
       <td>${({ok:'Активен', expired:'Токен истёк', no_token:'Нет токена', no_config:'Нет авторизации'}[(accountMeta.get(account.profile)?.token || {}).status] || 'Проверьте авторизацию')}</td>
       <td>${Number(account.negotiations) || 0}</td>
       <td>${Number((account.states || {}).invitation) || 0}</td>
@@ -1271,13 +1405,20 @@ async function dashboard() {
       <td>${Number(account.progress_rate) || 0}%</td>
       <td>${Number(account.resumes) || 0}</td>
       <td>${escapeHtml(account.last_negotiation_at ? new Date(account.last_negotiation_at).toLocaleDateString('ru-RU') : '—')}</td>
+      <td>${escapeHtml(snapshotLabel(account.snapshot_updated_at))}</td>
     </tr>`).join('');
     const unavailable = (d.unavailable_profiles || []).map(item => `${escapeHtml(item.profile)} (${escapeHtml(item.reason)})`).join(', ');
+    const selectionLabel = dashboardProfiles.length ? `Выбрано аккаунтов: ${dashboardProfiles.length}` : 'Все аккаунты';
 
     c.innerHTML = `
-      <div class="section" style="padding:16px;margin-bottom:16px">
-        <div class="section-title">${isAllAccounts() ? 'Все аккаунты' : `Аккаунт: ${escapeHtml(currentProfile)}`}</div>
-        <div style="font-size:12px;color:var(--text2)">Показаны ${d.profiles.length} аккаунтов · ${Number(t.negotiations) || 0} записей переписок · ${Number(t.resumes) || 0} резюме в локальных снимках. Снимки: ${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Это история локальной базы; свежесть HH проверяется отдельно.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
+      <div class="section dashboard-filter-panel">
+        <div class="section-title">Аккаунты в аналитике</div>
+        ${renderDashboardProfilePicker()}
+        <p class="admin-muted">Можно выбрать до пяти профилей для сравнения. Пустой выбор означает все аккаунты.</p>
+      </div>
+      <div class="section dashboard-snapshot-note">
+        <div class="section-title">${escapeHtml(selectionLabel)}</div>
+        <div class="admin-muted">Показаны ${d.profiles.length} аккаунтов · ${Number(t.negotiations) || 0} переписок · ${Number(t.resumes) || 0} резюме в локальных снимках. ${escapeHtml(snapshotLabel(d.snapshot_updated_at))}. Исторические данные берутся из SQLite.${unavailable ? ` Недоступны: ${unavailable}.` : ''}</div>
       </div>
       <div class="section"><div class="section-title">Обзор</div><div class="cards">
         <div class="card"><div class="card-label">Переписки и отклики</div><div class="card-value">${Number(t.negotiations) || 0}</div></div>
@@ -1285,15 +1426,17 @@ async function dashboard() {
         <div class="card"><div class="card-label">Работодателей</div><div class="card-value blue">${Number(t.employers) || 0}</div></div>
         <div class="card"><div class="card-label">Пропущено</div><div class="card-value">${Number(t.skipped) || 0}</div></div>${stateCards}
       </div></div>
-      <div class="section"><div class="section-title">Аккаунты · состояние, отклики и резюме</div><div class="table-wrap"><table><thead><tr><th>Профиль</th><th>HH</th><th>Переписки</th><th>Приглашения</th><th>Интервью</th><th>Отказы</th><th>Продвижение</th><th>Резюме</th><th>Последний отклик</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="9">Нет готовых аккаунтов</td></tr>'}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Переписки и отклики — локальная история. Число аккаунтов в автоматизации: ${automationProfiles.size} из ${d.profiles.length}; остальные показаны, но не запускаются по расписанию.</div><div style="padding:0 16px 16px"><button class="btn btn-secondary" onclick="refreshAllLiveSummaries()">Проверить все аккаунты прямо в HH</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite" style="margin-top:12px">Ещё не проверяли</div></div></div>
-      <div class="dashboard-grid-two"><div class="section"><div class="section-title">Динамика откликов за ${dashboardDays} дней</div><div class="admin-trend-wrap">${dailyTrendChart(days)}</div><div class="admin-muted" style="margin:6px 16px 14px">Количество записей переговоров по дате создания в SQLite (UTC), не счётчик действий в реальном времени.</div></div>
-        <div class="section"><div class="section-title">Причины пропуска</div><div class="table-wrap" style="padding:16px">${skipBars || '<div style="color:var(--text2);font-size:13px">Нет данных</div>'}</div></div></div>
+      <div class="section"><div class="section-title">Аккаунты · состояние и воронка</div><div class="table-wrap"><table><thead><tr><th>Профиль</th><th>HH</th><th>Переписки</th><th>Приглашения</th><th>Интервью</th><th>Отказы</th><th>Продвижение</th><th>Резюме</th><th>Последний отклик</th><th>Снимок</th></tr></thead><tbody>${accountRows || '<tr class="empty-row"><td colspan="10">Нет готовых аккаунтов</td></tr>'}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Статусы и отклики — локальная история. Свежесть HH проверяется отдельным read-only запросом.</div><div style="padding:0 16px 16px"><button class="btn btn-secondary" onclick="refreshAllLiveSummaries()">Проверить аккаунты напрямую в HH</button><div id="hh-live-summary" class="admin-live-summary" aria-live="polite" style="margin-top:12px">Ещё не проверяли</div></div></div>
+      <div class="dashboard-grid-two"><div class="section"><div class="section-title">${dashboardProfiles.length ? 'Сравнение откликов по аккаунтам' : 'Динамика откликов за ' + dashboardDays + ' дней'}</div><div class="admin-trend-wrap">${dashboardProfiles.length ? dailyTrendChartByProfile(d.daily_applications_by_profile || [], d.profiles || []) : dailyTrendChart(days)}</div><div class="admin-muted" style="margin:6px 16px 14px">Количество записей переговоров по дате создания в SQLite (UTC), не счётчик действий в реальном времени.</div></div>
+        <div class="section"><div class="section-title">Причины пропуска</div><div class="table-wrap" style="padding:16px">${skipBars || '<div class="admin-muted">Нет данных</div>'}</div></div></div>
       <div class="dashboard-grid-main"><div class="section"><div class="section-title">Последние записи переписок <span class="badge">${(d.recent_negotiations || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Статус</th><th>Вакансия</th><th>Работодатель</th><th>Создан</th></tr></thead><tbody>${recentRows}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Показываются последние 5 записей. Вся история и фильтры — в разделе «Отклики».</div></div>
-        <div class="section"><div class="section-title">Все резюме <span class="badge">${(d.resume_views || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Откликов</th><th>Просмотры</th><th>Новые</th></tr></thead><tbody>${resumeRows}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">Число откликов считается из локальной истории по каждому резюме.</div></div></div>`;
+        <div class="section"><div class="section-title">Резюме и просмотры <span class="badge">${(d.resume_views || []).length}</span></div><div class="table-wrap"><table><thead><tr>${scopeColumn}<th>Резюме</th><th>Откликов</th><th>Просмотры HH</th><th>Новые HH</th></tr></thead><tbody>${resumeRows}</tbody></table></div><div class="admin-muted" style="padding:12px 16px">«—» означает, что счётчики ещё не синхронизированы или HH их не вернул. Синхронизация доступна в разделе «Резюме».</div></div></div>`;
     const selector = document.getElementById('dashboard-days');
     if (selector) selector.value = String(dashboardDays);
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red);padding:20px">Ошибка дашборда: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка дашборда: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1370,55 +1513,77 @@ async function negotiations(state_filter) {
 // VACANCIES
 let vacPage = 0;
 let vacSearch = '';
+let vacSortBy = 'created_at';
+let vacSortOrder = 'desc';
 async function vacancies() {
   const c = document.getElementById('content');
-  c.innerHTML = `
-    <div class="filters">
+  const sortOptions = [
+    ['created_at', 'Дата добавления'],
+    ['published_at', 'Дата публикации'],
+    ['salary_from', 'Зарплата: от'],
+    ['salary_to', 'Зарплата: до'],
+    ['name', 'Название'],
+    ['employer_name', 'Работодатель'],
+    ['area_name', 'Город'],
+    ['experience', 'Опыт'],
+  ];
+  const filters = total => `
+    <div class="filters vacancy-filters">
       <input id="vac-search" placeholder="Поиск по названию..." value="${escapeHtml(vacSearch)}"
         onkeydown="if(event.key==='Enter'){vacSearch=this.value;vacPage=0;vacancies()}"/>
       <button class="btn btn-secondary" onclick="vacSearch=document.getElementById('vac-search').value;vacPage=0;vacancies()">Найти</button>
-    </div>
-    <div style="color:var(--text2)">Загрузка...</div>`;
+      <select id="vac-sort" aria-label="Сортировать вакансии" onchange="vacSortBy=this.value;vacPage=0;vacancies()">
+        ${sortOptions.map(([value,label]) => `<option value="${value}" ${vacSortBy===value?'selected':''}>${label}</option>`).join('')}
+      </select>
+      <select id="vac-sort-order" aria-label="Порядок сортировки" onchange="vacSortOrder=this.value;vacPage=0;vacancies()">
+        <option value="desc" ${vacSortOrder==='desc'?'selected':''}>По убыванию</option>
+        <option value="asc" ${vacSortOrder==='asc'?'selected':''}>По возрастанию</option>
+      </select>
+      ${typeof total === 'number' ? `<span class="admin-muted">Всего: ${total}</span>` : ''}
+    </div>`;
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = filters(null) + skeletonTable(isAllAccounts() ? 8 : 7, 6);
 
   try {
-    const sq = vacSearch ? `&search=${encodeURIComponent(vacSearch)}` : '';
-    const r = await api(`${CONSTANTS.endpoints.vacancies}?limit=50&offset=${vacPage*50}${sq}`);
-    const accountHeader = isAllAccounts() ? '<th>Account</th>' : '';
-    const colspan = isAllAccounts() ? 7 : 6;
-    let rows = '';
-    if (r.items.length) {
-      r.items.forEach(v => {
-        rows += `<tr>
-          ${accountCell(v)}<td style="max-width:280px">${linkHtml(v.alternate_url, v.name)}</td>
-          <td>${escapeHtml(v.employer_name || '—')}</td>
-          <td>${escapeHtml(v.area_name || '—')}</td>
-          <td>${formatSalary(v)}</td>
-          <td style="color:var(--text2)" title="${escapeHtml(v.experience || '')}">${escapeHtml(experienceLabel(v.experience))}</td>
-          <td style="color:var(--text2)">${escapeHtml(timeAgo(v.created_at))}</td>
-        </tr>`;
-      });
-    } else {
-      rows = `<tr class="empty-row"><td colspan="${colspan}">No vacancies</td></tr>`;
-    }
+    const params = new URLSearchParams({
+      limit: '50',
+      offset: String(vacPage * 50),
+      sort_by: vacSortBy,
+      sort_order: vacSortOrder,
+    });
+    if (vacSearch) params.set('search', vacSearch);
+    const r = await api(`${CONSTANTS.endpoints.vacancies}?${params.toString()}`);
+    const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
+    const colspan = isAllAccounts() ? 8 : 7;
+    const rows = (r.items || []).map(v => {
+      const applicationTag = v.has_applied
+        ? `<span class="badge vacancy-applied" title="Отклик в профиле ${escapeHtml(v.profile || '')}">${isAllAccounts() ? 'Отклик · ' + escapeHtml(v.profile || 'аккаунт') : 'Отклик отправлен'}</span>`
+        : '<span class="badge vacancy-not-applied">Без отклика</span>';
+      return `<tr>
+        ${accountCell(v)}<td style="max-width:280px">${linkHtml(v.alternate_url, v.name)}</td>
+        <td>${escapeHtml(v.employer_name || '—')}</td>
+        <td>${escapeHtml(v.area_name || '—')}</td>
+        <td>${formatSalary(v)}</td>
+        <td style="color:var(--text2)" title="${escapeHtml(v.experience || '')}">${escapeHtml(experienceLabel(v.experience))}</td>
+        <td>${applicationTag}</td>
+        <td style="color:var(--text2)">${escapeHtml(timeAgo(v.created_at))}</td>
+      </tr>`;
+    }).join('') || `<tr class="empty-row"><td colspan="${colspan}">Нет вакансий по выбранному фильтру</td></tr>`;
 
-    c.innerHTML = `
-      <div class="filters">
-        <input id="vac-search" placeholder="Поиск по названию..." value="${escapeHtml(vacSearch)}"
-          onkeydown="if(event.key==='Enter'){vacSearch=this.value;vacPage=0;vacancies()}"/>
-        <button class="btn btn-secondary" onclick="vacSearch=document.getElementById('vac-search').value;vacPage=0;vacancies()">Найти</button>
-        <span style="color:var(--text2);font-size:13px">Всего: ${r.total}</span>
-      </div>
+    c.innerHTML = filters(r.total) + `
       <div class="table-wrap">
-        <table><thead><tr>${accountHeader}<th>Вакансия</th><th>Работодатель</th><th>Город</th><th>Зарплата</th><th>Опыт</th><th>Добавлена</th></tr></thead>
+        <table><thead><tr>${accountHeader}<th>Вакансия</th><th>Работодатель</th><th>Город</th><th>Зарплата</th><th>Опыт</th><th>Отклик</th><th>Добавлена</th></tr></thead>
         <tbody>${rows}</tbody></table>
       </div>
       <div class="pagination">
         <button class="btn btn-secondary" onclick="vacPage=Math.max(0,vacPage-1);vacancies()" ${vacPage===0?'disabled':''}>← Назад</button>
         <span>Страница ${vacPage+1}</span>
-        <button class="btn btn-secondary" onclick="vacPage++;vacancies()" ${r.items.length<50?'disabled':''}>Вперёд →</button>
+        <button class="btn btn-secondary" onclick="vacPage++;vacancies()" ${(r.items || []).length<50?'disabled':''}>Вперёд →</button>
       </div>`;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка загрузки вакансий: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1529,30 +1694,67 @@ async function employers() {
 // RESUMES
 async function resumes() {
   const c = document.getElementById('content');
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка резюме…</div>';
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = skeletonTable(isAllAccounts() ? 8 : 7, 5);
+  const syncButton = isAllAccounts()
+    ? '<button class="btn btn-secondary" disabled title="Для синхронизации выберите один аккаунт">Синхронизировать из HH</button>'
+    : '<button class="btn btn-primary" id="resume-sync-btn" onclick="refreshResumeSnapshot()">Синхронизировать из HH</button>';
   document.getElementById('topbar-actions').innerHTML =
-    '<button class="btn btn-secondary" onclick="resumes()">🔄 Обновить</button>';
+    syncButton + ' <button class="btn btn-secondary" onclick="resumes()">🔄 Обновить снимок</button>';
   try {
     const response = await api(CONSTANTS.endpoints.resumes);
     const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
-    const colspan = isAllAccounts() ? 7 : 6;
+    const colspan = isAllAccounts() ? 8 : 7;
     const scopeName = isAllAccounts() ? 'всем аккаунтам (локальные снимки)' : `аккаунту ${escapeHtml(currentProfile)}`;
     const rows = (response.items || []).map(resume => `<tr>
       ${accountCell(resume)}
       <td style="max-width:280px">${linkHtml(resume.alternate_url || resume.url, resume.title)}</td>
       <td>${escapeHtml(resume.status_name || resume.status_id || '—')}</td>
       <td>${resume.can_publish_or_update ? 'Да' : 'Нет'}</td>
-      <td>${Number(resume.total_views) || 0}</td>
-      <td>${Number(resume.new_views) || 0}</td>
+      <td>${resumeCounterCell(resume.total_views, resume.views_updated_at)}</td>
+      <td>${resumeCounterCell(resume.new_views, resume.views_updated_at)}</td>
+      <td>${resume.views_updated_at ? escapeHtml(new Date(resume.views_updated_at).toLocaleString('ru-RU')) : '<span class="admin-counter-unknown">Не синхронизировано</span>'}</td>
       <td style="color:var(--text2)">${escapeHtml(timeAgo(resume.updated_at))}</td>
     </tr>`).join('') || `<tr class="empty-row"><td colspan="${colspan}">В выбранном снимке нет резюме</td></tr>`;
     c.innerHTML = `
-      <div class="section" style="padding:16px;margin-bottom:16px;color:var(--text2);font-size:13px">
-        Показаны метаданные резюме по ${scopeName}. Полное содержимое резюме не запрашивается, пока не выбран один аккаунт.
+      <div class="section resume-sync-note">
+        Показаны метаданные резюме по ${scopeName}. «—» означает, что локальная база не содержит подтверждённых счётчиков HH. Для обновления выберите один аккаунт и нажмите «Синхронизировать из HH».
       </div>
-      <div class="table-wrap"><table><thead><tr>${accountHeader}<th>Резюме</th><th>Статус</th><th>Можно обновлять</th><th>Просмотров</th><th>Новых</th><th>Обновлено</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div class="table-wrap"><table><thead><tr>${accountHeader}<th>Резюме</th><th>Статус</th><th>Можно обновлять</th><th>Просмотров HH</th><th>Новых HH</th><th>Счётчики получены</th><th>Обновлено</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    c.setAttribute('aria-busy', 'false');
   } catch (e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка загрузки резюме: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function refreshResumeSnapshot() {
+  if (!requireSingleAccount('Синхронизация резюме')) return;
+  const button = document.getElementById('resume-sync-btn');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Синхронизация…';
+  }
+  try {
+    const result = await fetchJson(`/api/run/refresh-resumes?profile=${encodeURIComponent(currentProfile)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({profile: currentProfile, dry_run: true, confirm_live: false}),
+    });
+    await trackBackgroundOperation(result.op_id, 'Синхронизация резюме', {
+      profile: currentProfile,
+      onSuccess: async () => {
+        if (currentPage === 'resumes') await resumes();
+        if (currentPage === 'dashboard') await dashboard();
+      },
+    });
+  } catch (error) {
+    toast('Не удалось синхронизировать резюме: ' + error.message, 'error');
+  } finally {
+    if (button && button.isConnected) {
+      button.disabled = false;
+      button.textContent = 'Синхронизировать из HH';
+    }
   }
 }
 
