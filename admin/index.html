@@ -2708,6 +2708,7 @@ async function inbox() {
     `<button class="btn btn-danger" onclick="clearRejections()" title="Удалить все отказы из переписок">🗑 Очистить отказы</button>
      <button class="btn btn-secondary" onclick="inboxPage=0;inbox()">🔄</button>`;
 
+  c.setAttribute('aria-busy', 'true');
   c.innerHTML = `
     <div class="filters">
       <select id="inbox-status" onchange="inboxStatus=this.value;inboxPage=0;inbox()">
@@ -2719,8 +2720,7 @@ async function inbox() {
         <option value="active">Активные</option>
         <option value="discard">Отказы</option>
       </select>
-    </div>
-    <div style="color:var(--text2)">Загрузка...</div>`;
+    </div>` + skeletonTable(5, 6);
 
   document.getElementById('inbox-status').value = inboxStatus;
 
@@ -2732,6 +2732,7 @@ async function inbox() {
         <option value="interview">Собеседования</option><option value="hired">Принят</option><option value="active">Активные</option><option value="discard">Отказы</option></select></div>
         <div style="color:var(--text2);text-align:center;padding:40px">Переписок не найдено</div>`;
       document.getElementById('inbox-status').value = inboxStatus;
+      c.setAttribute('aria-busy', 'false');
       return;
     }
 
@@ -2775,8 +2776,10 @@ async function inbox() {
       </div>
       <div id="conversation-panel"></div>`;
     document.getElementById('inbox-status').value = inboxStatus;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red);padding:20px">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -2786,7 +2789,7 @@ async function openConversation(negId) {
   const employerName = conversation.employer_name || 'HR';
   const panel = document.getElementById('conversation-panel');
   if (!panel) return;
-  panel.innerHTML = '<div style="padding:20px;color:var(--text2)">Загрузка...</div>';
+  panel.innerHTML = '<div class="section" style="padding:20px">' + skeletonTable(1, 4) + '</div>';
   panel.scrollIntoView({behavior:'smooth'});
 
   try {
@@ -2815,10 +2818,10 @@ async function openConversation(negId) {
         <div style="padding:16px;max-height:400px;overflow-y:auto" id="msgs-${negId}">${msgs || '<div style="color:var(--text2);text-align:center">Нет сообщений</div>'}</div>
         <div style="padding:12px 16px;border-top:1px solid var(--border)">
           <div style="display:flex;gap:8px;margin-bottom:8px">
-            <textarea id="reply-text-${negId}" placeholder="Написать ответ..." style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:8px 12px;font-size:13px;resize:none;height:80px;outline:none"></textarea>
+            <textarea id="reply-text-${negId}" maxlength="4000" placeholder="Написать ответ..." style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:8px 12px;font-size:13px;resize:vertical;height:80px;outline:none"></textarea>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="sendReply(${Number(negId)})">📤 Отправить</button>
+            <button class="btn btn-primary" id="send-reply-${negId}" onclick="sendReply(${Number(negId)})">📤 Отправить</button>
             <button class="btn btn-secondary" onclick="genAiReply(${Number(negId)})">🤖 Черновик через ИИ</button>
           </div>
         </div>
@@ -2836,6 +2839,8 @@ async function sendReply(negId) {
   if (!text) return toast('Введите сообщение', 'error');
   const employerName = inboxItemsById[negId]?.employer_name || 'работодателю';
   if (!confirm(`Отправить это сообщение: ${employerName}?`)) return;
+  const sendButton = document.getElementById(`send-reply-${negId}`);
+  if (sendButton) { sendButton.disabled = true; sendButton.textContent = 'Отправляю…'; }
 
   try {
     await fetch(`/api/inbox/${negId}/reply?profile=${encodeURIComponent(currentProfile)}`, {
@@ -2854,7 +2859,14 @@ async function sendReply(negId) {
     toast('Сообщение отправлено!');
     ta.value = '';
     openConversation(negId);
-  } catch(e) { toast(e.message, 'error'); }
+  } catch(e) {
+    toast(e.message, 'error');
+  } finally {
+    if (sendButton && sendButton.isConnected) {
+      sendButton.disabled = false;
+      sendButton.textContent = '📤 Отправить';
+    }
+  }
 }
 
 async function genAiReply(negId) {
