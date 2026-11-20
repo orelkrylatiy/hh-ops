@@ -13,7 +13,11 @@ class ResumeModel(BaseModel):
     status_id: str | None = mapped(path="status.id", default=None)
     status_name: str | None = mapped(path="status.name", default=None)
     can_publish_or_update: bool = False
-    total_views: int = mapped(path="counters.total_views", default=0)
-    new_views: int = mapped(path="counters.new_views", default=0)
+    # HH returns total_views/new_views at the top level of /resumes/mine.
+    # None means the API did not provide a counter; it must not look like zero.
+    total_views: int | None = None
+    new_views: int | None = None
+    # Set by ResumesRepository only when the API response contains both counters.
+    views_updated_at: str | None = mapped(skip_src=True, default=None)
     created_at: datetime | None = None
     updated_at: datetime | None = None
