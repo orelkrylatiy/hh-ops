@@ -3044,6 +3044,8 @@ def get_live_summary(profile: str = Query("default")):
         value = item.get(key)
         if value is None and isinstance(item.get("counters"), dict):
             value = item["counters"].get(key)
+        if isinstance(value, dict):
+            value = value.get("total")
         if value is None:
             return None
         try:
@@ -3163,6 +3165,10 @@ def run_batch(body: BatchRunRequest):
     """Start the same explicitly selected operation for up to five profiles."""
     profiles = [_validate_profile_name(profile) for profile in body.profiles]
     profiles = list(dict.fromkeys(profiles))
+    known_profiles = set(get_profiles())
+    unknown_profiles = [profile for profile in profiles if profile not in known_profiles]
+    if unknown_profiles:
+        raise HTTPException(400, f"Unknown account profiles: {', '.join(unknown_profiles)}")
     if body.operation in {"safe-apply", "safe-reply"} and not body.dry_run and not body.confirm_live:
         raise HTTPException(409, "Live batch operations require confirm_live=true.")
     if body.operation == "update-resumes" and not body.confirm_live:
