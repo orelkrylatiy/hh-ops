@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, List, Literal, Optional, TypedDict, TypeVar
+from typing import Any, Generic, List, Literal, NotRequired, Optional, TypedDict, TypeVar
 
 NegotiationStateId = Literal[
     "discard",  # отказ
@@ -194,8 +194,8 @@ class Resume(ResumeShort):
     updated_at: str
     can_publish_or_update: bool
     # HH /resumes/mine exposes these counters at the top level.
-    total_views: int
-    new_views: int
+    total_views: NotRequired[int]
+    new_views: NotRequired[int]
 
 
 class UserCounters(TypedDict):
