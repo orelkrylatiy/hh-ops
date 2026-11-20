@@ -97,8 +97,9 @@ CREATE TABLE IF NOT EXISTS resumes (
     status_id TEXT,
     status_name TEXT,
     can_publish_or_update BOOLEAN,
-    total_views INTEGER DEFAULT 0,
-    new_views INTEGER DEFAULT 0,
+    total_views INTEGER DEFAULT NULL,
+    new_views INTEGER DEFAULT NULL,
+    views_updated_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
