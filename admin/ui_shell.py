@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-_UI_STYLESHEET = '<link rel="stylesheet" href="/admin-ui.css?v=2"/>'
-_UI_SCRIPT = '<script src="/admin-ui.js?v=2" defer></script>'
+_UI_STYLESHEET = '<link rel="stylesheet" href="/admin-ui.css?v=3"/>'
+_UI_SCRIPT = '<script src="/admin-ui.js?v=3" defer></script>'
 _ANIMATE_CDN_RE = re.compile(
     r"\s*<link\s+rel=[\"']stylesheet[\"']\s+href=[\"']"
     r"https://cdnjs\.cloudflare\.com/ajax/libs/animate\.css/[^\"']+/animate\.min\.css"
