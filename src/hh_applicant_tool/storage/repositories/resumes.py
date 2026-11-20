@@ -15,12 +15,15 @@ class ResumesRepository(BaseRepository):
     model = ResumeModel
 
     def _with_title(self, item: BaseModel | Mapping[str, Any]) -> ResumeModel:
+        existing = None
         if isinstance(item, Mapping):
             resume = self.model.from_api({**item, "title": item.get("title") or ""})
             counters_present = (
                 item.get("total_views") is not None
                 and item.get("new_views") is not None
             )
+            if not counters_present or not resume.title:
+                existing = self.get(resume.id)
             resume = replace(
                 resume,
                 views_updated_at=(
@@ -29,6 +32,13 @@ class ResumesRepository(BaseRepository):
                     else None
                 ),
             )
+            if not counters_present and existing:
+                # Keep last-known values for diagnostics, but mark them unknown/stale.
+                resume = replace(
+                    resume,
+                    total_views=existing.total_views,
+                    new_views=existing.new_views,
+                )
         else:
             resume = item
         if not isinstance(resume, ResumeModel):
@@ -37,7 +47,7 @@ class ResumesRepository(BaseRepository):
             return resume
         # HH can return a partial/removed resume without its title. Preserve
         # the known title rather than failing the entire batch or erasing it.
-        existing = self.get(resume.id)
+        existing = existing or self.get(resume.id)
         title = existing.title if existing and existing.title else "Резюме без названия"
         return replace(resume, title=title)
 
