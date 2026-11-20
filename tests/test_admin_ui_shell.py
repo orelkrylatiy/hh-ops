@@ -22,10 +22,10 @@ def test_ui_shell_replaces_external_animation_dependency_and_injects_local_asset
     rendered = render_index_html(source)
 
     assert "cdnjs.cloudflare.com" not in rendered
-    assert rendered.count("/admin-ui.css?v=2") == 1
-    assert rendered.count("/admin-ui.js?v=2") == 1
-    assert rendered.index("/admin-ui.css?v=2") < rendered.index("</head>")
-    assert rendered.index("/admin-ui.js?v=2") < rendered.index("</body>")
+    assert rendered.count("/admin-ui.css?v=3") == 1
+    assert rendered.count("/admin-ui.js?v=3") == 1
+    assert rendered.index("/admin-ui.css?v=3") < rendered.index("</head>")
+    assert rendered.index("/admin-ui.js?v=3") < rendered.index("</body>")
 
 
 def test_ui_shell_is_idempotent():
@@ -33,8 +33,8 @@ def test_ui_shell_is_idempotent():
     once = render_index_html(source)
     twice = render_index_html(once)
 
-    assert twice.count("/admin-ui.css?v=2") == 1
-    assert twice.count("/admin-ui.js?v=2") == 1
+    assert twice.count("/admin-ui.css?v=3") == 1
+    assert twice.count("/admin-ui.js?v=3") == 1
 
 
 def test_admin_ui_assets_cover_responsive_accessible_behaviour():
