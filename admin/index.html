@@ -1561,8 +1561,9 @@ async function vacancies() {
     const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const colspan = isAllAccounts() ? 8 : 7;
     const rows = (r.items || []).map(v => {
-      const applicationTag = v.has_applied
-        ? `<span class="badge vacancy-applied" title="Отклик в профиле ${escapeHtml(v.profile || '')}">${isAllAccounts() ? 'Отклик · ' + escapeHtml(v.profile || 'аккаунт') : 'Отклик отправлен'}</span>`
+      const stateLabels = {response: 'Отклик', invitation: 'Приглашение', interview: 'Собеседование', hired: 'Принят', discard: 'Отказ'};
+      const applicationTag = v.has_interaction
+        ? `<span class="badge vacancy-applied" title="Последнее состояние переписки в профиле ${escapeHtml(v.profile || '')}">${escapeHtml(stateLabels[v.application_state] || 'Есть переписка')}${isAllAccounts() ? ' · ' + escapeHtml(v.profile || 'аккаунт') : ''}</span>`
         : '<span class="badge vacancy-not-applied">Без отклика</span>';
       return `<tr>
         ${accountCell(v)}<td style="max-width:280px">${linkHtml(v.alternate_url, v.name)}</td>
@@ -1577,7 +1578,7 @@ async function vacancies() {
 
     c.innerHTML = filters(r.total) + `
       <div class="table-wrap">
-        <table><thead><tr>${accountHeader}<th>Вакансия</th><th>Работодатель</th><th>Город</th><th>Зарплата</th><th>Опыт</th><th>Отклик</th><th>Добавлена</th></tr></thead>
+        <table><thead><tr>${accountHeader}<th>Вакансия</th><th>Работодатель</th><th>Город</th><th>Зарплата</th><th>Опыт</th><th>Статус аккаунта</th><th>Добавлена</th></tr></thead>
         <tbody>${rows}</tbody></table>
       </div>
       <div class="pagination">
