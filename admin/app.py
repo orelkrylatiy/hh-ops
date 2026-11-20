@@ -31,7 +31,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from hh_applicant_tool import constants
 from hh_applicant_tool.ai import ChatOpenAI, OpenAIError
@@ -1427,6 +1427,14 @@ class LetterRequest(BaseModel):
     resume_title: str = Field(default="", max_length=250)
     extra: str = Field(default="", max_length=2_000)
     profile: str = "default"
+
+    @field_validator("vacancy_name")
+    @classmethod
+    def vacancy_name_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("vacancy_name must not be blank")
+        return normalized
 
 
 @app.post("/api/generate-letter")
