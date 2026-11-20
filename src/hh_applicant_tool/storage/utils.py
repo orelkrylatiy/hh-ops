@@ -28,6 +28,8 @@ def _apply_additive_schema_updates(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_vacancies_employer_id "
         "ON vacancies(employer_id)"
     )
+    if "views_updated_at" not in _column_names(conn, "resumes"):
+        conn.execute("ALTER TABLE resumes ADD COLUMN views_updated_at DATETIME")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
