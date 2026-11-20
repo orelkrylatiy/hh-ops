@@ -3108,7 +3108,7 @@ class AutomationSettingsUpdate(BaseModel):
 
 @app.put("/api/automation-settings")
 def update_automation_settings(body: AutomationSettingsUpdate):
-    if body.settings.mode == "live" and not body.confirm_live:
+    if body.settings.mode == "live" and not body.settings.paused and not body.confirm_live:
         raise HTTPException(409, "Enabling automatic live actions requires confirm_live=true.")
     try:
         save_settings(_config_root(), body.settings)
