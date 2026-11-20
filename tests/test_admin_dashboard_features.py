@@ -231,3 +231,48 @@ def test_paused_automation_disables_cron_without_losing_selected_mode() -> None:
     assert env["HH_AUTOMATION_MODE"] == "off"
     assert env["HH_AUTOMATION_PAUSED"] == "on"
     assert settings.mode == "live"
+
+
+def test_live_summary_distinguishes_real_zero_from_missing_hh_counters(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    client = TestClient(admin_app.app)
+
+    def fake_hh_get(profile, endpoint, params=None):
+        if endpoint == "/negotiations":
+            return {"found": 1, "items": [{"created_at": "2026-11-19T10:00:00Z"}]}
+        if endpoint == "/resumes/mine":
+            return {
+                "found": 2,
+                "items": [
+                    {"id": "resume-zero", "title": "No views", "total_views": 0, "new_views": 0},
+                    {"id": "resume-unknown", "title": "No counters in response"},
+                ],
+            }
+        raise AssertionError(f"Unexpected HH endpoint: {endpoint}")
+
+    monkeypatch.setattr(admin_app, "_hh_get", fake_hh_get)
+    response = client.get("/api/live-summary", params={"profile": "account-a"})
+
+    assert response.status_code == 200
+    counters = response.json()["resume_views"]
+    assert counters[0]["total_views"] == 0
+    assert counters[0]["new_views"] == 0
+    assert counters[0]["views_updated_at"]
+    assert counters[1]["total_views"] is None
+    assert counters[1]["new_views"] is None
+    assert counters[1]["views_updated_at"] is None
+
+
+def test_cover_letter_endpoint_rejects_blank_vacancy_name(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    client = TestClient(admin_app.app)
+
+    response = client.post(
+        "/api/generate-letter",
+        json={"profile": "account-a", "vacancy_name": "   "},
+    )
+
+    assert response.status_code == 422
+
