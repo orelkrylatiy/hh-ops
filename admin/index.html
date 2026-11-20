@@ -2755,7 +2755,10 @@ async function inbox() {
       <div class="filters">
         <select id="inbox-status" onchange="inboxStatus=this.value;inboxPage=0;inbox()">
           <option value="">Все переписки</option>
+          <option value="response">Отклики</option>
           <option value="invitation">Приглашения</option>
+          <option value="interview">Собеседования</option>
+          <option value="hired">Принят</option>
           <option value="active">Активные</option>
           <option value="discard">Отказы</option>
         </select>
