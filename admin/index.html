@@ -1450,6 +1450,7 @@ async function negotiations(state_filter) {
   const curState = state_filter !== undefined ? state_filter : (window._negState || '');
   window._negState = curState;
 
+  c.setAttribute('aria-busy', 'true');
   c.innerHTML = `
     <div class="filters">
       <select id="state-filter" onchange="window._negState=this.value;negPage=0;negotiations(this.value)">
@@ -1460,8 +1461,7 @@ async function negotiations(state_filter) {
         <option value="discard">Отказ</option>
         <option value="hired">Принят</option>
       </select>
-    </div>
-    <div style="color:var(--text2)">Загрузка...</div>`;
+    </div>` + skeletonTable(isAllAccounts() ? 6 : 5, 6);
 
   document.getElementById('state-filter').value = curState;
 
@@ -1508,8 +1508,10 @@ async function negotiations(state_filter) {
         <button class="btn btn-secondary" onclick="negPage++;negotiations()" ${r.items.length<50?'disabled':''}>Вперёд →</button>
       </div>`;
     document.getElementById('state-filter').value = curState;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1594,7 +1596,8 @@ async function vacancies() {
 let skipPage = 0;
 async function skipped() {
   const c = document.getElementById('content');
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка...</div>';
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = skeletonTable(isAllAccounts() ? 5 : 4, 6);
   try {
     const r = await api(`${CONSTANTS.endpoints.skipped}?limit=50&offset=${skipPage*50}`);
     const accountHeader = isAllAccounts() ? '<th>Account</th>' : '';
@@ -1623,8 +1626,10 @@ async function skipped() {
         <span>Страница ${skipPage+1}</span>
         <button class="btn btn-secondary" onclick="skipPage++;skipped()" ${r.items.length<50?'disabled':''}>Вперёд →</button>
       </div>`;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1633,13 +1638,13 @@ let empPage = 0;
 let empSearch = '';
 async function employers() {
   const c = document.getElementById('content');
+  c.setAttribute('aria-busy', 'true');
   c.innerHTML = `
     <div class="filters">
       <input id="emp-search" placeholder="Поиск по названию..." value="${escapeHtml(empSearch)}"
         onkeydown="if(event.key==='Enter'){empSearch=this.value;empPage=0;employers()}"/>
       <button class="btn btn-secondary" onclick="empSearch=document.getElementById('emp-search').value;empPage=0;employers()">Найти</button>
-    </div>
-    <div style="color:var(--text2)">Загрузка...</div>`;
+    </div>` + skeletonTable(isAllAccounts() ? 6 : 5, 6);
   try {
     const sq = empSearch ? `&search=${encodeURIComponent(empSearch)}` : '';
     const r = await api(`${CONSTANTS.endpoints.employers}?limit=50&offset=${empPage*50}${sq}`);
@@ -1689,8 +1694,10 @@ async function employers() {
       <div class="section" style="margin-top:8px">
         <div style="font-size:12px;color:var(--text2)">Каждая строка таблицы выше — кандидат на блокировку: нажмите 🚫 в строке, чтобы навсегда скрыть вакансии компании.</div>
       </div>`;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
