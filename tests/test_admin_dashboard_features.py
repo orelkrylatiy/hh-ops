@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import admin.app as admin_app
 from hh_applicant_tool.storage.facade import StorageFacade
+from hh_applicant_tool.storage.utils import init_db
 from hh_applicant_tool.storage.models.resume import ResumeModel
 from admin.automation_settings import AutomationSettings
 
@@ -344,4 +346,25 @@ def test_automation_can_be_paused_without_enabling_live_actions(
         "confirm_live": True,
     })
     assert resume_confirmed.status_code == 200
+
+def test_existing_resume_tables_get_views_updated_at_migration() -> None:
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "hh_applicant_tool"
+        / "storage"
+        / "queries"
+        / "schema.sql"
+    )
+    old_schema = schema_path.read_text(encoding="utf-8").replace(
+        "    views_updated_at DATETIME,\n", ""
+    )
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(old_schema)
+        init_db(conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(resumes)")}
+        assert "views_updated_at" in columns
+    finally:
+        conn.close()
 
