@@ -2004,14 +2004,15 @@ async function repeatOperation(operation, profile) {
   await runBatch(selectedOperation, true);
 }
 
-async function refreshRunLogs() {
+async function refreshRunLogs(profile = null) {
   const box = document.getElementById('run-logs-box');
   const meta = document.getElementById('run-logs-meta');
   if (!box || !meta) return;
-  meta.textContent = 'Загружаю последние строки…';
+  const selectedProfile = profile || document.getElementById('run-log-profile')?.value || currentProfile;
+  meta.textContent = `Загружаю последние строки · ${selectedProfile}…`;
   box.innerHTML = '<span class="admin-skeleton-line" aria-hidden="true"></span>'.repeat(4);
   try {
-    const result = await api(`${CONSTANTS.endpoints.logs}?lines=300`);
+    const result = await api(`${CONSTANTS.endpoints.logs}?lines=300&profile=${encodeURIComponent(selectedProfile)}`);
     box.innerHTML = '';
     (result.lines || []).forEach(line => {
       const span = document.createElement('span');
@@ -2021,7 +2022,7 @@ async function refreshRunLogs() {
       span.textContent = line;
       box.appendChild(span);
     });
-    meta.textContent = `Последние ${(result.lines || []).length} строк · ${new Date().toLocaleTimeString('ru-RU')}`;
+    meta.textContent = `${selectedProfile} · ${(result.lines || []).length} строк · ${new Date().toLocaleTimeString('ru-RU')}`;
     box.scrollTop = box.scrollHeight;
   } catch (error) {
     meta.textContent = 'Ошибка загрузки логов';
@@ -2037,7 +2038,7 @@ async function run() {
 
   let activeOps = [];
   try {
-    const opsResp = await fetchJson(`${CONSTANTS.endpoints.operations}?profile=${encodeURIComponent(currentProfile)}`);
+    const opsResp = await fetchJson(`${CONSTANTS.endpoints.operations}?profile=${encodeURIComponent(currentProfile)}&scope=all`);
     activeOps = (opsResp.operations || []).filter(op => op.running);
     activeOps.forEach(op => {
       if (!runningOps[op.op_id]) {
@@ -2055,8 +2056,9 @@ async function run() {
     console.error('Could not load operation history:', e);
   }
 
-  const updateResumeRunning = activeOps.some(op => op.operation === CONSTANTS.operations.update_resumes);
-  const applyVacanciesRunning = activeOps.some(op => ['safe-apply', CONSTANTS.operations.apply_vacancies].includes(op.operation));
+  const currentProfileOps = activeOps.filter(op => (op.profile || currentProfile) === currentProfile);
+  const updateResumeRunning = currentProfileOps.some(op => op.operation === CONSTANTS.operations.update_resumes);
+  const applyVacanciesRunning = currentProfileOps.some(op => ['safe-apply', CONSTANTS.operations.apply_vacancies].includes(op.operation));
   const updateResumeDisabled = updateResumeRunning ? 'disabled' : '';
   const applyVacanciesDisabled = applyVacanciesRunning ? 'disabled' : '';
   const historyRows = operationHistory.map(item => {
@@ -2121,7 +2123,12 @@ async function run() {
       </div>
     </div>
     <div class="section" style="margin-top:20px">
-      <div class="section-title">📋 Логи <button class="btn btn-secondary btn-small" onclick="refreshRunLogs()">Обновить логи</button></div>
+      <div class="section-title">📋 Логи
+        <select id="run-log-profile" aria-label="Аккаунт для просмотра логов" onchange="refreshRunLogs(this.value)">
+          ${availableProfiles.map(profile => `<option value="${escapeHtml(profile)}" ${profile===currentProfile?'selected':''}>${escapeHtml(profile)}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-small" onclick="refreshRunLogs()">Обновить логи</button>
+      </div>
       <div id="run-logs-meta" class="admin-muted">Загружаю…</div>
       <div class="log-box" id="run-logs-box"><span class="admin-skeleton-line" aria-hidden="true"></span></div>
     </div>
