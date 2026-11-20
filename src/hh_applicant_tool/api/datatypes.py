@@ -188,19 +188,14 @@ class ResumeShort(TypedDict):
     alternate_url: str
 
 
-class ResumeCounters(TypedDict):
-    total_views: int
-    new_views: int
-    invitations: int
-    new_invitations: int
-
-
 class Resume(ResumeShort):
     status: IdName
     created_at: str
     updated_at: str
     can_publish_or_update: bool
-    counters: ResumeCounters
+    # HH /resumes/mine exposes these counters at the top level.
+    total_views: int
+    new_views: int
 
 
 class UserCounters(TypedDict):
