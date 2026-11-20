@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 from ..models.base import BaseModel
@@ -14,11 +15,22 @@ class ResumesRepository(BaseRepository):
     model = ResumeModel
 
     def _with_title(self, item: BaseModel | Mapping[str, Any]) -> ResumeModel:
-        resume = (
-            self.model.from_api({**item, "title": item.get("title") or ""})
-            if isinstance(item, Mapping)
-            else item
-        )
+        if isinstance(item, Mapping):
+            resume = self.model.from_api({**item, "title": item.get("title") or ""})
+            counters_present = (
+                item.get("total_views") is not None
+                and item.get("new_views") is not None
+            )
+            resume = replace(
+                resume,
+                views_updated_at=(
+                    datetime.now(timezone.utc).isoformat()
+                    if counters_present
+                    else None
+                ),
+            )
+        else:
+            resume = item
         if not isinstance(resume, ResumeModel):
             raise TypeError("Expected a resume model")
         if resume.title and resume.title.strip():
