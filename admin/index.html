@@ -2525,10 +2525,10 @@ async function saveAutomationSettings() {
     const input = document.getElementById('auto-' + key);
     if (input) settings[key] = Number(input.value);
   });
-  const confirmLive = settings.mode === 'live' ? confirm(
-    'Сохранить LIVE-режим для всех аккаунтов? Если расписание не на паузе, следующие задания будут отправлять реальные отклики и сообщения.'
+  const confirmLive = settings.mode === 'live' && !settings.paused ? confirm(
+    'Сохранить LIVE-режим для всех аккаунтов? Следующие задания cron смогут отправлять реальные отклики и сообщения.'
   ) : false;
-  if (settings.mode === 'live' && !confirmLive) return;
+  if (settings.mode === 'live' && !settings.paused && !confirmLive) return;
   try {
     const result = await api('/api/automation-settings', {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -2568,9 +2568,6 @@ async function setAutomationControl(action) {
     if (settings.mode === 'live' && action === 'resume') {
       confirmLive = confirm('Возобновить LIVE-автоматизацию для всех аккаунтов? Будущие cron-запуски смогут отправлять реальные отклики и сообщения.');
       if (!confirmLive) return;
-    } else if (settings.mode === 'live' && action === 'pause') {
-      // The mode remains live for a later resume, but the generated cron env is off.
-      confirmLive = true;
     }
     await api('/api/automation-settings', {
       method: 'PUT',
