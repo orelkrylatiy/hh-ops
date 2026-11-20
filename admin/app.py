@@ -1421,11 +1421,11 @@ def _make_ai_client(
 
 
 class LetterRequest(BaseModel):
-    vacancy_name: str
-    vacancy_description: str = ""
-    employer_name: str = ""
-    resume_title: str = ""
-    extra: str = ""
+    vacancy_name: str = Field(min_length=1, max_length=250)
+    vacancy_description: str = Field(default="", max_length=8_000)
+    employer_name: str = Field(default="", max_length=250)
+    resume_title: str = Field(default="", max_length=250)
+    extra: str = Field(default="", max_length=2_000)
     profile: str = "default"
 
 
