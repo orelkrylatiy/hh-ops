@@ -1468,7 +1468,7 @@ async function negotiations(state_filter) {
   try {
     const stateQ = curState ? `&state=${encodeURIComponent(curState)}` : '';
     const r = await api(`${CONSTANTS.endpoints.negotiations}?limit=50&offset=${negPage * 50}${stateQ}`);
-    const accountHeader = isAllAccounts() ? '<th>Account</th>' : '';
+    const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const colspan = isAllAccounts() ? 6 : 5;
     let rows = '';
     if (r.items.length) {
@@ -1483,7 +1483,7 @@ async function negotiations(state_filter) {
         </tr>`;
       });
     } else {
-      rows = `<tr class="empty-row"><td colspan="${colspan}">No applications</td></tr>`;
+      rows = `<tr class="empty-row"><td colspan="${colspan}">Нет откликов</td></tr>`;
     }
 
     c.innerHTML = `
@@ -1600,7 +1600,7 @@ async function skipped() {
   c.innerHTML = skeletonTable(isAllAccounts() ? 5 : 4, 6);
   try {
     const r = await api(`${CONSTANTS.endpoints.skipped}?limit=50&offset=${skipPage*50}`);
-    const accountHeader = isAllAccounts() ? '<th>Account</th>' : '';
+    const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const colspan = isAllAccounts() ? 5 : 4;
     let rows = '';
     if (r.items.length) {
@@ -1613,7 +1613,7 @@ async function skipped() {
         </tr>`;
       });
     } else {
-      rows = `<tr class="empty-row"><td colspan="${colspan}">No skipped vacancies</td></tr>`;
+      rows = `<tr class="empty-row"><td colspan="${colspan}">Нет пропущенных вакансий</td></tr>`;
     }
     c.innerHTML = `
       <div style="margin-bottom:12px;color:var(--text2);font-size:13px">Всего: ${r.total}</div>
@@ -1648,7 +1648,7 @@ async function employers() {
   try {
     const sq = empSearch ? `&search=${encodeURIComponent(empSearch)}` : '';
     const r = await api(`${CONSTANTS.endpoints.employers}?limit=50&offset=${empPage*50}${sq}`);
-    const accountHeader = isAllAccounts() ? '<th>Account</th>' : '';
+    const accountHeader = isAllAccounts() ? '<th>Аккаунт</th>' : '';
     const colspan = isAllAccounts() ? 5 : 4;
     let rows = '';
     if (r.items.length) {
@@ -1771,12 +1771,12 @@ async function refreshResumeSnapshot() {
 // LETTER GENERATOR
 async function letter() {
   const c = document.getElementById('content');
-  c.setAttribute('aria-busy', 'true');
-  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(1, 5) + '</div>';
   if (isAllAccounts()) {
     showSingleAccountPage('AI cover-letter generation');
     return;
   }
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(1, 5) + '</div>';
   // Load resumes for dropdown
   let resumeOpts = '<option value="">— не указано —</option>';
   try {
@@ -3233,12 +3233,12 @@ let currentNamed = '';        // имя шаблона, открытого в р
 
 async function letterTemplate() {
   const c = document.getElementById('content');
-  c.setAttribute('aria-busy', 'true');
-  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(3, 5) + '</div>';
   if (isAllAccounts()) {
     showSingleAccountPage('Шаблоны писем');
     return;
   }
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(3, 5) + '</div>';
   c.innerHTML = '<div style="color:var(--text2)">Загрузка...</div>';
 
   let fallback = '';
@@ -3246,7 +3246,8 @@ async function letterTemplate() {
     const r = await api('/api/letter-template');
     fallback = r.content || '';
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
     return;
   }
 
