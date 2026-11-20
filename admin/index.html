@@ -1771,6 +1771,8 @@ async function refreshResumeSnapshot() {
 // LETTER GENERATOR
 async function letter() {
   const c = document.getElementById('content');
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(1, 5) + '</div>';
   if (isAllAccounts()) {
     showSingleAccountPage('AI cover-letter generation');
     return;
@@ -1789,11 +1791,11 @@ async function letter() {
       <div class="form-row">
         <div class="form-group">
           <label>Название вакансии *</label>
-          <input id="l-name" placeholder="например: Python Backend Developer"/>
+          <input id="l-name" maxlength="250" required placeholder="например: Python Backend Developer"/>
         </div>
         <div class="form-group">
           <label>Работодатель</label>
-          <input id="l-emp" placeholder="Название компании"/>
+          <input id="l-emp" maxlength="250" placeholder="Название компании"/>
         </div>
       </div>
       <div class="form-row">
@@ -1803,22 +1805,25 @@ async function letter() {
         </div>
         <div class="form-group">
           <label>Дополнительно</label>
-          <input id="l-extra" placeholder="Особые пожелания к стилю письма"/>
+          <input id="l-extra" maxlength="2000" placeholder="Особые пожелания к стилю письма"/>
         </div>
       </div>
       <div class="form-row full">
         <div class="form-group">
           <label>Описание вакансии (опционально)</label>
-          <textarea id="l-desc" rows="4" placeholder="Вставьте текст описания вакансии для более персонализированного письма..."></textarea>
+          <textarea id="l-desc" rows="4" maxlength="8000" placeholder="Вставьте текст описания вакансии для более персонализированного письма..."></textarea>
         </div>
       </div>
       <button class="btn btn-primary" id="l-btn" onclick="generateLetter()">✨ Сгенерировать письмо</button>
       <div id="l-result" class="letter-result" style="display:none"></div>
       <div id="l-actions" style="margin-top:10px;display:none;gap:8px"></div>
     </div>`;
+  c.setAttribute('aria-busy', 'false');
 }
 
 async function generateLetter() {
+  const vacancyName = document.getElementById('l-name')?.value.trim();
+  if (!vacancyName) return toast('Укажите название вакансии.', 'error');
   const btn = document.getElementById('l-btn');
   const result = document.getElementById('l-result');
   btn.disabled = true;
@@ -2579,7 +2584,8 @@ async function config() {
     showSingleAccountPage('Account settings');
     return;
   }
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка...</div>';
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(2, 8) + '</div>';
   try {
     const data = await api(CONSTANTS.endpoints.config);
     let rows = '';
@@ -2638,8 +2644,10 @@ async function config() {
           <div style="font-size:11px;color:var(--text2);margin-top:8px">API-ключ не меняется здесь — он задаётся в config.json. Сохранение обновляет только модель и base_url, не трогая ключ.</div>
         </div>
       </div>`;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -2675,7 +2683,8 @@ async function logs() {
   const c = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML =
     `<button class="btn btn-secondary" onclick="logs()">🔄 Обновить</button>`;
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка...</div>';
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = skeletonTable(1, 8);
   try {
     const r = await api(`${CONSTANTS.endpoints.logs}?lines=300`);
     const box = document.createElement('div');
@@ -2691,8 +2700,10 @@ async function logs() {
     c.innerHTML = `<div style="margin-bottom:12px;color:var(--text2);font-size:13px">Последние ${r.lines.length} строк лога</div>`;
     c.appendChild(box);
     box.scrollTop = box.scrollHeight;
+    c.setAttribute('aria-busy', 'false');
   } catch(e) {
-    c.innerHTML = `<div style="color:var(--red)">Ошибка: ${escapeHtml(e.message)}</div>`;
+    c.setAttribute('aria-busy', 'false');
+    c.innerHTML = `<div class="admin-error-state">Ошибка: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -3222,6 +3233,8 @@ let currentNamed = '';        // имя шаблона, открытого в р
 
 async function letterTemplate() {
   const c = document.getElementById('content');
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(3, 5) + '</div>';
   if (isAllAccounts()) {
     showSingleAccountPage('Шаблоны писем');
     return;
@@ -3249,6 +3262,7 @@ async function letterTemplate() {
       <div id="named-list">${renderNamedList()}</div>
       <div id="named-editor" style="display:none"></div>
     </div>`;
+    c.setAttribute('aria-busy', 'false');
 }
 
 function renderTemplatesHeader(fallback) {
