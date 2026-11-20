@@ -393,6 +393,7 @@ let viewScope = 'all';
 let dashboardProfiles = [];
 let dashboardProfilesDraft = [];
 let runProfiles = [];
+let automationPaused = false;
 let currentPage = 'home';
 let CONSTANTS = null;
 const RUN_CARD_DONE_KEY = 'hh-admin-run-card-done';
@@ -2422,43 +2423,69 @@ async function unblacklistEmployer(employerId, name) {
 // GLOBAL LINUX AUTOMATION
 async function automationSettings() {
   const c = document.getElementById('content');
-  c.innerHTML = '<p class="admin-muted">Загрузка параметров cron…</p>';
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = '<div class="section">' + skeletonCards(3) + skeletonTable(2, 4) + '</div>';
   document.getElementById('topbar-actions').innerHTML =
     '<button class="btn btn-secondary" onclick="automationSettings()">Обновить</button>';
   try {
     const result = await api('/api/automation-settings');
-    const s = result.settings;
+    const s = result.settings || {};
+    automationPaused = Boolean(s.paused);
     const field = (key, title, type='number', step='1', min='0', max='100') =>
       '<div class="form-group"><label for="auto-' + key + '">' + title + '</label><input id="auto-' + key +
       '" type="' + type + '" step="' + step + '" min="' + min + '" max="' + max +
-      '" value="' + escapeHtml(s[key]) + '"/></div>';
+      '" value="' + escapeHtml(s[key] ?? '') + '"/></div>';
     const toggle = (key, label) =>
       '<label class="admin-toggle"><input type="checkbox" id="auto-' + key + '"' + (s[key] ? ' checked' : '') +
       '/><span>' + label + '</span></label>';
+    const modeLabel = s.paused
+      ? 'Приостановлено'
+      : ({off:'Выключено', 'dry-run':'Работает в режиме проверки', live:'Работает в LIVE'}[s.mode] || 'Состояние неизвестно');
+    const modeClass = s.paused ? 'paused' : (s.mode === 'live' ? 'live' : (s.mode === 'off' ? 'stopped' : 'dry-run'));
+    const pauseControls = s.paused
+      ? '<button class="btn btn-primary" onclick="setAutomationControl(\'resume\')">▶ Возобновить</button>'
+      : (s.mode !== 'off' ? '<button class="btn btn-secondary" onclick="setAutomationControl(\'pause\')">Ⅱ Пауза</button>' : '');
     c.innerHTML = '<div class="section admin-control-panel">' +
-      '<div class="section-title">Управление автономным Linux-процессом</div>' +
-      '<p class="admin-muted">Настройки общие для всех профилей. После сохранения применяются следующим запуском cron без перезапуска Docker. Отдельный ручной запуск в «Запуск задач» работает по явным параметрам.</p>' +
-      '<p class="admin-muted">В каждом live-цикле cron выполняет поднятие резюме, до заданного лимита откликов по включённым профильным правилам, затем ответы работодателям. Поиск и шаблон письма могут задаваться отдельно для каждого профиля. Автоотклики идут 3 раза в день; письма HR выключены.</p>' +
-      '<div class="admin-setting-grid"><div class="form-group"><label for="auto-mode">Режим запланированной автоматизации</label><select id="auto-mode">' +
-      ['off', 'dry-run', 'live'].map(mode => '<option value="' + mode + '"' + (s.mode === mode ? ' selected' : '') + '>' +
-      ({off:'Выключено', 'dry-run':'Предпросмотр (dry-run)', live:'Реальные действия (live)'}[mode]) + '</option>').join('') +
-      '</select></div>' +
-      field('search_query', 'Поисковый запрос', 'text') +
-      field('apply_limit', 'Лимит успешных откликов', 'number', '1', '1', '100') +
-      field('apply_pages', 'Страницы поиска', 'number', '1', '1', '100') +
-      field('apply_per_page', 'Вакансий на странице', 'number', '1', '1', '100') +
-      field('reply_chats', 'Переписок за проверку', 'number', '1', '1', '500') +
-      field('human_cooldown_minutes', 'Пауза перед ответом человеку, мин.', 'number', '1', '0', '120') +
-      field('max_chat_age_days', 'Возраст переписок, дней', 'number', '1', '1', '365') +
-      field('followup_after_days', 'Напоминание через, дней', 'number', '1', '1', '60') +
-      '</div><div class="admin-toggle-grid">' +
-      toggle('followups_enabled', 'Напоминать работодателям (не более раза на чат)') +
-      toggle('auto_quick_replies', 'Автоматически выбирать доступные варианты ответа') +
-      toggle('send_email', 'Письмо HR после отклика (если доступны контакты)') +
-      toggle('cleanup_delete_chat', 'Скрывать отклонённые переписки') +
-      '</div><div class="admin-run-controls"><button class="btn btn-primary" onclick="saveAutomationSettings()">Сохранить настройки</button>' +
-      '<span class="admin-muted">Источник: ' + escapeHtml(result.source) + '</span></div></div>';
+      '<div class="automation-status-card ' + modeClass + '">' +
+        '<div><span class="automation-status-label">Состояние расписания</span><h3>' + modeLabel + '</h3>' +
+        '<p>' + (s.paused ? 'Режим сохранён. Новые cron-запуски приостановлены; возобновление вернёт выбранный режим.' :
+          (s.mode === 'live' ? 'Следующие задания cron могут отправлять реальные отклики и сообщения.' :
+          (s.mode === 'dry-run' ? 'Задания выполняют проверки без отправки действий.' : 'Плановые задания отключены.')) ) + '</p></div>' +
+        '<div class="admin-run-controls">' + pauseControls +
+          '<button class="btn btn-danger" onclick="setAutomationControl(\'stop\')">■ Остановить</button></div>' +
+      '</div>' +
+      '<div class="section-title">Основные параметры</div>' +
+      '<p class="admin-muted">Настройки общие для всех профилей. Сохранение применяется при следующем запуске cron без перезапуска Docker. Ручные задачи на странице «Запуск задач» запускаются отдельно и не меняют расписание.</p>' +
+      '<div class="admin-setting-grid">' +
+        '<div class="form-group"><label for="auto-mode">Режим расписания</label><select id="auto-mode">' +
+          ['off', 'dry-run', 'live'].map(mode => '<option value="' + mode + '"' + (s.mode === mode ? ' selected' : '') + '>' +
+          ({off:'Выключено', 'dry-run':'Проверка (dry-run)', live:'Реальные действия (live)'}[mode]) + '</option>').join('') +
+        '</select></div>' +
+        field('search_query', 'Поисковый запрос', 'text') +
+        field('apply_limit', 'Лимит успешных откликов', 'number', '1', '1', '100') +
+        field('reply_chats', 'Переписок за проверку', 'number', '1', '1', '500') +
+        field('human_cooldown_minutes', 'Пауза перед ответом человеку, мин.', 'number', '1', '0', '120') +
+      '</div>' +
+      '<details class="admin-advanced-settings"><summary>Дополнительные параметры и поведение</summary>' +
+        '<div class="admin-setting-grid">' +
+          field('apply_pages', 'Страницы поиска', 'number', '1', '1', '100') +
+          field('apply_per_page', 'Вакансий на странице', 'number', '1', '1', '100') +
+          field('max_chat_age_days', 'Возраст переписок, дней', 'number', '1', '1', '365') +
+          field('followup_after_days', 'Напоминание через, дней', 'number', '1', '1', '60') +
+        '</div><div class="admin-toggle-grid">' +
+          toggle('followups_enabled', 'Напоминать работодателям (не более раза на чат)') +
+          toggle('auto_quick_replies', 'Автоматически выбирать доступные варианты ответа') +
+          toggle('send_email', 'Письмо HR после отклика (если доступны контакты)') +
+          toggle('cleanup_delete_chat', 'Скрывать отклонённые переписки') +
+        '</div>' +
+      '</details>' +
+      '<div class="admin-run-controls"><button class="btn btn-primary" onclick="saveAutomationSettings()">Сохранить настройки</button>' +
+        '<span class="admin-muted">Источник: ' + escapeHtml(result.source || 'config') + '</span></div>' +
+      '<p class="admin-muted automation-safety-note">«Остановить» отключает будущие cron-запуски, но не прерывает процесс, который уже выполняется. Для отмены текущей операции используйте верхнюю панель активных задач.</p>' +
+    '</div>';
+    c.setAttribute('aria-busy', 'false');
   } catch (error) {
+    c.setAttribute('aria-busy', 'false');
     c.innerHTML = '<p class="admin-error">Ошибка загрузки параметров: ' + escapeHtml(error.message) + '</p>';
   }
 }
@@ -2468,15 +2495,19 @@ async function saveAutomationSettings() {
     'human_cooldown_minutes','max_chat_age_days','followup_after_days'];
   const settings = {
     mode: document.getElementById('auto-mode').value,
+    paused: automationPaused,
     search_query: document.getElementById('auto-search_query').value.trim(),
     followups_enabled: document.getElementById('auto-followups_enabled').checked,
     auto_quick_replies: document.getElementById('auto-auto_quick_replies').checked,
     send_email: document.getElementById('auto-send_email').checked,
     cleanup_delete_chat: document.getElementById('auto-cleanup_delete_chat').checked,
   };
-  keys.forEach(key => settings[key] = Number(document.getElementById('auto-' + key).value));
+  keys.forEach(key => {
+    const input = document.getElementById('auto-' + key);
+    if (input) settings[key] = Number(input.value);
+  });
   const confirmLive = settings.mode === 'live' ? confirm(
-    'Включить LIVE cron для ВСЕХ аккаунтов? Следующие задания будут отправлять реальные отклики и сообщения.'
+    'Сохранить LIVE-режим для всех аккаунтов? Если расписание не на паузе, следующие задания будут отправлять реальные отклики и сообщения.'
   ) : false;
   if (settings.mode === 'live' && !confirmLive) return;
   try {
@@ -2484,10 +2515,53 @@ async function saveAutomationSettings() {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({settings, confirm_live: confirmLive}),
     });
-    toast('Сохранено. Применится на следующем запуске cron.');
+    toast('Настройки сохранены. Они применятся на следующем запуске cron.');
     if (result.settings) await automationSettings();
   } catch (error) {
     toast('Не удалось сохранить: ' + error.message, 'error');
+  }
+}
+
+async function setAutomationControl(action) {
+  try {
+    const current = await api('/api/automation-settings');
+    const settings = {...current.settings};
+    if (action === 'pause') {
+      if (settings.mode === 'off') {
+        toast('Расписание уже остановлено.', 'error');
+        return;
+      }
+      settings.paused = true;
+    } else if (action === 'resume') {
+      if (settings.mode === 'off') {
+        toast('Сначала выберите режим dry-run или live.', 'error');
+        return;
+      }
+      settings.paused = false;
+    } else if (action === 'stop') {
+      settings.mode = 'off';
+      settings.paused = false;
+    } else {
+      toast('Неизвестная команда управления.', 'error');
+      return;
+    }
+    let confirmLive = false;
+    if (settings.mode === 'live' && action === 'resume') {
+      confirmLive = confirm('Возобновить LIVE-автоматизацию для всех аккаунтов? Будущие cron-запуски смогут отправлять реальные отклики и сообщения.');
+      if (!confirmLive) return;
+    } else if (settings.mode === 'live' && action === 'pause') {
+      // The mode remains live for a later resume, but the generated cron env is off.
+      confirmLive = true;
+    }
+    await api('/api/automation-settings', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({settings, confirm_live: confirmLive}),
+    });
+    toast(action === 'pause' ? 'Автоматизация приостановлена.' : action === 'resume' ? 'Автоматизация возобновлена.' : 'Автоматизация остановлена.');
+    await automationSettings();
+  } catch (error) {
+    toast('Не удалось изменить состояние: ' + error.message, 'error');
   }
 }
 
