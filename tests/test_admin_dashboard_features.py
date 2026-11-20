@@ -276,3 +276,30 @@ def test_cover_letter_endpoint_rejects_blank_vacancy_name(tmp_path, monkeypatch)
 
     assert response.status_code == 422
 
+
+def test_partial_resume_sync_preserves_last_known_counters_as_stale() -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        storage = StorageFacade(conn)
+        storage.resumes.save_batch([{
+            "id": "resume-partial",
+            "title": "Data engineer",
+            "status": {"id": "published", "name": "Published"},
+            "total_views": 12,
+            "new_views": 3,
+        }])
+        storage.resumes.save_batch([{
+            "id": "resume-partial",
+            "status": {"id": "published", "name": "Published"},
+        }])
+        row = conn.execute(
+            "SELECT total_views, new_views, views_updated_at, title FROM resumes WHERE id = ?",
+            ("resume-partial",),
+        ).fetchone()
+        assert row is not None
+        assert row[0:2] == (12, 3)
+        assert row[2] is None
+        assert row[3] == "Data engineer"
+    finally:
+        conn.close()
+
