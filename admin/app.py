@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -257,17 +257,36 @@ def get_profiles() -> list[str]:
 
 def _validate_scope(scope: str) -> str:
     normalized = (scope or "profile").strip().lower()
-    if normalized not in {"profile", "all"}:
-        raise HTTPException(400, "Scope must be either 'profile' or 'all'.")
+    if normalized not in {"profile", "all", "selected"}:
+        raise HTTPException(400, "Scope must be 'profile', 'all' or 'selected'.")
     return normalized
 
 
-def _profiles_for_scope(profile: str, scope: str) -> tuple[str, list[str]]:
-    """Resolve an explicit profile or the read-only aggregate account scope."""
+def _profiles_for_scope(
+    profile: str,
+    scope: str,
+    selected_profiles: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    """Resolve a profile, all accounts, or an explicit selection of up to five."""
     normalized_profile = _validate_profile_name(profile)
     normalized_scope = _validate_scope(scope)
     if normalized_scope == "all":
         return normalized_scope, get_profiles()
+    if normalized_scope == "selected":
+        requested = selected_profiles or []
+        if not requested:
+            raise HTTPException(400, "Select at least one account for selected scope.")
+        if len(requested) > 5:
+            raise HTTPException(422, "Analytics can include at most five accounts.")
+        known_profiles = set(get_profiles())
+        resolved: list[str] = []
+        for candidate in requested:
+            selected = _validate_profile_name(candidate)
+            if selected not in known_profiles:
+                raise HTTPException(400, f"Unknown account profile: {selected}")
+            if selected not in resolved:
+                resolved.append(selected)
+        return normalized_scope, resolved
     return normalized_scope, [normalized_profile]
 
 
@@ -297,9 +316,10 @@ def _profile_account_summary(profile: str) -> dict[str, Any]:
 def _iter_profile_connections(
     profile: str,
     scope: str,
+    selected_profiles: list[str] | None = None,
 ) -> tuple[str, list[tuple[str, sqlite3.Connection]], list[dict[str, str]]]:
     """Open only existing profile snapshots and make omissions visible to callers."""
-    normalized_scope, profiles = _profiles_for_scope(profile, scope)
+    normalized_scope, profiles = _profiles_for_scope(profile, scope, selected_profiles)
     connections: list[tuple[str, sqlite3.Connection]] = []
     unavailable: list[dict[str, str]] = []
     for account_profile in profiles:
@@ -626,6 +646,7 @@ def get_stats(
     profile: str = Query("default"),
     scope: str = Query("profile"),
     days: int = Query(14, ge=7, le=90),
+    profiles: list[str] | None = Query(None),
 ):
     """Aggregate dashboard metrics from explicitly scoped local SQLite snapshots.
 
@@ -633,7 +654,7 @@ def get_stats(
     while rendering the dashboard, so each metric can state its snapshot
     freshness and stay usable when one account is temporarily unavailable.
     """
-    normalized_scope, connections, unavailable = _iter_profile_connections(profile, scope)
+    normalized_scope, connections, unavailable = _iter_profile_connections(profile, scope, profiles)
     totals: Counter[str] = Counter()
     states: Counter[str] = Counter()
     daily_counts: Counter[str] = Counter()
@@ -713,11 +734,17 @@ def get_stats(
             ):
                 recent_negotiations.append({"profile": account_profile, **row})
 
+            resume_columns = {row["name"] for row in conn.execute("PRAGMA table_info(resumes)")}
+            views_updated_at_column = (
+                "views_updated_at" if "views_updated_at" in resume_columns
+                else "NULL AS views_updated_at"
+            )
             for row in q(
                 conn,
-                """
+                f"""
                 SELECT id, title, url, alternate_url, status_id, status_name,
-                       can_publish_or_update, total_views, new_views, created_at, updated_at,
+                       can_publish_or_update, total_views, new_views, {views_updated_at_column},
+                       created_at, updated_at,
                        (SELECT count(*) FROM negotiations n WHERE n.resume_id = resumes.id)
                            AS applications_count
                 FROM resumes
@@ -838,33 +865,74 @@ def list_vacancies(
     profile: str = Query("default"),
     scope: str = Query("profile"),
     search: str = Query(""),
+    sort_by: str = Query("created_at"),
+    sort_order: Literal["asc", "desc"] = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    allowed_sort_fields = {
+        "created_at", "published_at", "salary_from", "salary_to",
+        "name", "employer_name", "area_name", "experience",
+    }
+    if sort_by not in allowed_sort_fields:
+        raise HTTPException(422, f"Unsupported vacancy sort field: {sort_by}")
+
     normalized_scope, connections, unavailable = _iter_profile_connections(profile, scope)
     items: list[dict[str, Any]] = []
     try:
         for account_profile, conn in connections:
             where, where_params = _build_optional_filter("v.name", search, like=True)
             rows = q(conn, """
-                SELECT v.*, e.name AS employer_name
+                SELECT
+                    v.*,
+                    e.name AS employer_name,
+                    n.id AS application_id,
+                    n.state AS application_state,
+                    n.resume_id AS applied_resume_id,
+                    n.created_at AS applied_at,
+                    CASE WHEN n.id IS NULL THEN 0 ELSE 1 END AS has_applied,
+                    (SELECT count(*) FROM negotiations n_count WHERE n_count.vacancy_id = v.id)
+                        AS applications_count
                 FROM vacancies v
                 LEFT JOIN employers e ON e.id = COALESCE(
                     v.employer_id,
-                    (SELECT n.employer_id FROM negotiations n WHERE n.vacancy_id = v.id LIMIT 1)
+                    (SELECT n_employer.employer_id FROM negotiations n_employer
+                     WHERE n_employer.vacancy_id = v.id
+                     ORDER BY COALESCE(n_employer.updated_at, n_employer.created_at) DESC
+                     LIMIT 1)
+                )
+                LEFT JOIN negotiations n ON n.id = (
+                    SELECT n_latest.id
+                    FROM negotiations n_latest
+                    WHERE n_latest.vacancy_id = v.id
+                    ORDER BY COALESCE(n_latest.updated_at, n_latest.created_at) DESC, n_latest.id DESC
+                    LIMIT 1
                 )
             """ + where + """
-                ORDER BY v.created_at DESC
             """, where_params)
             items.extend({"profile": account_profile, **row} for row in rows)
     finally:
         for _, conn in connections:
             conn.close()
-    items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+
+    def vacancy_sort_value(item: dict[str, Any]) -> Any:
+        value = item.get(sort_by)
+        if value is None:
+            return None
+        if sort_by in {"salary_from", "salary_to"}:
+            return float(value)
+        return str(value).casefold()
+
+    present = [item for item in items if vacancy_sort_value(item) is not None]
+    missing = [item for item in items if vacancy_sort_value(item) is None]
+    present.sort(key=vacancy_sort_value, reverse=sort_order == "desc")
+    items = present + missing
     return {
         "scope": normalized_scope,
         "items": items[offset : offset + limit],
         "total": len(items),
+        "sort_by": sort_by,
+        "sort_order": sort_order,
         "unavailable_profiles": unavailable,
     }
 
@@ -957,11 +1025,17 @@ def list_resumes(
     items: list[dict[str, Any]] = []
     try:
         for account_profile, conn in connections:
+            resume_columns = {row["name"] for row in conn.execute("PRAGMA table_info(resumes)")}
+            views_updated_at_column = (
+                "views_updated_at" if "views_updated_at" in resume_columns
+                else "NULL AS views_updated_at"
+            )
             rows = q(
                 conn,
-                """
+                f"""
                 SELECT id, title, url, alternate_url, status_id, status_name,
-                       can_publish_or_update, total_views, new_views, created_at, updated_at
+                       can_publish_or_update, total_views, new_views, {views_updated_at_column},
+                       created_at, updated_at
                 FROM resumes
                 ORDER BY updated_at DESC
                 """,
@@ -1402,6 +1476,12 @@ class RunRequest(BaseModel):
 @app.post("/api/run/update-resumes")
 def run_update_resumes(body: RunRequest):
     return _run_operation("update-resumes", body)
+
+
+@app.post("/api/run/refresh-resumes")
+def run_refresh_resumes(body: RunRequest):
+    """Refresh local resume metadata and counters without publishing resumes."""
+    return _run_operation("list-resumes", RunRequest(profile=body.profile, dry_run=True))
 
 
 @app.post("/api/run/apply-vacancies")
@@ -2958,30 +3038,44 @@ def get_live_summary(profile: str = Query("default")):
         {"page": 0, "per_page": 1, "order_by": "created_at"},
     )
     resumes = _hh_get(profile, "/resumes/mine", {"page": 0, "per_page": 20})
+    observed_at = datetime.now(timezone.utc).isoformat()
+
+    def resume_counter(item: dict[str, Any], key: str) -> int | None:
+        value = item.get(key)
+        if value is None and isinstance(item.get("counters"), dict):
+            value = item["counters"].get(key)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    resume_items = []
+    for item in (resumes.get("items") or [])[:20]:
+        if not isinstance(item, dict):
+            continue
+        total_views = resume_counter(item, "total_views")
+        new_views = resume_counter(item, "new_views")
+        resume_items.append({
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "status_name": item.get("status", {}).get("name")
+            if isinstance(item.get("status"), dict)
+            else item.get("status_name"),
+            "total_views": total_views,
+            "new_views": new_views,
+            "views_updated_at": observed_at if total_views is not None and new_views is not None else None,
+        })
+
     return {
         "profile": profile,
         "source": "hh_api",
-        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "observed_at": observed_at,
         "negotiations": int(negotiations.get("found") or 0),
         "latest_negotiation_at": (negotiations.get("items") or [{}])[0].get("created_at"),
         "resumes": int(resumes.get("found") or len(resumes.get("items") or [])),
-        "resume_views": [
-            {
-                "id": item.get("id"),
-                "title": item.get("title"),
-                "status_name": item.get("status", {}).get("name")
-                if isinstance(item.get("status"), dict)
-                else item.get("status_name"),
-                "total_views": (item.get("total_views") or {}).get("total")
-                if isinstance(item.get("total_views"), dict)
-                else item.get("total_views", 0),
-                "new_views": (item.get("new_views") or {}).get("total")
-                if isinstance(item.get("new_views"), dict)
-                else item.get("new_views", 0),
-            }
-            for item in (resumes.get("items") or [])[:20]
-            if isinstance(item, dict)
-        ],
+        "resume_views": resume_items,
     }
 
 
@@ -3051,6 +3145,79 @@ def run_safe_apply(body: SafeApplyRequest):
                    confirm_live=body.confirm_live),
         extra=params,
     )
+
+class BatchRunRequest(BaseModel):
+    profiles: list[str] = Field(min_length=1, max_length=5)
+    operation: Literal["safe-apply", "safe-reply", "refresh-resumes", "update-resumes"]
+    dry_run: bool = True
+    confirm_live: bool = False
+    search: str = Field(default="Frontend разработчик", min_length=1, max_length=160)
+    limit: int = Field(10, ge=1, le=100)
+    pages: int = Field(5, ge=1, le=100)
+    max_chats: int = Field(30, ge=1, le=500)
+    rounds: int = Field(1, ge=1, le=5)
+
+
+@app.post("/api/run/batch")
+def run_batch(body: BatchRunRequest):
+    """Start the same explicitly selected operation for up to five profiles."""
+    profiles = [_validate_profile_name(profile) for profile in body.profiles]
+    profiles = list(dict.fromkeys(profiles))
+    if body.operation in {"safe-apply", "safe-reply"} and not body.dry_run and not body.confirm_live:
+        raise HTTPException(409, "Live batch operations require confirm_live=true.")
+    if body.operation == "update-resumes" and not body.confirm_live:
+        raise HTTPException(409, "Publishing resumes requires confirm_live=true.")
+
+    results: list[dict[str, Any]] = []
+    for profile in profiles:
+        try:
+            if body.operation == "safe-apply":
+                params = [
+                    "--search", body.search,
+                    "--limit", str(body.limit),
+                    "--pages", str(body.pages),
+                    "--dry-run" if body.dry_run else "--live",
+                ]
+                result = _run_operation(
+                    "safe-apply",
+                    RunRequest(profile=profile, dry_run=body.dry_run, confirm_live=body.confirm_live),
+                    extra=params,
+                )
+            elif body.operation == "safe-reply":
+                params = [
+                    "--max-chats", str(body.max_chats),
+                    "--rounds", str(body.rounds),
+                    "--dry-run" if body.dry_run else "--live",
+                ]
+                result = _run_operation(
+                    "safe-reply",
+                    RunRequest(profile=profile, dry_run=body.dry_run, confirm_live=body.confirm_live),
+                    extra=params,
+                )
+            elif body.operation == "refresh-resumes":
+                result = _run_operation(
+                    "list-resumes",
+                    RunRequest(profile=profile, dry_run=True),
+                )
+            else:
+                result = _run_operation(
+                    "update-resumes",
+                    RunRequest(profile=profile, dry_run=False, confirm_live=True),
+                )
+            results.append({**result, "profile": profile})
+        except HTTPException as exc:
+            results.append({
+                "profile": profile,
+                "error": str(exc.detail),
+                "status_code": exc.status_code,
+            })
+
+    started = sum(1 for item in results if item.get("op_id"))
+    return {
+        "operations": results,
+        "started": started,
+        "failed": len(results) - started,
+    }
 
 
 # ---------------------------------------------------------------------------
