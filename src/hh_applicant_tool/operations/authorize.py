@@ -20,6 +20,7 @@ else:
 
 from ..main import BaseOperation
 from ..utils.captcha_artifacts import save_captcha_image
+from ..utils.opencode import solve_captcha_with_opencode
 from ..utils.terminal import print_kitty_image, print_sixel_mage
 
 if TYPE_CHECKING:
@@ -325,11 +326,75 @@ class Operation(BaseOperation):
             input_task.cancel()
             logger.debug("OAuth-код перехвачен до ввода кода из терминала")
 
+    def _get_captcha_ai(self):
+        try:
+            return self._tool.get_captcha_ai()
+        except Exception as ex:  # noqa: BLE001
+            logger.info("AI-распознавание капчи недоступно: %s", ex)
+            return None
+
     async def _solve_captcha_with_ai(self, page, captcha_element) -> bool:
-        """Do not send CAPTCHA challenges to an automated solver."""
-        logger.warning(
-            "CAPTCHA detected during authorization; automatic solving is disabled."
-        )
+        """Vision-AI-распознавание как в apply_vacancies._solve_captcha_async.
+
+        До 5 попыток: неверный ответ => hh.ru рисует новую картинку.
+        Успех — исчез инпут капчи (networkidle на hh.ru не наступает).
+        """
+        captcha_ai = self._get_captcha_ai()
+        if captcha_ai is None:
+            return False
+        for attempt in range(5):
+            if attempt > 0:
+                # Request a fresh challenge instead of reusing a rejected image.
+                try:
+                    await page.reload(timeout=60000, wait_until="domcontentloaded")
+                except Exception:  # noqa: BLE001
+                    pass
+            captcha_text = ""
+            try:
+                img_bytes = await captcha_element.screenshot()
+                image_path = save_captcha_image(
+                    img_bytes,
+                    flow="authorize",
+                    attempt=attempt + 1,
+                    profile_id=getattr(self._tool, "profile_id", None) or "default",
+                )
+                logger.info("Снимок капчи сохранён: %s", image_path)
+                try:
+                    captcha_text = await asyncio.to_thread(
+                        solve_captcha_with_opencode, image_path.parent / "CURRENT.json"
+                    )
+                    if captcha_text:
+                        logger.info("CAPTCHA распознана через OpenCode")
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning("OpenCode CAPTCHA failed, using API fallback: %s", ex)
+                    captcha_text = ""
+                if not captcha_text:
+                    captcha_text = await asyncio.to_thread(
+                        captcha_ai.solve_captcha, img_bytes
+                    )
+            except Exception as ex:  # noqa: BLE001
+                logger.warning("captcha AI failed (попытка %d): %s", attempt + 1, ex)
+            if not captcha_text:
+                logger.warning("капча не распознана (попытка %d)", attempt + 1)
+                captcha_element = await page.wait_for_selector(
+                    self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
+                )
+                continue
+            logger.info(
+                "Распознанный текст капчи (попытка %d): %s", attempt + 1, captcha_text
+            )
+            await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
+            await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
+            for _ in range(6):
+                await page.wait_for_timeout(2500)
+                if not await page.query_selector(self.SEL_CAPTCHA_INPUT):
+                    logger.info("Капча решена AI")
+                    return True
+            logger.warning("капча не принята (попытка %d), пробую заново", attempt + 1)
+            captcha_element = await page.wait_for_selector(
+                self.SEL_CAPTCHA_IMAGE, timeout=20000, state="visible"
+            )
+        logger.error("AI не смог решить капчу за 5 попыток")
         return False
 
     async def _handle_captcha(self, page):
