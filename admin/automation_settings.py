@@ -22,6 +22,8 @@ ENV_FILENAME = "admin_automation.env"
 
 class AutomationSettings(BaseModel):
     mode: Literal["off", "dry-run", "live"] = "off"
+    # Pause keeps the chosen mode so the operator can resume without reconfiguring it.
+    paused: bool = False
     search_query: str = Field(default="Frontend разработчик", min_length=1, max_length=160)
     apply_limit: int = Field(default=10, ge=1, le=100)
     apply_pages: int = Field(default=5, ge=1, le=100)
@@ -47,7 +49,8 @@ class AutomationSettings(BaseModel):
         if self.followup_after_days >= self.max_chat_age_days:
             raise ValueError("Follow-up delay must be shorter than maximum chat age")
         return {
-            "HH_AUTOMATION_MODE": self.mode,
+            "HH_AUTOMATION_MODE": "off" if self.paused else self.mode,
+            "HH_AUTOMATION_PAUSED": "on" if self.paused else "off",
             "SEARCH_QUERY": self.search_query,
             "APPLY_LIMIT": str(self.apply_limit),
             "APPLY_PAGES": str(self.apply_pages),
@@ -82,6 +85,7 @@ def default_settings() -> AutomationSettings:
 
     values = {
         "mode": os.getenv("HH_AUTOMATION_MODE", "off"),
+        "paused": enabled("HH_AUTOMATION_PAUSED"),
         "search_query": os.getenv("SEARCH_QUERY", "Frontend разработчик"),
         "apply_limit": number("APPLY_LIMIT", 10),
         "apply_pages": number("APPLY_PAGES", 5),
