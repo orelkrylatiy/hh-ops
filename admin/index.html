@@ -702,8 +702,10 @@ async function fetchJson(url, opts = {}) {
 }
 
 async function trackBackgroundOperation(opId, opName, hooks = {}) {
+  const operationProfile = hooks.profile || currentProfile;
   runningOps[opId] = {
     name: opName,
+    profile: operationProfile,
     completed: false,
     result: null
   };
@@ -714,7 +716,7 @@ async function trackBackgroundOperation(opId, opName, hooks = {}) {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
-      const statusUrl = `${CONSTANTS.endpoints.operation_status}/${opId}?profile=${encodeURIComponent(currentProfile)}`;
+      const statusUrl = `${CONSTANTS.endpoints.operation_status}/${opId}?profile=${encodeURIComponent(operationProfile)}`;
       const statusData = await fetchJson(statusUrl);
       pollErrors = 0;
 
@@ -1853,20 +1855,182 @@ async function generateLetter() {
 }
 
 // RUN OPERATIONS
-async function run() {
-  const c = document.getElementById('content');
-  if (isAllAccounts()) {
-    showSingleAccountPage('Task execution');
+function selectedRunProfiles() {
+  return runProfiles.length ? [...runProfiles] : [currentProfile];
+}
+
+function renderRunProfilePicker() {
+  const selected = new Set(selectedRunProfiles());
+  const options = availableProfiles.map(profile =>
+    `<label class="run-profile-option"><input type="checkbox" value="${escapeHtml(profile)}" ${selected.has(profile) ? 'checked' : ''} onchange="toggleRunProfile(this)"/><span>${escapeHtml(profile)}</span></label>`
+  ).join('') || `<p class="admin-muted">Используется профиль ${escapeHtml(currentProfile)}.</p>`;
+  return `<div class="section run-profile-panel">
+    <div class="section-title">Аккаунты для запуска</div>
+    <p class="admin-muted">Выберите от одного до пяти аккаунтов. Пакетные проверки и запуски будут выполняться отдельно в контексте каждого профиля.</p>
+    <div class="run-profile-grid">${options}</div>
+    <div class="admin-run-controls"><span id="run-profile-count" class="admin-muted">Выбрано: ${selected.size} / 5</span><button class="btn btn-secondary" type="button" onclick="selectCurrentRunProfile()">Только текущий аккаунт</button></div>
+    <div class="run-batch-actions">
+      <button class="btn btn-secondary" onclick="runBatch('safe-apply', true)">Проверить отклики</button>
+      <button class="btn btn-danger" onclick="runBatch('safe-apply', false)">Запустить отклики</button>
+      <button class="btn btn-secondary" onclick="runBatch('safe-reply', true)">Проверить ответы</button>
+      <button class="btn btn-danger" onclick="runBatch('safe-reply', false)">Запустить ответы</button>
+      <button class="btn btn-primary" onclick="runBatch('refresh-resumes', true)">Синхронизировать резюме</button>
+    </div>
+    <div id="run-batch-results" class="run-batch-results" aria-live="polite"></div>
+  </div>`;
+}
+
+function toggleRunProfile(checkbox) {
+  const selected = new Set(selectedRunProfiles());
+  if (checkbox.checked) {
+    if (selected.size >= 5) {
+      checkbox.checked = false;
+      toast('Для пакетного запуска можно выбрать не более пяти аккаунтов.', 'error');
+      return;
+    }
+    selected.add(checkbox.value);
+  } else {
+    selected.delete(checkbox.value);
+  }
+  if (!selected.size) {
+    checkbox.checked = true;
+    toast('Оставьте выбранным хотя бы один аккаунт.', 'error');
     return;
   }
+  runProfiles = [...selected];
+  localStorage.setItem('runProfiles', JSON.stringify(runProfiles));
+  const count = document.getElementById('run-profile-count');
+  if (count) count.textContent = `Выбрано: ${runProfiles.length} / 5`;
+}
+
+function selectCurrentRunProfile() {
+  runProfiles = [currentProfile];
+  localStorage.setItem('runProfiles', JSON.stringify(runProfiles));
+  run();
+}
+
+async function runBatch(operation, dryRun = true) {
+  const profiles = selectedRunProfiles();
+  if (!profiles.length || profiles.length > 5) {
+    toast('Выберите от одного до пяти аккаунтов.', 'error');
+    return;
+  }
+  const labels = {
+    'safe-apply': 'автоотклики',
+    'safe-reply': 'ответы работодателям',
+    'refresh-resumes': 'синхронизацию резюме',
+    'update-resumes': 'обновление резюме',
+  };
+  const live = operation === 'update-resumes' || (['safe-apply', 'safe-reply'].includes(operation) && !dryRun);
+  if (live && !confirm(`Запустить ${labels[operation]} в LIVE для аккаунтов: ${profiles.join(', ')}?`)) return;
+
+  const payload = {
+    profiles,
+    operation,
+    dry_run: dryRun,
+    confirm_live: live,
+  };
+  if (operation === 'safe-apply') {
+    payload.search = document.getElementById('safe-apply-search')?.value.trim() || 'Frontend разработчик';
+    payload.limit = Number(document.getElementById('safe-apply-limit')?.value) || 10;
+    payload.pages = Number(document.getElementById('safe-apply-pages')?.value) || 5;
+  }
+  if (operation === 'safe-reply') {
+    payload.max_chats = Number(document.getElementById('re-maxchats')?.value) || 30;
+    payload.rounds = Number(document.getElementById('re-rounds')?.value) || 1;
+  }
+
+  const box = document.getElementById('run-batch-results');
+  if (box) box.innerHTML = '<div class="admin-muted">Отправляю задания…</div>';
+  try {
+    const response = await fetchJson('/api/run/batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const operations = response.operations || [];
+    if (box) {
+      box.innerHTML = operations.map(item => {
+        const safeId = String(item.op_id || item.profile).replace(/[^a-z0-9_-]/gi, '');
+        return `<div class="run-batch-row"><div><strong>${escapeHtml(item.profile)}</strong><span>${item.op_id ? 'Запущено · ' + escapeHtml(item.op_id) : 'Не запущено · ' + escapeHtml(item.error || 'ошибка')}</span></div><pre id="batch-op-${safeId}">${item.op_id ? 'Ожидаю результат…' : escapeHtml(item.error || 'Не удалось запустить')}</pre></div>`;
+      }).join('') || '<p class="admin-muted">Нет результатов запуска.</p>';
+    }
+    const trackers = [];
+    for (const item of operations) {
+      if (!item.op_id) continue;
+      const safeId = String(item.op_id).replace(/[^a-z0-9_-]/gi, '');
+      const outputEl = document.getElementById('batch-op-' + safeId);
+      const name = (labels[operation] || operation) + ' · ' + item.profile;
+      trackers.push(trackBackgroundOperation(item.op_id, name, {
+        profile: item.profile,
+        outputEl,
+      }));
+    }
+    await updateOperationsList();
+    await Promise.all(trackers);
+    await refreshRunLogs();
+  } catch (error) {
+    if (box) box.innerHTML = `<div class="admin-error-state">${escapeHtml(error.message)}</div>`;
+    toast('Ошибка пакетного запуска: ' + error.message, 'error');
+  }
+}
+
+async function repeatOperation(operation, profile) {
+  runProfiles = [profile || currentProfile];
+  localStorage.setItem('runProfiles', JSON.stringify(runProfiles));
+  const mapping = {
+    'safe-apply': 'safe-apply',
+    'safe-reply': 'safe-reply',
+    'list-resumes': 'refresh-resumes',
+  };
+  const selectedOperation = mapping[operation];
+  if (!selectedOperation) {
+    toast('Эту операцию безопаснее запускать вручную из её карточки.', 'error');
+    return;
+  }
+  await runBatch(selectedOperation, true);
+}
+
+async function refreshRunLogs() {
+  const box = document.getElementById('run-logs-box');
+  const meta = document.getElementById('run-logs-meta');
+  if (!box || !meta) return;
+  meta.textContent = 'Загружаю последние строки…';
+  box.innerHTML = '<span class="admin-skeleton-line" aria-hidden="true"></span>'.repeat(4);
+  try {
+    const result = await api(`${CONSTANTS.endpoints.logs}?lines=300`);
+    box.innerHTML = '';
+    (result.lines || []).forEach(line => {
+      const span = document.createElement('span');
+      if (/error|exception|traceback/i.test(line)) span.className = 'log-error';
+      else if (/warn/i.test(line)) span.className = 'log-warn';
+      else if (/info|успешно|применён/i.test(line)) span.className = 'log-info';
+      span.textContent = line;
+      box.appendChild(span);
+    });
+    meta.textContent = `Последние ${(result.lines || []).length} строк · ${new Date().toLocaleTimeString('ru-RU')}`;
+    box.scrollTop = box.scrollHeight;
+  } catch (error) {
+    meta.textContent = 'Ошибка загрузки логов';
+    box.textContent = 'Ошибка: ' + error.message;
+  }
+}
+
+async function run() {
+  const c = document.getElementById('content');
+  c.setAttribute('aria-busy', 'true');
+  c.innerHTML = skeletonCards(4) + skeletonTable(4, 5);
   const doneMap = loadRunCardDoneMap();
 
-  // Получаем список текущих операций
   let activeOps = [];
   try {
-    const opsResp = await fetch(`${CONSTANTS.endpoints.operations}?profile=${encodeURIComponent(currentProfile)}`);
-    const opsData = await opsResp.json();
-    activeOps = opsData.operations.filter(op => op.running);
+    const opsResp = await fetchJson(`${CONSTANTS.endpoints.operations}?profile=${encodeURIComponent(currentProfile)}`);
+    activeOps = (opsResp.operations || []).filter(op => op.running);
+    activeOps.forEach(op => {
+      if (!runningOps[op.op_id]) {
+        runningOps[op.op_id] = {name: op.operation || 'Операция', profile: op.profile || currentProfile, completed: false};
+      }
+    });
   } catch(e) {
     console.error('Ошибка получения операций:', e);
   }
@@ -1878,19 +2042,26 @@ async function run() {
     console.error('Could not load operation history:', e);
   }
 
-  // Определяем какие кнопки должны быть disabled
-  const updateResumeRunning = activeOps.some(op => op.operation === CONSTANTS.operations.update_resumes || runningOps[op.op_id]?.name.includes('Обновить'));
-  const applyVacanciesRunning = activeOps.some(op => ['safe-apply', CONSTANTS.operations.apply_vacancies].includes(op.operation) || runningOps[op.op_id]?.name.includes('Автоотклики'));
-
+  const updateResumeRunning = activeOps.some(op => op.operation === CONSTANTS.operations.update_resumes);
+  const applyVacanciesRunning = activeOps.some(op => ['safe-apply', CONSTANTS.operations.apply_vacancies].includes(op.operation));
   const updateResumeDisabled = updateResumeRunning ? 'disabled' : '';
   const applyVacanciesDisabled = applyVacanciesRunning ? 'disabled' : '';
-  const historyRows = operationHistory.map(item => `<tr>
-    <td>${escapeHtml(item.operation || '—')}</td><td>${item.dry_run ? 'Dry-run' : 'Live'}</td>
-    <td>${item.cancelled ? 'Отменена' : Number(item.returncode) === 0 ? 'Завершено' : 'Ошибка'}</td>
-    <td style="color:var(--text2)">${escapeHtml(timeAgo(item.finished_at || item.started_at))}</td>
-  </tr>`).join('') || '<tr class="empty-row"><td colspan="4">Для этого аккаунта завершённых запусков нет</td></tr>';
+  const historyRows = operationHistory.map(item => {
+    const repeatable = ['safe-apply', 'safe-reply', 'list-resumes'].includes(item.operation);
+    const repeatButton = repeatable
+      ? `<button class="btn btn-secondary btn-small" onclick="repeatOperation('${escapeHtml(item.operation)}','${escapeHtml(item.profile || currentProfile)}')">Повторить проверку</button>`
+      : '—';
+    return `<tr>
+      <td>${escapeHtml(item.operation || '—')}</td><td>${escapeHtml(item.profile || '—')}</td>
+      <td>${item.dry_run ? 'Dry-run' : 'Live'}</td>
+      <td>${item.cancelled ? 'Отменена' : Number(item.returncode) === 0 ? 'Завершено' : 'Ошибка'}</td>
+      <td style="color:var(--text2)">${escapeHtml(timeAgo(item.finished_at || item.started_at))}</td>
+      <td>${repeatButton}</td>
+    </tr>`;
+  }).join('') || '<tr class="empty-row"><td colspan="6">Для выбранного профиля завершённых запусков нет</td></tr>';
 
   c.innerHTML = `
+    ${renderRunProfilePicker()}
     <div class="run-grid">
       <div class="run-card">
         <div class="run-card-header"><h3>✅ Безопасный автопоиск</h3><span class="badge">Рекомендуется</span></div>
@@ -1904,108 +2075,56 @@ async function run() {
         <div class="run-output" id="out-safe-apply"></div>
       </div>
       <div class="run-card ${doneMap.update_resumes ? 'done' : ''}">
-        <div class="run-card-header">
-          <h3>📤 Обновить резюме</h3>
-          <span class="run-done-badge ${doneMap.update_resumes ? 'done' : ''}">${doneMap.update_resumes ? 'Выполнено' : 'Не выполнено'}</span>
-        </div>
-        <p>Поднять резюме в поиске (publish). Выполняется мгновенно.</p>
-        <div class="run-actions">
-          <button class="btn btn-success" onclick="runOp('${CONSTANTS.operations.update_resumes}', this, false)" ${updateResumeDisabled} title="${updateResumeRunning ? 'Операция уже выполняется' : ''}">
-            ${updateResumeRunning ? '<span class="spinner"></span> Выполняется...' : '▶ Запустить'}
-          </button>
-        </div>
-        <div class="run-card-footer">
-          <button class="btn btn-secondary" onclick="toggleRunCardDone('update_resumes')">${doneMap.update_resumes ? '↩ Снять отметку' : '✅ Отметить как сделанное'}</button>
-        </div>
+        <div class="run-card-header"><h3>📤 Обновить резюме</h3><span class="run-done-badge ${doneMap.update_resumes ? 'done' : ''}">${doneMap.update_resumes ? 'Выполнено' : 'Не выполнено'}</span></div>
+        <p>Поднять резюме в поиске (publish). Это отдельное действие, не синхронизация статистики.</p>
+        <div class="run-actions"><button class="btn btn-success" onclick="runOp('${CONSTANTS.operations.update_resumes}', this, false)" ${updateResumeDisabled}>▶ Запустить</button></div>
+        <div class="run-card-footer"><button class="btn btn-secondary" onclick="toggleRunCardDone('update_resumes')">${doneMap.update_resumes ? '↩ Снять отметку' : '✅ Отметить как сделанное'}</button></div>
         <div class="run-output" id="out-${CONSTANTS.operations.update_resumes}"></div>
       </div>
       <div class="run-card ${doneMap.apply_vacancies ? 'done' : ''}">
-        <div class="run-card-header">
-          <h3>🎯 Расширенный отклик (CLI)</h3>
-          <span class="run-done-badge ${doneMap.apply_vacancies ? 'done' : ''}">${doneMap.apply_vacancies ? 'Выполнено' : 'Не выполнено'}</span>
-        </div>
-        <p>Старый CLI-путь с расширенной формой. Для регулярной автономной работы используйте «Безопасный автопоиск».</p>
+        <div class="run-card-header"><h3>🎯 Расширенный отклик (CLI)</h3><span class="run-done-badge ${doneMap.apply_vacancies ? 'done' : ''}">${doneMap.apply_vacancies ? 'Выполнено' : 'Не выполнено'}</span></div>
+        <p>CLI-путь с расширенной формой. Для регулярной автономной работы используйте «Безопасный автопоиск».</p>
         <div style="margin-bottom:12px">
           <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Задержка между откликами (сек)</label>
-          <input id="response-delay" type="text" placeholder="1-3" value="" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:7px 12px;font-size:13px;outline:none" />
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">Формат: минимум-максимум (например, 10-20 для 10-20 сек)</div>
+          <input id="response-delay" type="text" placeholder="1-3" value="" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:7px 12px;font-size:13px;outline:none"/>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Формат: минимум-максимум (например, 10-20 сек)</div>
         </div>
         <div class="run-actions">
-          <button class="btn btn-secondary" id="apply-dry-button" onclick="showApplyModal(true)" ${applyVacanciesDisabled} title="${applyVacanciesRunning ? 'Операция уже выполняется' : ''}">
-            ${applyVacanciesRunning ? '<span class="spinner"></span> Выполняется...' : '🧪 Dry-run'}
-          </button>
-          <button class="btn btn-danger" id="apply-live-button" onclick="showApplyModal(false)" ${applyVacanciesDisabled} title="${applyVacanciesRunning ? 'Операция уже выполняется' : ''}">
-            ${applyVacanciesRunning ? '<span class="spinner"></span> Выполняется...' : '▶ Запустить'}
-          </button>
+          <button class="btn btn-secondary" id="apply-dry-button" onclick="showApplyModal(true)" ${applyVacanciesDisabled}>🧪 Dry-run</button>
+          <button class="btn btn-danger" id="apply-live-button" onclick="showApplyModal(false)" ${applyVacanciesDisabled}>▶ Запустить</button>
         </div>
-        <div class="run-card-footer">
-          <button class="btn btn-secondary" onclick="toggleRunCardDone('apply_vacancies')">${doneMap.apply_vacancies ? '↩ Снять отметку' : '✅ Отметить как сделанное'}</button>
-        </div>
+        <div class="run-card-footer"><button class="btn btn-secondary" onclick="toggleRunCardDone('apply_vacancies')">${doneMap.apply_vacancies ? '↩ Снять отметку' : '✅ Отметить как сделанное'}</button></div>
         <div class="run-output" id="out-${CONSTANTS.operations.apply_vacancies}"></div>
       </div>
       <div class="run-card">
-        <div class="run-card-header">
-          <h3>💬 Автоответы работодателям</h3>
-        </div>
-        <p>Актуальный ReplyWorker: фильтрация, Humanizer, защита от дублей и повторная проверка переписки.</p>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+        <div class="run-card-header"><h3>💬 Автоответы работодателям</h3></div>
+        <p>ReplyWorker: фильтрация, Humanizer, защита от дублей и повторная проверка переписки.</p>
+        <div class="form-row">
           <div class="form-group"><label for="re-maxchats">Максимум переписок</label><input type="number" id="re-maxchats" min="1" max="500" value="30"/></div>
           <div class="form-group"><label for="re-rounds">Число проходов (1–5)</label><input type="number" id="re-rounds" min="1" max="5" value="1"/></div>
         </div>
-        <div class="run-actions">
-          <button class="btn btn-secondary" id="reply-dry-button" onclick="runReplyEmployers(true)">🧪 Dry-run</button>
-          <button class="btn btn-danger" id="reply-live-button" onclick="runReplyEmployers(false)">▶ Запустить</button>
-        </div>
+        <div class="run-actions"><button class="btn btn-secondary" id="reply-dry-button" onclick="runReplyEmployers(true)">🧪 Dry-run</button><button class="btn btn-danger" id="reply-live-button" onclick="runReplyEmployers(false)">▶ Запустить</button></div>
         <div class="run-output" id="out-reply-employers"></div>
       </div>
     </div>
     <div class="section" style="margin-top:20px">
-      <div class="section-title">📋 Логи</div>
-      <div id="run-logs-meta" style="margin-bottom:12px;color:var(--text2);font-size:13px">Загрузка логов...</div>
-      <div class="log-box" id="run-logs-box">Загрузка...</div>
+      <div class="section-title">📋 Логи <button class="btn btn-secondary btn-small" onclick="refreshRunLogs()">Обновить логи</button></div>
+      <div id="run-logs-meta" class="admin-muted">Загружаю…</div>
+      <div class="log-box" id="run-logs-box"><span class="admin-skeleton-line" aria-hidden="true"></span></div>
     </div>
     <div class="section" style="margin-top:20px">
       <div class="section-title">Последние запуски</div>
-      <div class="table-wrap"><table><thead><tr><th>Операция</th><th>Режим</th><th>Результат</th><th>Завершена</th></tr></thead><tbody>${historyRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Операция</th><th>Аккаунт</th><th>Режим</th><th>Результат</th><th>Завершена</th><th>Действие</th></tr></thead><tbody>${historyRows}</tbody></table></div>
     </div>
-    <div style="margin-top:20px;padding:16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text2);font-size:13px">
-      ⚠️ Операции запускаются в фоне и могут занять несколько минут. Не закрывайте страницу до завершения.
-      ${activeOps.length > 0 ? `<br/>🔄 Активных операций: ${activeOps.length}` : ''}
-    </div>`;
+    <div class="run-page-note">Операции выполняются в фоне отдельно для каждого профиля. Live-действия требуют отдельного подтверждения. Можно отменить любой активный запуск в верхней панели.</div>`;
 
-  // Устанавливаем дефолтное значение задержки
-  setTimeout(() => {
-    const delayInput = document.getElementById('response-delay');
-    if (delayInput && CONSTANTS.defaults && CONSTANTS.defaults.response_delay) {
-      delayInput.value = CONSTANTS.defaults.response_delay;
-    }
-  }, 0);
-
-  try {
-    const r = await api(`${CONSTANTS.endpoints.logs}?lines=300`);
-    const box = document.getElementById('run-logs-box');
-    const meta = document.getElementById('run-logs-meta');
-    if (box && meta) {
-      box.innerHTML = '';
-      r.lines.forEach(line => {
-        const span = document.createElement('span');
-        if (/error|exception|traceback/i.test(line)) span.className = 'log-error';
-        else if (/warn/i.test(line)) span.className = 'log-warn';
-        else if (/info|успешно|применён/i.test(line)) span.className = 'log-info';
-        span.textContent = line;
-        box.appendChild(span);
-      });
-      meta.textContent = `Последние ${r.lines.length} строк лога`;
-      box.scrollTop = box.scrollHeight;
-    }
-  } catch (e) {
-    const box = document.getElementById('run-logs-box');
-    const meta = document.getElementById('run-logs-meta');
-    if (box && meta) {
-      meta.textContent = 'Ошибка загрузки логов';
-      box.textContent = `Ошибка: ${e.message}`;
-    }
+  const delayInput = document.getElementById('response-delay');
+  if (delayInput && CONSTANTS.defaults && CONSTANTS.defaults.response_delay) {
+    delayInput.value = CONSTANTS.defaults.response_delay;
   }
+  c.setAttribute('aria-busy', 'false');
+  await updateOperationsList();
+  await refreshRunLogs();
 }
 
 function loadRunCardDoneMap() {
@@ -2034,9 +2153,9 @@ const runningOps = {};
 async function updateOperationsList() {
   const list = document.getElementById('operations-list');
   const banner = document.getElementById('operations-banner');
+  if (!list || !banner) return;
 
   const runningCount = Object.values(runningOps).filter(op => !op.completed).length;
-
   if (runningCount === 0) {
     banner.style.display = 'none';
     document.title = 'HH Admin Panel';
@@ -2045,23 +2164,15 @@ async function updateOperationsList() {
 
   banner.style.display = 'flex';
   document.title = `🔄 ${runningCount} операция${runningCount > 1 ? 'й' : 'я'}... - HH Admin Panel`;
-
-  let html = '';
-  for (const [opId, opData] of Object.entries(runningOps)) {
-    if (!opData.completed) {
-      html += `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:13px">
-          <span style="display:flex;align-items:center;gap:6px;flex:1">
-            <span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:white;width:12px;height:12px"></span>
-            <span>${opData.name}</span>
-            <span style="opacity:0.7">(${opId})</span>
-          </span>
-          <button class="btn" style="background:rgba(255,255,255,.2);color:white;border:1px solid rgba(255,255,255,.3);padding:4px 10px;font-size:11px;margin:0" onclick="cancelAndRemoveOp('${opId}')">✕</button>
-        </div>
-      `;
-    }
-  }
-  list.innerHTML = html;
+  list.innerHTML = Object.entries(runningOps).filter(([, op]) => !op.completed).map(([opId, opData]) => `
+    <div class="admin-running-operation">
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="admin-running-operation-name">${escapeHtml(opData.name)}</span>
+      <span class="admin-running-operation-profile">${escapeHtml(opData.profile || currentProfile)}</span>
+      <span class="admin-running-operation-id">${escapeHtml(opId)}</span>
+      <button class="btn" onclick="cancelAndRemoveOp('${escapeHtml(opId)}')">Отменить</button>
+    </div>
+  `).join('');
 }
 
 async function runOp(op, btn, dryRun, alreadyConfirmed = false) {
@@ -2252,9 +2363,10 @@ async function runReplyEmployers(dryRun) {
 
 async function cancelAndRemoveOp(opId) {
   if (!confirm('Отменить операцию?')) return;
+  const operationProfile = runningOps[opId]?.profile || currentProfile;
 
   try {
-    const r = await fetch(`${CONSTANTS.endpoints.cancel}/${opId}?profile=${encodeURIComponent(currentProfile)}`, {method: 'POST'});
+    const r = await fetch(`${CONSTANTS.endpoints.cancel}/${opId}?profile=${encodeURIComponent(operationProfile)}`, {method: 'POST'});
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail);
     toast('Операция отменена');
