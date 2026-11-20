@@ -890,7 +890,8 @@ def list_vacancies(
                     n.state AS application_state,
                     n.resume_id AS applied_resume_id,
                     n.created_at AS applied_at,
-                    CASE WHEN n.id IS NULL THEN 0 ELSE 1 END AS has_applied,
+                    CASE WHEN n.id IS NULL THEN 0 ELSE 1 END AS has_interaction,
+                    CASE WHEN n.id IS NOT NULL AND COALESCE(n.state, '') <> 'invitation' THEN 1 ELSE 0 END AS has_applied,
                     (SELECT count(*) FROM negotiations n_count WHERE n_count.vacancy_id = v.id)
                         AS applications_count
                 FROM vacancies v
