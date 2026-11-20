@@ -1600,6 +1600,8 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
     # Генерируем уникальный ID для операции
     op_id = str(uuid.uuid4())[:8]
     operation_key = _operation_key(profile, op)
+    is_read_only_sync = op == "list-resumes"
+    operation_dry_run = "--dry-run" in all_args or is_read_only_sync
 
     with operations_lock:
         existing_id = active_operations.get(operation_key)
@@ -1616,7 +1618,7 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
             "started_at": datetime.now(timezone.utc).isoformat(),
             "running": True,
             "process": None,
-            "dry_run": "--dry-run" in all_args,
+            "dry_run": operation_dry_run,
         }
 
     cli_args = ["--profile-id", profile]
@@ -1744,7 +1746,7 @@ def _run_operation(op: str, body: RunRequest, extra: list[str] | None = None) ->
         "op_id": op_id,
         "profile": profile,
         "operation": op,
-        "dry_run": "--dry-run" in all_args,
+        "dry_run": operation_dry_run,
         "stdout": "Operation started in background...",
         "stderr": "",
     }
