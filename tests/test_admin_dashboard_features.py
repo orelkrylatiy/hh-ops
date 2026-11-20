@@ -148,6 +148,11 @@ def test_vacancies_can_be_sorted_and_show_the_applying_account(
             """INSERT INTO vacancies (id, name, salary_from, created_at, updated_at)
             VALUES (202, 'Senior engineer', 200000, '2026-11-17', '2026-11-17')"""
         )
+        conn.execute(
+            """INSERT INTO negotiations
+            (id, state, vacancy_id, chat_id, created_at, updated_at)
+            VALUES (502, 'invitation', 202, 9002, '2026-11-19', '2026-11-19')"""
+        )
 
     response = client.get(
         "/api/vacancies",
@@ -159,9 +164,16 @@ def test_vacancies_can_be_sorted_and_show_the_applying_account(
     assert [item["id"] for item in items] == [202, 101]
     applied = next(item for item in items if item["id"] == 101)
     assert applied["profile"] == "account-a"
+    assert applied["has_interaction"] == 1
     assert applied["has_applied"] == 1
     assert applied["application_state"] == "response"
     assert applied["applied_resume_id"] == "resume-a"
+
+    invitation = next(item for item in items if item["id"] == 202)
+    assert invitation["profile"] == "account-b"
+    assert invitation["has_interaction"] == 1
+    assert invitation["has_applied"] == 0
+    assert invitation["application_state"] == "invitation"
 
 
 def test_batch_run_starts_each_selected_profile_and_requires_live_confirmation(
