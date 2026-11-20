@@ -1201,3 +1201,43 @@ tbody td a {
   .admin-toggle-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* Long configuration keys/values must wrap instead of colliding with inputs. */
+.config-row {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(148,163,184,.10);
+}
+.config-key,
+.config-val,
+.config-val.secret {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
+.config-key { color: var(--text2); font-size: 12px; }
+.config-val { color: var(--text); font-size: 12px; }
+.letter-form { min-width: 0; }
+.letter-form .form-row {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  min-width: 0;
+}
+.letter-form .form-group { min-width: 0; }
+.letter-form input,
+.letter-form textarea,
+.letter-form select {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .config-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
