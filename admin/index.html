@@ -3246,7 +3246,6 @@ async function letterTemplate() {
   }
   c.setAttribute('aria-busy', 'true');
   c.innerHTML = '<div class="section">' + skeletonCards(2) + skeletonTable(3, 5) + '</div>';
-  c.innerHTML = '<div style="color:var(--text2)">Загрузка...</div>';
 
   let fallback = '';
   try {
