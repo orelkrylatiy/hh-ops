@@ -17,11 +17,10 @@ fi
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 
-# Keep text generation on the ubuntu-scoped OpenCode profile. The CAPTCHA
-# helper uses the explicit binary below and does not inherit that profile's
-# XDG data/config paths or OAuth credentials.
+# Keep text generation and CAPTCHA on the ubuntu-scoped OpenCode wrapper so
+# both paths use the same API provider and credential source.
 export PATH="/home/ubuntu/.local/bin:$PATH"
-export OPENCODE_COMMAND="/home/ubuntu/.opencode/bin/opencode"
+export OPENCODE_COMMAND="/home/ubuntu/.local/bin/opencode"
 
 # An explicit PROFILES value wins over the .profiles file so callers such as
 # daily.sh can target a subset of the fleet.
