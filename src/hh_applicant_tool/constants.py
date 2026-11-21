@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from . import utils
@@ -10,12 +11,18 @@ CONFIG_FILENAME = "config.json"
 LOG_FILENAME = "log.txt"
 CAPTCHA_ARTIFACTS_DIR = Path(__file__).resolve().parents[2] / "tmp" / "captcha"
 OPENCODE_COMMAND = "opencode"
-OPENCODE_PRIMARY_MODEL = "openai/gpt-6.1-sol"
-OPENCODE_FALLBACK_MODEL = "openai/gpt-6-astra"
+OPENCODE_PRIMARY_MODEL = os.environ.get(
+    "HH_OPENCODE_PRIMARY_MODEL", "openai/gpt-6.1-sol"
+)
+OPENCODE_FALLBACK_MODEL = os.environ.get(
+    "HH_OPENCODE_FALLBACK_MODEL", "openai/gpt-6-astra"
+)
 # Explicit CAPTCHA model; do not substitute the general text-generation model.
 # The VPS OpenCode registry exposes the model without the local-only #max
 # variant. An unknown variant can leave a standalone run waiting indefinitely.
-OPENCODE_CAPTCHA_MODEL = "openai/gpt-6-astra"
+OPENCODE_CAPTCHA_MODEL = os.environ.get(
+    "HH_OPENCODE_CAPTCHA_MODEL", "openai/gpt-6-astra"
+)
 DATABASE_FILENAME = "data"
 COOKIES_FILENAME = "cookies.txt"
 

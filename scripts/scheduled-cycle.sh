@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Admin-managed scheduled HH cycle: boost, bounded applications, then replies.
 set -uo pipefail
+export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
