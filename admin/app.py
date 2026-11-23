@@ -2947,6 +2947,24 @@ def run_reply_employers(body: ReplyEmployersRequest):
 # ---------------------------------------------------------------------------
 
 
+def _resume_view_counter(item: dict[str, Any], key: str) -> int | None:
+    """Read HH resume counters without turning missing data into fake zeros."""
+    counters = item.get("counters")
+    value = counters.get(key) if isinstance(counters, dict) else None
+    if value is None:
+        # Some test fixtures / older API responses use top-level view keys.
+        value = item.get(key)
+    if isinstance(value, dict):
+        value = value.get("total")
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
 @app.get("/api/live-summary")
 def get_live_summary(profile: str = Query("default")):
     """Read-only, on-demand HH check; never pretend SQLite is live HH data."""
@@ -2972,12 +2990,8 @@ def get_live_summary(profile: str = Query("default")):
                 "status_name": item.get("status", {}).get("name")
                 if isinstance(item.get("status"), dict)
                 else item.get("status_name"),
-                "total_views": (item.get("total_views") or {}).get("total")
-                if isinstance(item.get("total_views"), dict)
-                else item.get("total_views", 0),
-                "new_views": (item.get("new_views") or {}).get("total")
-                if isinstance(item.get("new_views"), dict)
-                else item.get("new_views", 0),
+                "total_views": _resume_view_counter(item, "total_views"),
+                "new_views": _resume_view_counter(item, "new_views"),
             }
             for item in (resumes.get("items") or [])[:20]
             if isinstance(item, dict)
