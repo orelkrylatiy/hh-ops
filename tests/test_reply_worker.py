@@ -25,10 +25,10 @@ from hh_applicant_tool.automation.reply_worker import (
     ReplyWorkerConfig,
     build_context,
     classify_chat,
+    compact_resume_context,
     load_json_config,
     reply_quality_issues,
     sanitize_reply_text,
-    compact_resume_context,
 )
 
 
