@@ -871,30 +871,40 @@ class ReplyWorker:
             return safe_preview_reply(decision.initiated_by_us)
         if self.framework_writer is None:
             raise ValueError("FrameworkWriter is required for live replies")
+        request_args = {
+            "context": (
+                [
+                    *decision.context,
+                    "Выбери только один точный ответ из вариантов: "
+                    + " | ".join(decision.quick_options),
+                ]
+                if decision.action == ACTION_QUICK_REPLY
+                else decision.context
+            ),
+            "initiated_by_us": decision.initiated_by_us,
+            "vacancy_name": decision.vacancy_name,
+            "employer_name": decision.employer_name,
+            "latest_message_text": decision.latest_message_text,
+            "resume_context": self._live_resume_context(decision),
+            "profile": (
+                "ai-engineer" if decision.resume_alias == "ai-engineer" else "frontend-react"
+            ),
+        }
         try:
-            result = self.framework_writer.chat_reply(
-                context=(
-                    [
-                        *decision.context,
-                        "Выбери только один точный ответ из вариантов: "
-                        + " | ".join(decision.quick_options),
-                    ]
-                    if decision.action == ACTION_QUICK_REPLY
-                    else decision.context
-                ),
-                initiated_by_us=decision.initiated_by_us,
-                vacancy_name=decision.vacancy_name,
-                employer_name=decision.employer_name,
-                latest_message_text=decision.latest_message_text,
-                resume_context=self._live_resume_context(decision),
-                profile=(
-                    "ai-engineer" if decision.resume_alias == "ai-engineer" else "frontend-react"
-                ),
-            )
+            result = self.framework_writer.chat_reply(**request_args)
+            reply = sanitize_reply_text(result.text.strip())
+            if CONTEXT_DISCLAIMER_RE.search(reply):
+                logger.warning(
+                    "Framework wrote a resume-data non-answer for chat %s; regenerating",
+                    decision.chat_id,
+                )
+                result = self.framework_writer.chat_reply(
+                    **request_args, retry_disclaimer=True
+                )
+                reply = sanitize_reply_text(result.text.strip())
         except Exception as exc:
             logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
             return None
-        reply = sanitize_reply_text(result.text.strip())
         if decision.action == ACTION_QUICK_REPLY:
             matched = choose_quick_reply(reply, decision.quick_options)
             if matched is None:
