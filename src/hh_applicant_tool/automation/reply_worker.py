@@ -835,17 +835,18 @@ class ReplyWorker:
         Called only for live generation; dry-run never downloads a full resume.
         The selected resume ID is the only allowed source: no cross-account mix.
         """
-        local = (decision.resume_context or "").strip()
+        local = (getattr(decision, "resume_context", "") or "").strip()
+        resume_id = str(getattr(decision, "resume_id", "") or "")
         full: dict[str, Any] = {}
-        if decision.resume_id:
-            if decision.resume_id in self._full_resume_cache:
-                full = self._full_resume_cache[decision.resume_id]
+        if resume_id:
+            if resume_id in self._full_resume_cache:
+                full = self._full_resume_cache[resume_id]
             else:
                 try:
-                    value = self.hh.call_api(f"/resumes/{decision.resume_id}")
+                    value = self.hh.call_api(f"/resumes/{resume_id}")
                     if isinstance(value, dict):
                         full = value
-                        self._full_resume_cache[decision.resume_id] = value
+                        self._full_resume_cache[resume_id] = value
                 except HHCLIError as exc:
                     logger.warning(
                         "HH full resume unavailable for chat %s, using persona: %s",
@@ -887,7 +888,9 @@ class ReplyWorker:
             "latest_message_text": decision.latest_message_text,
             "resume_context": self._live_resume_context(decision),
             "profile": (
-                "ai-engineer" if decision.resume_alias == "ai-engineer" else "frontend-react"
+                "ai-engineer"
+                if getattr(decision, "resume_alias", "") == "ai-engineer"
+                else "frontend-react"
             ),
         }
         try:
