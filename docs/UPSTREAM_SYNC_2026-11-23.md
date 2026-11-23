@@ -15,6 +15,7 @@ which reviewed upstream 2.5.5.
 | CLI overrides for config path | Already worked through `--config-dir` / `--profile-id`; regression test added, no code replacement. |
 | Alternative API `client_id`, `client_secret`, `user_agent` | Already supported by the per-profile JSON config; retained. |
 | Consistent desktop User-Agent | Fixed web requests session to honor CLI `--user-agent`, then `HH_DESKTOP_USER_AGENT`, then per-profile `user_agent`, then default. The API client still explicitly provides its own headers. |
+| Existing reply-worker CI regression | Repeated employer prompts (including the second occurrence) are now routed to MANUAL rather than sending an unverified automatic `Да`. This fixes pre-existing tests and is deliberately fail-closed. |
 
 ## WebView User-Agent examples
 
