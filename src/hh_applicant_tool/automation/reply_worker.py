@@ -901,9 +901,7 @@ class ReplyWorker:
                     "Framework wrote a resume-data non-answer for chat %s; regenerating",
                     decision.chat_id,
                 )
-                result = self.framework_writer.chat_reply(
-                    **request_args, retry_disclaimer=True
-                )
+                result = self.framework_writer.chat_reply(**request_args, retry_disclaimer=True)
                 reply = sanitize_reply_text(result.text.strip())
         except Exception as exc:
             logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
