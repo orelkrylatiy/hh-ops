@@ -48,6 +48,7 @@ class FrameworkWriter:
         latest_message_text: str,
         resume_context: str = "",
         profile: str = "frontend-react",
+        retry_disclaimer: bool = False,
     ) -> CommunicationResult:
         return self._framework.generate(
             build_chat_reply_request(
@@ -58,5 +59,6 @@ class FrameworkWriter:
                 latest_message_text=latest_message_text,
                 resume_context=resume_context,
                 profile=profile,
+                retry_disclaimer=retry_disclaimer,
             )
         )
