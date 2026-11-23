@@ -51,6 +51,16 @@ AI_CLICHES = (
     "дело не только",
 )
 PLACEHOLDER_TOKENS = ("[", "]", "{{", "}}", "<имя>", "<name>")
+# A non-answer about incomplete resume data is never an acceptable recruiter reply.
+CONTEXT_DISCLAIMER_RE = re.compile(
+    r"(?:в доступной версии резюме|в резюме (?:не указано|нет (?:данных|информации))|"
+    r"нет (?:достаточн(?:о|ых) )?(?:данных|информации) (?:в|о) резюме|"
+    r"не могу (?:подтвердить|судить по резюме)|"
+    r"не хочу (?:дополнять|придумывать) (?:этот )?опыт|"
+    r"могу опираться только на сведения из полного резюме)",
+    re.IGNORECASE,
+)
+
 
 # HH шлёт служебные уведомления (удаление вакансии и т.п.) с author=employer,
 # поэтому роль не помогает - распознаём по тексту. На такие сообщения отвечать нельзя.
@@ -135,6 +145,8 @@ class ReplyDecision:
     latest_message_text: str = ""
     resume_context: str = ""
     quick_options: tuple[str, ...] = ()
+    resume_id: str = ""
+    resume_alias: str = ""
 
 
 class HHCLI:
@@ -381,9 +393,77 @@ def reply_quality_issues(text: str) -> list[str]:
         issues.append("contains a placeholder")
     if any(phrase in lowered for phrase in AI_CLICHES):
         issues.append("contains an AI-style cliche")
+    if CONTEXT_DISCLAIMER_RE.search(normalized):
+        issues.append("contains a resume-data disclaimer")
     if contains_smiley(normalized):
         issues.append("contains a smiley or emoji")
     return issues
+
+
+def compact_resume_context(
+    persona: str, full_resume: dict[str, Any], query: str, limit: int = 2700
+) -> str:
+    """Prioritize relevant concrete experience under Humanizer's 3500-char JSON cap."""
+    parts: list[str] = []
+    if title := str(full_resume.get("title") or "").strip():
+        parts.append(f"Должность в HH: {title}")
+    if skills := str(full_resume.get("skills") or "").strip():
+        parts.append(f"О себе в HH: {skills[:600]}")
+    skill_set = full_resume.get("skill_set")
+    if isinstance(skill_set, list) and skill_set:
+        skills_text = ", ".join(
+            str(skill.get("name") or "") if isinstance(skill, dict) else str(skill)
+            for skill in skill_set[:45]
+        )
+        parts.append(f"Навыки HH: {skills_text[:600]}")
+    experience = full_resume.get("experience")
+    if isinstance(experience, list):
+        for item in experience[:3]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("company") or "")
+            position = str(item.get("position") or "")
+            description = str(item.get("description") or "")
+            parts.append(f"Опыт HH: {name}, {position}. {description[:850]}")
+
+    remote = "\n".join(parts)
+    tokens = {
+        word
+        for word in re.findall(r"[a-zа-яё0-9]{4,}", query.lower())
+        if word not in {"какие", "какой", "какая", "опыт", "работали", "были", "есть"}
+    }
+
+    def excerpt(text: str, budget: int) -> str:
+        if len(text) <= budget:
+            return text
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        # Include the opening positioning, then relevant examples from the
+        # entire persona/full resume (not merely its first few paragraphs).
+        chosen = [lines[0]]
+        remaining = list(enumerate(lines[1:], 1))
+        remaining.sort(
+            key=lambda indexed: (
+                -sum(token in indexed[1].lower() for token in tokens),
+                indexed[0],
+            )
+        )
+        for _, line in remaining:
+            if line in chosen:
+                continue
+            candidate = "\n".join([*chosen, line])
+            if len(candidate) <= budget:
+                chosen.append(line)
+        return "\n".join(chosen)[:budget]
+
+    # Reserve room for vacancy, employer and latest message in prompt JSON.
+    # Local persona first (per-resume positioning), then actual HH resume.
+    persona_budget = min(1550, limit) if persona else 0
+    local_text = excerpt(persona.strip(), persona_budget) if persona_budget else ""
+    remote_budget = max(0, limit - len(local_text) - (2 if local_text else 0))
+    remote_text = excerpt(remote, remote_budget) if remote_budget else ""
+    return "\n\n".join(part for part in (local_text, remote_text) if part)
 
 
 def safe_preview_reply(initiated_by_us: bool) -> str:
@@ -434,6 +514,7 @@ class ReplyWorker:
         self.followup_store = followup_store
         self.contacts_collected_last_scan = 0
         self.resume_aliases = self._load_resume_aliases()
+        self._full_resume_cache: dict[str, dict[str, Any]] = {}
 
     def _load_resume_aliases(self) -> dict[str, str]:
         base_dir = Path(os.environ.get("CONFIG_DIR", str(CONFIG_DIR)))
@@ -715,6 +796,10 @@ class ReplyWorker:
         vacancy_name, employer_name = self._vacancy_info(chat)
         resume = chat.get("resume")
         resume_id = str(resume.get("id") or "") if isinstance(resume, dict) else ""
+        # Negotiation lists sometimes omit resume.id. Infer only when there is
+        # exactly one configured resume, never guess across multiple personas.
+        if not resume_id and len(self.resume_aliases) == 1:
+            resume_id = str(next(iter(self.resume_aliases.values())))
         resume_alias = next(
             (
                 alias
@@ -740,6 +825,35 @@ class ReplyWorker:
             latest_message_text=message_text(latest),
             resume_context=resume_context,
             quick_options=options,
+            resume_id=resume_id,
+            resume_alias=resume_alias or "",
+        )
+
+    def _live_resume_context(self, decision: ReplyDecision) -> str:
+        """Use the selected persona AND HH's full resume for recruiter answers.
+
+        Called only for live generation; dry-run never downloads a full resume.
+        The selected resume ID is the only allowed source: no cross-account mix.
+        """
+        local = (decision.resume_context or "").strip()
+        full: dict[str, Any] = {}
+        if decision.resume_id:
+            if decision.resume_id in self._full_resume_cache:
+                full = self._full_resume_cache[decision.resume_id]
+            else:
+                try:
+                    value = self.hh.call_api(f"/resumes/{decision.resume_id}")
+                    if isinstance(value, dict):
+                        full = value
+                        self._full_resume_cache[decision.resume_id] = value
+                except HHCLIError as exc:
+                    logger.warning(
+                        "HH full resume unavailable for chat %s, using persona: %s",
+                        decision.chat_id,
+                        exc,
+                    )
+        return compact_resume_context(
+            local, full, decision.latest_message_text + " " + decision.vacancy_name
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
@@ -772,7 +886,10 @@ class ReplyWorker:
                 vacancy_name=decision.vacancy_name,
                 employer_name=decision.employer_name,
                 latest_message_text=decision.latest_message_text,
-                resume_context=decision.resume_context,
+                resume_context=self._live_resume_context(decision),
+                profile=(
+                    "ai-engineer" if decision.resume_alias == "ai-engineer" else "frontend-react"
+                ),
             )
         except Exception as exc:
             logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
