@@ -919,9 +919,7 @@ def test_interview_first_live_reply_loads_full_selected_resume_once() -> None:
         "skill_set": ["Python", "REST"],
     }
     writer = Mock()
-    writer.chat_reply.return_value = _framework_result(
-        "Да, работал с REST API и интеграциями."
-    )
+    writer.chat_reply.return_value = _framework_result("Да, работал с REST API и интеграциями.")
     worker = _live_worker(hh=hh, framework_writer=writer)
     decision = _decision(
         resume_id="resume-A",
