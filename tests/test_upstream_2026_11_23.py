@@ -19,8 +19,9 @@ def test_hh_web_auth_failure_is_actionable(status: int) -> None:
         text="<html>no initial state</html>",
     )
 
-    with pytest.raises(RuntimeError, match=rf"web authorization failed \\(HTTP {status}\\)"):
+    with pytest.raises(RuntimeError, match="web authorization failed") as exc:
         tool.parse_redirect_config(response)
+    assert f"(HTTP {status})" in str(exc.value)
 
 
 def test_unexpected_hh_web_failure_keeps_status_and_url() -> None:
