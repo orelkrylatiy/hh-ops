@@ -886,10 +886,12 @@ async function api(path, opts = {}) {
   if (!path) {
     throw new Error('API endpoint is not defined');
   }
-  const url = path + (path.includes('?') ? '&' : '?') +
-    'profile=' + encodeURIComponent(currentProfile) +
-    '&scope=' + encodeURIComponent(viewScope);
-  const resp = await fetch(url, opts);
+  // Preserve an explicitly selected profile (e.g. live checks across accounts).
+  // Appending a duplicate profile key silently selected currentProfile instead.
+  const url = new URL(path, window.location.origin);
+  if (!url.searchParams.has('profile')) url.searchParams.set('profile', currentProfile);
+  if (!url.searchParams.has('scope')) url.searchParams.set('scope', viewScope);
+  const resp = await fetch(url.pathname + url.search, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({detail: resp.statusText}));
     throw new Error(err.detail || resp.statusText);
@@ -1201,7 +1203,7 @@ async function refreshAllLiveSummaries() {
   box.innerHTML = '<strong>Проверка HH · ' + escapeHtml(new Date().toLocaleString('ru-RU')) + '</strong>' +
     '<div class="table-wrap"><table><thead><tr><th>Аккаунт</th><th>Переписки в HH</th><th>Последняя переписка</th><th>Резюме в HH</th><th>Актуальные резюме</th></tr></thead><tbody>' +
     results.map(({profile, result, error}) => result
-      ? `<tr><td>${escapeHtml(profile)}</td><td>${Number(result.negotiations) || 0}</td><td>${result.latest_negotiation_at ? escapeHtml(new Date(result.latest_negotiation_at).toLocaleString('ru-RU')) : '—'}</td><td>${Number(result.resumes) || 0}</td><td>${(result.resume_views || []).map(r => `${escapeHtml(r.title || 'Без названия')} · ${escapeHtml(r.status_name || 'статус неизвестен')}`).join('<br>') || '—'}</td></tr>`
+      ? `<tr><td>${escapeHtml(profile)}</td><td>${Number(result.negotiations) || 0}</td><td>${result.latest_negotiation_at ? escapeHtml(new Date(result.latest_negotiation_at).toLocaleString('ru-RU')) : '—'}</td><td>${Number(result.resumes) || 0}</td><td>${(result.resume_views || []).map(r => `${escapeHtml(r.title || 'Без названия')} · ${escapeHtml(r.status_name || 'статус неизвестен')} · просмотры: ${r.total_views == null ? '—' : Number(r.total_views)} (новых: ${r.new_views == null ? '—' : Number(r.new_views)})`).join('<br>') || '—'}</td></tr>`
       : `<tr><td>${escapeHtml(profile)}</td><td colspan="4">Ошибка HH: ${escapeHtml(error || 'не удалось получить данные')}</td></tr>`).join('') +
     '</tbody></table></div><small>Это текущий ответ HH API. Исторические списки ниже берутся из локальных снимков и могут быть неполными или устаревшими.</small>';
 }
