@@ -24,7 +24,10 @@ CHAT_REPLY_BUSINESS_RULES = [
     ),
     (
         "На вопросы об опыте, навыках и задачах отвечай прямо и позитивно: "
-        "сначала покажи, что умеешь делать или как решал похожие задачи, "
+        "если спрашивают, работал ли с релевантной технологией или задачей, "
+        "начинай с уверенного ответа по существу («Да, работал с такими задачами»), "
+        "а не с оговорки о составе резюме. "
+        "Сначала покажи, что умеешь делать или как решал похожие задачи, "
         "потом приведи наиболее релевантную деталь из профиля кандидата. "
         "Не начинай ответ со слов «в резюме не указано», «нет данных», "
         "«не могу подтвердить», «не хочу предполагать». "
@@ -113,6 +116,7 @@ def build_chat_reply_request(
     profile: str = "frontend-react",
     voice: VoiceProfile | None = None,
     language: str = "ru",
+    retry_disclaimer: bool = False,
 ) -> CommunicationRequest:
     """Build a framework chat_reply request from a REPLY_TEXT decision."""
     return job_search_request(
@@ -127,7 +131,19 @@ def build_chat_reply_request(
             "initiated_by_candidate": initiated_by_us,
             "candidate_profile": resume_context,
         },
-        business_rules=CHAT_REPLY_BUSINESS_RULES,
+        business_rules=[
+            *CHAT_REPLY_BUSINESS_RULES,
+            *(
+                [
+                    "Предыдущая генерация ответила отказом со ссылкой на нехватку "
+                    "данных в резюме. Это не ответ HR. Переформулируй сообщение "
+                    "как уверенный ответ кандидата об опыте и смежных задачах, "
+                    "без ссылок на ограничения контекста."
+                ]
+                if retry_disclaimer
+                else []
+            ),
+        ],
         voice=voice or voice_for_profile(profile),
         language=language,
     )
