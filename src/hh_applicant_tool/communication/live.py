@@ -36,9 +36,8 @@ class FrameworkWriter:
             )
         )
 
-    # TODO(HH-VOICE-01): Expose the active resume profile and an appropriate
-    # chat voice here too; currently build_chat_reply_request() uses its defaults.
-    # The resume_context below is factual context, not a style selector.
+    # The resume-specific writing voice is selected independently of factual
+    # resume_context; Humanizer should never assume all HH accounts are frontend.
     def chat_reply(
         self,
         *,
@@ -48,6 +47,8 @@ class FrameworkWriter:
         employer_name: str,
         latest_message_text: str,
         resume_context: str = "",
+        profile: str = "frontend-react",
+        retry_disclaimer: bool = False,
     ) -> CommunicationResult:
         return self._framework.generate(
             build_chat_reply_request(
@@ -57,5 +58,7 @@ class FrameworkWriter:
                 employer_name=employer_name,
                 latest_message_text=latest_message_text,
                 resume_context=resume_context,
+                profile=profile,
+                retry_disclaimer=retry_disclaimer,
             )
         )

@@ -35,6 +35,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hh_applicant_tool import constants
 from hh_applicant_tool.ai import ChatOpenAI, OpenAIError
+from hh_applicant_tool.automation.reply_worker import (
+    CONTEXT_DISCLAIMER_RE,
+    compact_resume_context,
+)
+from hh_applicant_tool.utils.resume_context import load_resume_context
 from hh_applicant_tool.api import errors as api_errors
 from hh_applicant_tool.storage.utils import init_db
 from hh_applicant_tool.utils.date import parse_api_datetime
@@ -2024,15 +2029,53 @@ def send_reply(neg_id: int, body: ReplyRequest):
                         last_employer_message = msg_text
             history_text = "\n".join(lines)
 
+        # The admin draft uses its own AI client, so mirror the same explicit
+        # interview goal and candidate facts as the scheduled FrameworkWriter.
         system = (
-            "Ты — соискатель, ищущий работу на hh.ru. "
-            "Отвечай на сообщения HR вежливо, профессионально, кратко (2-4 предложения). "
-            "Учитывай контекст переписки. Язык: русский. "
-            "Не используй шаблонные фразы — пиши живо. "
-            "Не повторяй уже отправленные кандидатом сообщения и не дублируй просьбы "
-            "в духе 'рассмотрите резюме', если это уже было сказано."
+            "Ты соискатель на hh.ru и говоришь от первого лица. "
+            "Твоя главная цель — попасть на собеседование. "
+            "Отвечай уверенно, профессионально, кратко (2-4 предложения). "
+            "Если HR спрашивает об опыте или навыках, отвечай по существу и "
+            "позитивно, опираясь на реальные и смежные задачи кандидата. "
+            "Не пиши, что в доступной версии резюме нет сведений, "
+            "что не можешь подтвердить опыт или не хочешь ничего предполагать. "
+            "Не придумывай конкретных работодателей, сроки или метрики. "
+            "Учитывай историю переписки. Язык: русский. "
+            "Не повторяй уже отправленные кандидатом сообщения."
         )
         user_parts = [f"Вакансия: «{body.vacancy_name}»", f"Компания: «{body.employer_name}»"]
+        # Read the resume actually attached to this negotiation. One HH account
+        # can hold distinct resumes: never use another profile's persona.
+        try:
+            negotiation = _hh_get(profile, f"/negotiations/{neg_id}")
+        except Exception:
+            negotiation = {}
+        resume = negotiation.get("resume") if isinstance(negotiation, dict) else None
+        resume_id = str(resume.get("id") or "") if isinstance(resume, dict) else ""
+        try:
+            config = json.loads(_config_path(profile).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            config = {}
+        aliases = config.get("resume_aliases") if isinstance(config, dict) else {}
+        if not resume_id and isinstance(aliases, dict) and len(aliases) == 1:
+            resume_id = str(next(iter(aliases.values())) or "")
+        if resume_id:
+            local_persona = load_resume_context(
+                config=config if isinstance(config, dict) else {},
+                resume_id=resume_id,
+                profile_id=profile,
+            )
+            try:
+                full_resume = _hh_get(profile, f"/resumes/{resume_id}")
+            except Exception:
+                full_resume = {}
+            resume_facts = compact_resume_context(
+                local_persona,
+                full_resume if isinstance(full_resume, dict) else {},
+                last_employer_message + " " + body.vacancy_name,
+            )
+            if resume_facts:
+                user_parts.append(f"Контекст кандидата:\n{resume_facts}")
         if last_own_message:
             user_parts.append(f"Последнее сообщение кандидата: {last_own_message}")
         if last_employer_message:
@@ -2049,7 +2092,19 @@ def send_reply(neg_id: int, body: ReplyRequest):
             max_tokens=400,
         )
         try:
-            text = client.complete("\n".join(user_parts))
+            prompt = "\n".join(user_parts)
+            text = client.complete(prompt)
+            if CONTEXT_DISCLAIMER_RE.search(text):
+                text = client.complete(
+                    prompt
+                    + "\n\nПредыдущий ответ не подходит: не говори о "
+                    "неполном резюме. Ответь HR прямо и уверенно на вопрос "
+                    "об опыте, используя доступные навыки и смежные задачи."
+                )
+            if CONTEXT_DISCLAIMER_RE.search(text):
+                raise HTTPException(
+                    502, "AI returned a resume-context non-answer after correction."
+                )
         except OpenAIError as ex:
             raise HTTPException(502, f"Ошибка AI: {ex}") from ex
 

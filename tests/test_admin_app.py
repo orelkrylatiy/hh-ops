@@ -1192,3 +1192,67 @@ def test_live_apply_requires_confirmation_and_builds_cli_args(tmp_path, monkeypa
     assert args[area_index + 1 : area_index + 3] == ["1", "2"]
     assert args[args.index("--max-responses") + 1] == "7"
     assert args[args.index("--response-delay") + 1] == "2-3"
+
+
+def test_inbox_ai_draft_uses_selected_full_resume_and_repairs_non_answer(
+    tmp_path, monkeypatch
+):
+    """Admin drafts must know the active resume and not claim it lacks data."""
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    client = TestClient(admin_app.app)
+    client.post("/api/profiles", json={"profile": "candidate-a"})
+    (tmp_path / "candidate-a" / "config.json").write_text(
+        json.dumps({"resume_aliases": {"primary": "resume-A"}}),
+        encoding="utf-8",
+    )
+
+    seen: list[tuple[str, str]] = []
+
+    def fake_get(profile, path, params=None):
+        seen.append((profile, path))
+        if path == "/negotiations/123/messages":
+            return {
+                "items": [
+                    {
+                        "text": "Есть опыт REST API и синхронизации?",
+                        "author": {"participant_type": "employer"},
+                    }
+                ]
+            }
+        if path == "/negotiations/123":
+            return {"resume": {"id": "resume-A"}}
+        if path == "/resumes/resume-A":
+            return {
+                "title": "Fullstack Developer",
+                "skills": "REST API, синхронизация состояния, обработка ошибок",
+                "skill_set": ["TypeScript", "REST"],
+            }
+        raise AssertionError(path)
+
+    prompts: list[str] = []
+
+    class FakeAI:
+        def complete(self, prompt):
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return "В доступной версии резюме нет подробного описания API."
+            return "Да, работал с REST API и синхронизацией состояния."
+
+    monkeypatch.setattr(admin_app, "_hh_get", fake_get)
+    monkeypatch.setattr(admin_app, "_make_ai_client", lambda *args, **kwargs: FakeAI())
+    monkeypatch.setattr(
+        admin_app,
+        "_hh_post",
+        lambda *args, **kwargs: pytest.fail("Draft must not post to HH"),
+    )
+    response = client.post(
+        "/api/inbox/123/reply",
+        json={"profile": "candidate-a", "use_ai": True, "send": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["sent"] is False
+    assert response.json()["draft"].startswith("Да, работал")
+    assert all(p == "candidate-a" for p, _ in seen)
+    assert ("candidate-a", "/resumes/resume-A") in seen
+    assert "синхронизация состояния" in prompts[0]
+    assert "Предыдущий ответ не подходит" in prompts[1]

@@ -241,3 +241,34 @@ def test_live_worker_skips_failed_framework_reply() -> None:
         framework_writer=writer,
     )
     assert worker.generate_reply(_decision()) is None
+
+
+def test_hh_interview_first_rules_are_in_trusted_system_prompt() -> None:
+    request = build_chat_reply_request(
+        context=["Работодатель: Был опыт REST API?"],
+        initiated_by_us=False,
+        vacancy_name="Backend Engineer",
+        employer_name="Acme",
+        latest_message_text="Был опыт REST API?",
+        resume_context="Профиль: делал API интеграции.",
+        profile="ai-engineer",
+    )
+    package = CommunicationFramework().prepare(request)
+    assert "приглашение на собеседование" in package.messages[0]["content"]
+    assert request.voice.id == "maxim-ai-engineer"
+    assert "Профиль: делал API интеграции." in package.messages[1]["content"]
+
+
+def test_hh_interview_first_correction_is_system_rule_not_persona() -> None:
+    request = build_chat_reply_request(
+        context=["Работодатель: Был опыт с API?"],
+        initiated_by_us=False,
+        vacancy_name="Developer",
+        employer_name="Acme",
+        latest_message_text="Был опыт с API?",
+        resume_context="Python, HTTP API",
+        retry_disclaimer=True,
+    )
+    system = CommunicationFramework().prepare(request).messages[0]["content"]
+    assert "Предыдущая генерация ответила отказом" in system
+    assert "полного резюме" not in request.context["candidate_profile"]
