@@ -21,6 +21,7 @@ from hh_applicant_tool.automation.reply_worker import (
     MAX_REPLY_CHARS,
     HHCLIError,
     ReplyDecision,
+    compact_resume_context,
     ReplyWorker,
     ReplyWorkerConfig,
     build_context,
@@ -874,3 +875,102 @@ def test_upstream_quick_reply_with_no_confident_match_moves_to_manual() -> None:
     assert stats["manual"] == 1
     assert stats["errors"] == 0
     manual_queue.enqueue.assert_called_once()
+
+
+def test_interview_first_rejects_incomplete_resume_non_answer() -> None:
+    issue = reply_quality_issues(
+        "В доступной версии резюме нет подробного описания интеграций с REST API. "
+        "Не хочу дополнять этот опыт предположениями."
+    )
+    assert "contains a resume-data disclaimer" in issue
+
+
+def test_interview_first_full_resume_context_prioritizes_matching_experience() -> None:
+    persona = (
+        "# Кандидат\n"
+        "Позиционирование: frontend.\n"
+        + "\n".join(f"- Другое направление {index}" for index in range(100))
+        + "\n- Синхронизация REST API и retry обработки ошибок в production."
+    )
+    full = {
+        "title": "Fullstack",
+        "skills": "Работаю с HTTP API и интеграциями",
+        "skill_set": ["REST", "Python", "TypeScript"],
+        "experience": [
+            {
+                "company": "Demo",
+                "position": "Разработчик",
+                "description": "Делал API-интеграции, обработку ошибок и синхронизацию.",
+            }
+        ],
+    }
+    context = compact_resume_context(persona, full, "синхронизация REST API")
+    assert len(context) <= 2700
+    assert "Синхронизация REST API" in context
+    assert "Навыки HH: REST, Python, TypeScript" in context
+    assert "Опыт HH: Demo" in context
+
+
+def test_interview_first_live_reply_loads_full_selected_resume_once() -> None:
+    hh = Mock()
+    hh.call_api.return_value = {
+        "title": "AI Engineer",
+        "skills": "LLM интеграции, REST API",
+        "skill_set": ["Python", "REST"],
+    }
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result(
+        "Да, работал с REST API и интеграциями."
+    )
+    worker = _live_worker(hh=hh, framework_writer=writer)
+    decision = _decision(
+        resume_id="resume-A",
+        resume_alias="ai-engineer",
+        resume_context="Инженер AI, делаю интеграции.",
+        latest_message_text="Есть опыт с REST API?",
+    )
+
+    assert worker.generate_reply(decision) == "Да, работал с REST API и интеграциями."
+    assert worker.generate_reply(decision) == "Да, работал с REST API и интеграциями."
+    hh.call_api.assert_called_once_with("/resumes/resume-A")
+    kwargs = writer.chat_reply.call_args.kwargs
+    assert kwargs["profile"] == "ai-engineer"
+    assert "LLM интеграции" in kwargs["resume_context"]
+    assert "Инженер AI" in kwargs["resume_context"]
+
+
+def test_interview_first_dry_run_never_fetches_full_resume() -> None:
+    hh = Mock()
+    writer = Mock()
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=True),
+        hh=hh,
+        framework_writer=writer,
+    )
+    decision = _decision(resume_id="resume-A")
+    assert worker.generate_reply(decision)
+    hh.call_api.assert_not_called()
+    writer.chat_reply.assert_not_called()
+
+
+def test_interview_first_regenerates_resume_disclaimer_once() -> None:
+    writer = Mock()
+    writer.chat_reply.side_effect = [
+        _framework_result("В доступной версии резюме нет данных про REST API."),
+        _framework_result("Да, работал с REST API и интеграциями."),
+    ]
+    worker = _live_worker(framework_writer=writer)
+
+    assert worker.generate_reply(_decision()) == "Да, работал с REST API и интеграциями."
+    assert writer.chat_reply.call_count == 2
+    assert writer.chat_reply.call_args.kwargs["retry_disclaimer"] is True
+
+
+def test_interview_first_does_not_send_unfixed_resume_disclaimer() -> None:
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result(
+        "Не могу подтвердить опыт с API, потому что в резюме не указано."
+    )
+    worker = _live_worker(framework_writer=writer)
+    assert worker.generate_reply(_decision()) is None
+    assert writer.chat_reply.call_count == 2
