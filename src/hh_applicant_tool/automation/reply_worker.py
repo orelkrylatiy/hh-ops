@@ -343,17 +343,9 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         and not FOLLOWUP_HINT_RE.search(text)
     ):
         return ACTION_IGNORE, "questionnaire_completed"
-    repeated_count = repeated_employer_message_count(ordered)
-    if repeated_count:
-        is_question = (
-            "?" in text
-            or QUESTION_HINT_RE.search(text) is not None
-            or FOLLOWUP_HINT_RE.search(text) is not None
-        )
-        # On the first exact repeat (second occurrence), acknowledge once.
-        # If it appears again (third occurrence or later), leave the chat manual.
-        if is_question and repeated_count == 1:
-            return ACTION_REPLY, "first_repeated_employer_question"
+    if repeated_employer_message_count(ordered):
+        # A repeated prompt may come from an automated HR questionnaire.
+        # Never send an invented acknowledgement: leave it for manual review.
         return ACTION_MANUAL, "repeated_employer_question"
     if (
         "?" not in text
@@ -751,8 +743,6 @@ class ReplyWorker:
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
-        if decision.reason == "first_repeated_employer_question":
-            return "Да"
         if decision.action == ACTION_FOLLOWUP:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:

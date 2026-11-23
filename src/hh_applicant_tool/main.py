@@ -91,6 +91,7 @@ class BaseNamespace(argparse.Namespace):
     verbosity: int
     api_delay: float
     user_agent: str
+    webview_user_agent: str | None
     proxy_url: str
     openai_proxy_url: str
     json_output: bool
@@ -152,7 +153,11 @@ class HHApplicantTool(MegaTool):
         )
         parser.add_argument(
             "--user-agent",
-            help="User-Agent для каждого запроса",
+            help="User-Agent для запросов к HH API и веб-сессии",
+        )
+        parser.add_argument(
+            "--webview-user-agent",
+            help="User-Agent для Playwright WebView при OAuth-авторизации (также HH_WEBVIEW_USER_AGENT или config.json)",
         )
         parser.add_argument(
             "--proxy-url",
@@ -256,10 +261,26 @@ class HHApplicantTool(MegaTool):
             logger.info("Use proxies for %s: %r", log_label, proxies)
             session.proxies = proxies
 
-        session.headers.update(
-            {"User-Agent": os.environ.get("HH_DESKTOP_USER_AGENT") or DESKTOP_USER_AGENT}
+        # Keep the browser-facing requests session in sync with --user-agent
+        # and the per-profile config; the API client supplies its own UA.
+        desktop_user_agent = (
+            getattr(self, "user_agent", None)
+            or os.environ.get("HH_DESKTOP_USER_AGENT")
+            or getattr(self, "config", {}).get("user_agent")
+            or DESKTOP_USER_AGENT
         )
+        session.headers.update({"User-Agent": desktop_user_agent})
         return session
+
+    @property
+    def resolved_webview_user_agent(self) -> str | None:
+        """Optional OAuth WebView UA; preserve Playwright device defaults otherwise."""
+        configured = (
+            getattr(self, "webview_user_agent", None)
+            or os.environ.get("HH_WEBVIEW_USER_AGENT")
+            or getattr(self, "config", {}).get("webview_user_agent")
+        )
+        return configured.strip() if isinstance(configured, str) and configured.strip() else None
 
     @cached_property
     def session(self) -> requests.Session:
@@ -386,6 +407,12 @@ class HHApplicantTool(MegaTool):
         response: requests.Response,
         check_auth: bool = True,
     ) -> dict[str, Any]:
+        if response.status_code in (401, 403):
+            raise RuntimeError(
+                f"HH web authorization failed (HTTP {response.status_code}): "
+                "sign in again or verify that the account is not restricted. "
+                f"URL: {response.url}"
+            )
         if response.status_code != 200:
             raise RuntimeError(f"Unexpected HH response: {response.status_code} {response.url}")
 
