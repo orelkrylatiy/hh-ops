@@ -161,8 +161,14 @@ class Operation(BaseOperation):
             )
 
             try:
-                android_device = pw.devices["Galaxy A55"]
-                context = await browser.new_context(**android_device)
+                # Upstream 2.5.8: support a custom WebView User-Agent for
+                # accounts that lose their HH web session under device defaults.
+                # Copy device options rather than mutating Playwright's registry.
+                context_options = dict(pw.devices["Galaxy A55"])
+                webview_ua = self._tool.resolved_webview_user_agent
+                if webview_ua:
+                    context_options["user_agent"] = webview_ua
+                context = await browser.new_context(**context_options)
                 page = await context.new_page()
 
                 code_future: asyncio.Future[str | None] = asyncio.Future()
