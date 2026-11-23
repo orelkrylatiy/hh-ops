@@ -12,13 +12,18 @@ from typing import TYPE_CHECKING
 
 from ..ai.base import AIError
 from ..api import ApiError, datatypes
-from ..automation.reply_worker import reply_quality_issues, sanitize_reply_text
+from ..automation.reply_worker import (
+    CONTEXT_DISCLAIMER_RE,
+    compact_resume_context,
+    reply_quality_issues,
+    sanitize_reply_text,
+)
 from ..communication import FrameworkWriter
 from ..main import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
 from ..utils.misc import load_prompt
 from ._apply_vacancies_apply_flow import resolve_contact_url
-from ..utils.resume_context import load_resume_context
+from ..utils.resume_context import load_resume_context, resume_alias_for_id
 from ..utils.string import rand_text
 
 if TYPE_CHECKING:
@@ -328,15 +333,47 @@ class Operation(BaseOperation):
                                 resume_id=str(resume.get("id") or ""),
                                 profile_id=getattr(self.tool, "profile_id", "") or "",
                             )
-                            result = FrameworkWriter().chat_reply(
-                                context=context,
-                                initiated_by_us=bool(context and context[0].startswith("Я: ")),
-                                vacancy_name=placeholders["vacancy_name"],
-                                employer_name=placeholders["employer_name"],
-                                latest_message_text=str(last_message.get("text") or ""),
-                                resume_context=resume_context,
+                            full_resume: dict[str, Any] = {}
+                            try:
+                                full_resume = self.api_client.get(
+                                    f"/resumes/{resume['id']}"
+                                )
+                            except ApiError as exc:
+                                logger.warning(
+                                    "Failed to load HH resume for reply %s: %s", nid, exc
+                                )
+                            candidate_context = compact_resume_context(
+                                resume_context,
+                                full_resume if isinstance(full_resume, dict) else {},
+                                str(last_message.get("text") or "") + " "
+                                + placeholders["vacancy_name"],
                             )
+                            resume_alias = resume_alias_for_id(
+                                self.tool.config, str(resume["id"])
+                            )
+                            request_args = {
+                                "context": context,
+                                "initiated_by_us": bool(
+                                    context and context[0].startswith("Я: ")
+                                ),
+                                "vacancy_name": placeholders["vacancy_name"],
+                                "employer_name": placeholders["employer_name"],
+                                "latest_message_text": str(last_message.get("text") or ""),
+                                "resume_context": candidate_context,
+                                "profile": (
+                                    "ai-engineer"
+                                    if resume_alias == "ai-engineer"
+                                    else "frontend-react"
+                                ),
+                            }
+                            writer = FrameworkWriter()
+                            result = writer.chat_reply(**request_args)
                             send_message = sanitize_reply_text(result.text.strip())
+                            if CONTEXT_DISCLAIMER_RE.search(send_message):
+                                result = writer.chat_reply(
+                                    **request_args, retry_disclaimer=True
+                                )
+                                send_message = sanitize_reply_text(result.text.strip())
                             issues = reply_quality_issues(send_message)
                             if issues:
                                 raise AIError("framework reply quality failed: " + ", ".join(issues))
