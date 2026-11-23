@@ -21,7 +21,6 @@ from hh_applicant_tool.automation.reply_worker import (
     MAX_REPLY_CHARS,
     HHCLIError,
     ReplyDecision,
-    compact_resume_context,
     ReplyWorker,
     ReplyWorkerConfig,
     build_context,
@@ -29,6 +28,7 @@ from hh_applicant_tool.automation.reply_worker import (
     load_json_config,
     reply_quality_issues,
     sanitize_reply_text,
+    compact_resume_context,
 )
 
 
