@@ -20,8 +20,8 @@ load_env_file() {
 load_env_file "$PROJECT_ROOT/.env"
 load_env_file "${CONFIG_DIR:-$PROJECT_ROOT/config}/admin_automation.env"
 export HH_ADMIN_AUTOMATION_OVERRIDE=1
-export PROFILES="0056 0555 1206 1558 5457 8755"
-export HH_PROFILE_PARALLELISM=3
+export PROFILES="0056 0555 1206 1558 5457 8755 0058 2061"
+export HH_PROFILE_PARALLELISM="${HH_CYCLE_PARALLELISM:-1}"
 
 MODE="${HH_AUTOMATION_MODE:-off}"
 case "$MODE" in

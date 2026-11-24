@@ -178,27 +178,35 @@ start_profile() {
         fi
 
         echo "[$(date '+%F %T')] HH_RUN_START profile=$profile command=$COMMAND mode=$RUN_MODE_MARKER"
-        set +e
-        case "$COMMAND" in
-            boost)
-                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" boost-resume
-                ;;
-            update)
-                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" update-resumes
-                ;;
-            refresh)
-                "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" refresh-token
-                ;;
-            *)
-                if [[ ${#ARGS[@]} -gt 0 ]]; then
-                    bash "$CMD_SCRIPT" --profile "$profile" "${ARGS[@]}"
-                else
-                    bash "$CMD_SCRIPT" --profile "$profile"
-                fi
-                ;;
-        esac
-        status=$?
-        set -e
+        status=0
+        if [[ "$profile" == "2061" ]]; then
+            if ! /bin/bash "$SCRIPT_DIR/select-profile-proxy.sh" "$profile"; then
+                status=1
+            fi
+        fi
+        if (( status == 0 )); then
+            set +e
+            case "$COMMAND" in
+                boost)
+                    "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" boost-resume
+                    ;;
+                update)
+                    "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" update-resumes
+                    ;;
+                refresh)
+                    "$HH_EXECUTABLE" --no-auto-auth --profile-id "$profile" refresh-token
+                    ;;
+                *)
+                    if [[ ${#ARGS[@]} -gt 0 ]]; then
+                        bash "$CMD_SCRIPT" --profile "$profile" "${ARGS[@]}"
+                    else
+                        bash "$CMD_SCRIPT" --profile "$profile"
+                    fi
+                    ;;
+            esac
+            status=$?
+            set -e
+        fi
         echo "[$(date '+%F %T')] HH_RUN_END profile=$profile command=$COMMAND mode=$RUN_MODE_MARKER status=$status"
         exit "$status"
     ) >> "$log" 2>&1 &

@@ -107,13 +107,13 @@ class Operation(BaseOperation):
             "--system-prompt",
             "--ai-system",
             help="Системный промпт для AI",
-            default="Ты — соискатель на HeadHunter. Отвечай вежливо и кратко.",
+            default="Ты — соискатель на HeadHunter. Цель переписки — получить приглашение на собеседование. Отвечай персонально, вежливо и кратко.",
         )
         parser.add_argument(
             "--message-prompt",
             "--prompt",
             help="Промпт для генерации сообщения",
-            default="Напиши короткий ответ работодателю на основе истории переписки.",
+            default="Напиши короткий ответ, который покажет подходящий опыт и продвинет разговор к собеседованию.",
         )
 
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:

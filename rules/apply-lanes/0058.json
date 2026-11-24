@@ -1,0 +1,14 @@
+{
+  "lanes": [
+    {
+      "name": "ml-engineer",
+      "resume_alias": "primary",
+      "search": "ML-инженер",
+      "ai_filter": "heavy",
+      "system_prompt": "prompts/cover_letter_ai_engineer.txt",
+      "limit": 10,
+      "pages": 5,
+      "per_page": 50
+    }
+  ]
+}

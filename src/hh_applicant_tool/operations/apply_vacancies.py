@@ -518,7 +518,10 @@ class Operation(
             if proxy_url:
                 proxy = urlsplit(proxy_url)
                 if proxy.scheme and proxy.hostname:
-                    server = f"{proxy.scheme}://{proxy.hostname}"
+                    # Chromium uses socks5 with remote DNS; socks5h is a
+                    # requests-only spelling and fails with ERR_NO_SUPPORTED_PROXIES.
+                    browser_scheme = "socks5" if proxy.scheme == "socks5h" else proxy.scheme
+                    server = f"{browser_scheme}://{proxy.hostname}"
                     if proxy.port:
                         server += f":{proxy.port}"
                     launch_kwargs["proxy"] = {

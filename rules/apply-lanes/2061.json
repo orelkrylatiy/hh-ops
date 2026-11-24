@@ -1,0 +1,10 @@
+{
+  "lanes": [
+    {
+      "name": "frontend",
+      "resume_alias": "primary",
+      "search": "Frontend разработчик",
+      "system_prompt": "prompts/cover_letter_frontend.txt"
+    }
+  ]
+}

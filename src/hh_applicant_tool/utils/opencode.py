@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 from collections.abc import Sequence
@@ -107,7 +108,7 @@ def spawn_opencode(
         child_env.pop(key, None)
     for model in models:
         try:
-            args = [executable, "run"]
+            args = [executable, "run", "--format", "json"]
             if standalone:
                 args.append("--standalone")
             args.extend(["--model", model])
@@ -123,6 +124,7 @@ def spawn_opencode(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=child_env,
+                start_new_session=(os.name != "nt"),
             )
         except OSError as exc:
             last_error = exc
@@ -154,47 +156,89 @@ def run_opencode(
         files=files,
         standalone=standalone,
     )
+    timed_out = False
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        timed_out = True
         if os.name == "nt":
             subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10,
             )
         else:
-            process.kill()
-        stdout, stderr = process.communicate()
-        logger.error(
-            "OpenCode timeout: models=%s elapsed=%.1fs timeout=%ss stdout=%r stderr=%r",
-            ",".join(models),
-            time.monotonic() - started_at,
-            timeout,
-            _redact_opencode_diagnostic(stdout or ""),
-            _redact_opencode_diagnostic(stderr or ""),
-        )
-        raise TimeoutError(f"OpenCode timed out after {timeout:g} seconds") from None
-    if process.returncode:
-        detail = _redact_opencode_diagnostic((stderr or stdout).strip())
-        logger.error(
-            "OpenCode exit failure: models=%s returncode=%s elapsed=%.1fs "
-            "stdout=%r stderr=%r",
-            ",".join(models),
-            process.returncode,
-            time.monotonic() - started_at,
-            _redact_opencode_diagnostic(stdout or ""),
-            _redact_opencode_diagnostic(stderr or ""),
-        )
-        raise RuntimeError(f"OpenCode exited with code {process.returncode}: {detail}")
+            # The standalone server inherits the pipes. Killing only the CLI
+            # can leave both the server and communicate() hanging indefinitely.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            raise TimeoutError("OpenCode process tree did not close its pipes") from None
+
+    answer, complete, event_types = _completed_opencode_text(stdout or "")
     logger.info(
-        "OpenCode success: models=%s elapsed=%.1fs stdout_chars=%d",
-        ",".join(models),
-        time.monotonic() - started_at,
-        len(stdout or ""),
+        "OpenCode result: pid=%s elapsed=%.1fs returncode=%s timed_out=%s "
+        "complete=%s events=%s output_chars=%d",
+        process.pid, time.monotonic() - started_at, process.returncode,
+        timed_out, complete, event_types, len(answer),
     )
-    return stdout.strip()
+    if complete and (timed_out or process.returncode == 0):
+        if timed_out:
+            logger.warning("OpenCode completed response recovered after shutdown timeout")
+        return answer.strip()
+    if timed_out:
+        raise TimeoutError(
+            f"OpenCode timed out after {timeout:g} seconds without a completed response"
+        )
+    # Provider errors are emitted on JSON stdout, often with empty stderr.
+    errors = []
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "error":
+            error = event.get("error") or {}
+            if isinstance(error, dict):
+                errors.append(str(error.get("type", "unknown")) + ": " + str(error.get("message", "")))
+    detail = _redact_opencode_diagnostic("; ".join(errors + [(stderr or "").strip()]))
+    raise RuntimeError(
+        f"OpenCode failed: exit={process.returncode} complete={complete} "
+        f"events={event_types} stderr={detail}"
+    )
+
+
+def _completed_opencode_text(output: str) -> tuple[str, bool, list[str]]:
+    """Only accept text from a turn explicitly completed by the CLI."""
+    parts: list[str] = []
+    complete = False
+    event_types: list[str] = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type", "unknown")
+        event_types.append(str(kind))
+        part = event.get("part") or {}
+        if not isinstance(part, dict):
+            continue
+        if kind == "step_start":
+            parts = []
+            complete = False
+        elif kind == "text" and isinstance(part.get("text"), str):
+            parts.append(part["text"])
+        elif kind == "step_finish":
+            complete = part.get("reason") == "stop" and bool(parts)
+        elif kind == "error":
+            complete = False
+    return "".join(parts), complete, event_types[-20:]
 
 
 def solve_captcha_with_opencode(current_json: Path) -> str:
