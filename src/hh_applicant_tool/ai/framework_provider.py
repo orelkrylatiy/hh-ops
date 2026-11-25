@@ -11,6 +11,7 @@ from humanizer_framework.providers import (
     OpenCodeCLIProvider,
     ZaiAnthropicProvider,
 )
+from humanizer_framework.providers.opencode_api import openai_api_provider
 from humanizer_framework.providers.base import Provider
 
 DEFAULT_OPENCODE_MODEL = "openai/gpt-6.1-sol"
@@ -53,11 +54,26 @@ def generation_provider() -> Provider:
         )
     except ValueError:
         opencode_timeout = 45
-    legs.append(
-        OpenCodeCLIProvider(
-            model=opencode_model or DEFAULT_OPENCODE_MODEL,
-            timeout_seconds=opencode_timeout,
+    opencode_model = opencode_model or DEFAULT_OPENCODE_MODEL
+    if opencode_model.startswith("openai-api/"):
+        # openai-api routes through the OpenAI REST API: the child opencode
+        # process needs OPENAI_API_KEY injected via credential plumbing (same
+        # as humanizer default_chain). A bare OpenCodeCLIProvider spawns
+        # without a key and every request 401s with "no API key".
+        legs.append(
+            openai_api_provider(
+                opencode_model.split("/", 1)[1],
+                credential_source_env="OPENAI_API_KEY",
+                timeout_seconds=opencode_timeout,
+            )
         )
-    )
+    else:
+        # OAuth-backed opencode models (openai/...) carry their own auth.
+        legs.append(
+            OpenCodeCLIProvider(
+                model=opencode_model,
+                timeout_seconds=opencode_timeout,
+            )
+        )
 
     return HarnessProvider(legs)
