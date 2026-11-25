@@ -630,7 +630,6 @@ class Operation(
 
                     current_json = image_path.parent / "CURRENT.json"
                     provider = "opencode"
-                    captcha_text = ""
                     try:
                         captcha_text = await asyncio.to_thread(
                             solve_captcha_with_opencode, current_json
@@ -640,33 +639,6 @@ class Operation(
                     except Exception as ex:  # noqa: BLE001
                         logger.warning("OpenCode CAPTCHA failed: %s", ex)
                         captcha_text = ""
-                    if not captcha_text:
-                        # Fallback: direct vision API (config section openai_captcha),
-                        # same as the authorize flow. Prefer the enhanced upright OCR
-                        # variant the OpenCode pass prepared for this image.
-                        try:
-                            captcha_ai = self.tool.get_captcha_ai()
-                        except Exception as ex:  # noqa: BLE001
-                            logger.warning("CAPTCHA API fallback unavailable: %s", ex)
-                            captcha_ai = None
-                        if captcha_ai is not None:
-                            provider = "openai-api"
-                            fallback_bytes = img_bytes
-                            variant = image_path.with_name(f"{image_path.stem}.ocr-0.png")
-                            if variant.exists():
-                                try:
-                                    fallback_bytes = variant.read_bytes()
-                                except Exception:  # noqa: BLE001
-                                    fallback_bytes = img_bytes
-                            try:
-                                captcha_text = await asyncio.to_thread(
-                                    captcha_ai.solve_captcha, fallback_bytes
-                                )
-                                if captcha_text:
-                                    logger.info("CAPTCHA распознана через vision API")
-                            except Exception as ex:  # noqa: BLE001
-                                logger.warning("CAPTCHA API fallback failed: %s", ex)
-                                captcha_text = ""
 
                     result_path = save_captcha_attempt_result(
                         image_path,
@@ -689,7 +661,7 @@ class Operation(
                         continue
 
                     if not captcha_text:
-                        logger.error("CAPTCHA solvers returned no valid answer; stopping this run")
+                        logger.error("OpenCode returned no valid CAPTCHA answer; stopping this run")
                         return False
 
                     logger.info(
