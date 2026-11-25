@@ -1,0 +1,498 @@
+{
+  "code_revision": null,
+  "date": "2026-11-05",
+  "generated_at": "2026-11-06T02:20:01+03:00",
+  "logs": {
+    "events": {
+      "captcha_failed": 80,
+      "captcha_required": 18,
+      "profile_busy": 1,
+      "timeout": 32
+    },
+    "files_by_source": {
+      "cron": 1,
+      "other": 3,
+      "wrapper": 28
+    },
+    "files_scanned": 32,
+    "levels": {
+      "info": 712,
+      "warning": 173
+    },
+    "lines_for_day": 1862
+  },
+  "privacy": {
+    "aggregate_only": true,
+    "chat_text_included": false,
+    "employer_names_included": false,
+    "ids_included": false,
+    "raw_log_lines_included": false,
+    "secrets_included": false,
+    "urls_included": false,
+    "vacancy_titles_included": false
+  },
+  "profiles": {
+    "0056": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 15,
+        "captcha_required": 4,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {
+        "captcha_failed": 15,
+        "captcha_required": 4,
+        "timeout": 7
+      },
+      "reply": {
+        "candidates": 35,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 14,
+        "manual": 7,
+        "planned": 0,
+        "sent": 14,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 4,
+          "modes": {
+            "live": 4
+          },
+          "skipped_busy": 0,
+          "started": 4
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 3,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "0555": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 33,
+        "captcha_required": 6,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {
+        "captcha_failed": 33,
+        "captcha_required": 6,
+        "timeout": 8
+      },
+      "reply": {
+        "candidates": 11,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 0,
+        "manual": 9,
+        "planned": 0,
+        "sent": 2,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 2,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 4,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "0639": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 15,
+        "captcha_required": 4,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {
+        "captcha_failed": 15,
+        "captcha_required": 4,
+        "profile_busy": 1,
+        "timeout": 6
+      },
+      "reply": {
+        "candidates": 27,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 0,
+        "manual": 19,
+        "planned": 0,
+        "sent": 8,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 4,
+          "modes": {
+            "live": 4
+          },
+          "skipped_busy": 0,
+          "started": 4
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 0,
+          "modes": {},
+          "skipped_busy": 1,
+          "started": 0
+        },
+        "reply": {
+          "failed": 4,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "1206": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 0,
+        "captcha_required": 0,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {},
+      "reply": {
+        "candidates": 50,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 25,
+        "manual": 25,
+        "planned": 0,
+        "sent": 0,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 0,
+          "modes": {
+            "live": 7
+          },
+          "skipped_busy": 0,
+          "started": 7
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 5,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "1558": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 17,
+        "captcha_required": 4,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {
+        "captcha_failed": 17,
+        "captcha_required": 4,
+        "timeout": 6
+      },
+      "reply": {
+        "candidates": 88,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 35,
+        "manual": 43,
+        "planned": 0,
+        "sent": 10,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 4,
+          "modes": {
+            "live": 4
+          },
+          "skipped_busy": 0,
+          "started": 4
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 4,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "5457": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 0,
+        "captcha_required": 0,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {
+        "timeout": 5
+      },
+      "reply": {
+        "candidates": 175,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 105,
+        "manual": 70,
+        "planned": 0,
+        "sent": 0,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 0,
+          "modes": {
+            "live": 5
+          },
+          "skipped_busy": 0,
+          "started": 5
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 3,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    },
+    "8755": {
+      "apply": {
+        "ai_errors": 0,
+        "captcha_failed": 0,
+        "captcha_required": 0,
+        "dry_run_planned": 0,
+        "quota_reached": 0,
+        "sent": 0
+      },
+      "database": {
+        "exists": false,
+        "read_error": false,
+        "tables": {}
+      },
+      "log_events": {},
+      "reply": {
+        "candidates": 60,
+        "errors": 0,
+        "fallback": 0,
+        "ignored": 60,
+        "manual": 0,
+        "planned": 0,
+        "sent": 0,
+        "skipped": 0,
+        "stale": 0
+      },
+      "runs": {
+        "apply": {
+          "failed": 0,
+          "modes": {
+            "live": 5
+          },
+          "skipped_busy": 0,
+          "started": 5
+        },
+        "boost": {
+          "failed": 0,
+          "modes": {
+            "live": 2
+          },
+          "skipped_busy": 0,
+          "started": 2
+        },
+        "cleanup": {
+          "failed": 1,
+          "modes": {
+            "live": 1
+          },
+          "skipped_busy": 0,
+          "started": 1
+        },
+        "reply": {
+          "failed": 4,
+          "modes": {
+            "live": 10
+          },
+          "skipped_busy": 0,
+          "started": 10
+        }
+      }
+    }
+  },
+  "schema_version": 1,
+  "timezone": "Europe/Moscow",
+  "totals": {
+    "application_ai_errors": 0,
+    "applications_dry_run_planned": 0,
+    "applications_sent": 0,
+    "replies_ignored": 239,
+    "replies_manual": 173,
+    "replies_planned": 0,
+    "replies_sent": 34,
+    "replies_stale": 0,
+    "reply_candidates": 446,
+    "reply_errors": 0,
+    "reply_fallbacks": 0,
+    "runs_failed": 47,
+    "runs_started": 121,
+    "technical_event_occurrences": 131
+  }
+}

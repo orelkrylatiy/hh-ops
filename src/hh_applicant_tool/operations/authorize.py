@@ -305,7 +305,10 @@ class Operation(BaseOperation):
         # Если за это время прилетел OAuth redirect (вход завершился без
         # одноразового кода), ждать поле кода не нужно.
         try:
-            await page.wait_for_selector(self.SEL_CODE_CONTAINER, timeout=60000)
+            await page.wait_for_selector(
+                f"{self.SEL_CODE_CONTAINER}, {self.SEL_PIN_CODE_INPUT}",
+                timeout=60000,
+            )
         except asyncio.TimeoutError:
             if code_future.done():
                 return

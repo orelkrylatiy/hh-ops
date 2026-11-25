@@ -43,6 +43,13 @@ CHAT_REPLY_BUSINESS_RULES = [
         "ответа после последнего сообщения кандидата. Если пришло 4–6 вопросов "
         "подряд, учти каждый. Не повторяй уже данные кандидатом ответы."
     ),
+    (
+        "Отвечай максимально коротко, как в мессенджере: один-два коротких "
+        "предложения, только по существу вопроса. Не используй длинные тире "
+        "«—» и «–» и по возможности обходись без двоеточий. Со стеком и "
+        "задачами из вакансии отвечай как человек, который с этим уже "
+        "работал и знает их на практике."
+    ),
     "Не указывай желаемую зарплату и не соглашайся на условия, которых нет в переписке.",
     "Никаких эмодзи и скобок-улыбок вроде «)» или «:)».",
     (
@@ -86,6 +93,19 @@ AI_ENGINEER_VOICE = VoiceProfile(
 )
 
 
+SYSTEM_ANALYST_VOICE = VoiceProfile(
+    id="system-analyst",
+    description="Системный аналитик торговой платформы, живой деловой тон и ясные ответы по требованиям и интеграциям",
+    prefer=[
+        "короткий прямой ответ на вопрос работодателя",
+        "один релевантный пример требований, интеграции или бизнес-правил",
+        "спокойный уверенный тон с фокусом на приглашение к разговору",
+    ],
+    avoid=DEFAULT_CHAT_VOICE.avoid,
+    examples=[],
+)
+
+
 def voice_for_profile(profile: str) -> VoiceProfile:
     """Select writing voice without using it as a source of candidate facts."""
     if profile == "ai-engineer":
@@ -123,6 +143,11 @@ def build_chat_reply_request(
         for marker in ("ml-инженер", "ml engineer", "machine learning", "машинного обучения")
     )):
         voice = AI_ENGINEER_VOICE
+    if voice is None and any(
+        marker in resume_context.lower()
+        for marker in ("системный аналитик", "торговых заявок", "интеграционные контракты")
+    ):
+        voice = SYSTEM_ANALYST_VOICE
     return job_search_request(
         channel="hh",
         message_type="chat_reply",

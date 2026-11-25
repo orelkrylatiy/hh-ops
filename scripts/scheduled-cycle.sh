@@ -20,7 +20,7 @@ load_env_file() {
 load_env_file "$PROJECT_ROOT/.env"
 load_env_file "${CONFIG_DIR:-$PROJECT_ROOT/config}/admin_automation.env"
 export HH_ADMIN_AUTOMATION_OVERRIDE=1
-export PROFILES="0056 0555 1206 1558 5457 8755 0058 2061"
+export PROFILES="0056 0555 0639 1206 1558 5457 8755 0058 2061 0637"
 export HH_PROFILE_PARALLELISM="${HH_CYCLE_PARALLELISM:-1}"
 
 MODE="${HH_AUTOMATION_MODE:-off}"
@@ -69,6 +69,7 @@ run_stage apply /bin/bash "$SCRIPT_DIR/all-profiles.sh" apply "$APPLY_MODE" \
     --pages "${APPLY_PAGES:-5}" \
     --per-page "${APPLY_PER_PAGE:-50}" || FAILED=1
 
+# Reply polling and employer follow-ups cover every configured HH account.
 run_stage reply /bin/bash "$SCRIPT_DIR/all-profiles.sh" reply "$REPLY_MODE" \
     --chats "${REPLY_CHATS:-100}" --rounds 1 || FAILED=1
 
