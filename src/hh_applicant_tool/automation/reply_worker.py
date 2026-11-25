@@ -332,6 +332,28 @@ def repeated_employer_message_after_reply(messages: list[dict[str, Any]]) -> boo
     return repeated_employer_message_count(messages) > 0
 
 
+def candidate_answers_to_repeated_question(messages: list[dict[str, Any]]) -> int:
+    """Count applicant messages after the first occurrence of the repeated text."""
+    ordered = sorted_messages(messages)
+    if len(ordered) < 2 or message_role(ordered[-1]) != EMPLOYER_ROLE:
+        return 0
+    latest_text = normalize_message_text(message_text(ordered[-1]))
+    if not latest_text:
+        return 0
+    seen = False
+    answers = 0
+    for item in ordered[:-1]:
+        if (
+            message_role(item) == EMPLOYER_ROLE
+            and normalize_message_text(message_text(item)) == latest_text
+        ):
+            seen = True
+            continue
+        if seen and message_role(item) == APPLICANT_ROLE:
+            answers += 1
+    return answers
+
+
 def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
     """Classify the latest employer turn before spending an LLM call."""
     ordered = sorted_messages(messages)
@@ -357,8 +379,11 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         return ACTION_IGNORE, "questionnaire_completed"
     if repeated_employer_message_count(ordered):
         # A repeated prompt may come from an automated HR questionnaire.
-        # Never send an invented acknowledgement: leave it for manual review.
-        return ACTION_MANUAL, "repeated_employer_question"
+        # Answer the first repeat with a short reply (yes/no), then go quiet:
+        # after two answers a deaf funnel would only cause an endless loop.
+        if candidate_answers_to_repeated_question(ordered) >= 2:
+            return ACTION_MANUAL, "repeated_employer_question"
+        return ACTION_REPLY, "repeated_employer_question"
     if (
         "?" not in text
         and not QUESTION_HINT_RE.search(text)
