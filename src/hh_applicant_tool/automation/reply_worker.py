@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 EMPLOYER_ROLE = "EMPLOYER"
 APPLICANT_ROLE = "APPLICANT"
 MAX_CONTEXT_MESSAGES = 30
-MAX_REPLY_CHARS = 2000
+MAX_REPLY_CHARS = 360
 
 ACTION_REPLY = "REPLY_TEXT"
 ACTION_IGNORE = "IGNORE"
@@ -434,12 +434,8 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 def sanitize_reply_text(text: str) -> str:
-    """Косметическая нормализация: LLM любит длинные тире, живой человек — дефис.
-
-    Вызывается до проверки качества, чтобы тире не отправляло чат
-    в fail-closed (два отклонения подряд = чат без ответа).
-    """
-    return (text or "").replace("—", "-").replace("–", "-")
+    """Normalize punctuation and yo in generated free-text chat replies."""
+    return (text or "").translate(str.maketrans({"—": "-", "–": "-", "ё": "е", "Ё": "Е"}))
 
 
 def reply_quality_issues(text: str) -> list[str]:
@@ -937,10 +933,7 @@ class ReplyWorker:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:
                 title = "вакансия"
-            return (
-                f"Здравствуйте! Подскажите, пожалуйста, актуальна ли ещё вакансия "
-                f"«{title}»? Буду благодарен за обратную связь."
-            )
+            return sanitize_reply_text(f"Здравствуйте! Еще актуальна вакансия «{title}»?")
         if self.config.dry_run:
             if decision.action == ACTION_QUICK_REPLY:
                 return f"[preview: выбор из {len(decision.quick_options)} вариантов]"
@@ -970,14 +963,22 @@ class ReplyWorker:
         }
         try:
             result = self.framework_writer.chat_reply(**request_args)
-            reply = sanitize_reply_text(result.text.strip())
-            if CONTEXT_DISCLAIMER_RE.search(reply):
-                logger.warning(
-                    "Framework wrote a resume-data non-answer for chat %s; regenerating",
-                    decision.chat_id,
-                )
-                result = self.framework_writer.chat_reply(**request_args, retry_disclaimer=True)
-                reply = sanitize_reply_text(result.text.strip())
+            reply = result.text.strip()
+            if decision.action != ACTION_QUICK_REPLY:
+                reply = sanitize_reply_text(reply)
+                issues = reply_quality_issues(reply)
+                if issues:
+                    logger.warning(
+                        "Framework reply needs revision for chat %s: %s",
+                        decision.chat_id,
+                        ", ".join(issues),
+                    )
+                    result = self.framework_writer.chat_reply(
+                        **request_args,
+                        retry_disclaimer=bool(CONTEXT_DISCLAIMER_RE.search(reply)),
+                        retry_style=True,
+                    )
+                    reply = sanitize_reply_text(result.text.strip())
         except Exception as exc:
             logger.error("Framework reply failed for chat %s: %s", decision.chat_id, exc)
             return None
@@ -986,6 +987,7 @@ class ReplyWorker:
             if matched is None:
                 logger.warning("No confident structured option for chat %s", decision.chat_id)
                 return None
+            # HH's explicit option text must remain byte-for-byte unchanged.
             reply = matched
         issues = reply_quality_issues(reply)
         if issues:
