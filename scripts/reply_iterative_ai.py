@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--dry-run", action="store_true", help="Never send replies")
     parser.add_argument("--profile", default=os.environ.get("HH_PROFILE_ID", ""))
     parser.add_argument(
+        "--fallback-only",
+        action="store_true",
+        help="Process only deterministic repeated-question replies; defer AI replies",
+    )
+    parser.add_argument(
         "--max-chats",
         type=int,
         default=int(os.environ.get("REPLY_CHATS", os.environ.get("CHATS", "100"))),
@@ -128,8 +133,14 @@ def main() -> int:
     )
 
     framework_writer = None
-    if not dry_run:
-        framework_writer = FrameworkWriter()
+    if not dry_run and not args.fallback_only:
+        try:
+            framework_writer = FrameworkWriter()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "AI initialization failed; using fallback-only mode: %s", type(exc).__name__
+            )
+            args.fallback_only = True
 
     manual_queue = None
     send_log = None
@@ -150,6 +161,7 @@ def main() -> int:
             followup_enabled=args.followups,
             followup_after_days=args.followup_after_days,
             auto_quick_replies=args.auto_quick_replies,
+            fallback_only=args.fallback_only,
             skip_chat_ids=tuple(
                 x.strip() for x in os.environ.get("HH_REPLY_SKIP", "").split(",") if x.strip()
             ),
@@ -173,7 +185,8 @@ def main() -> int:
             stats[key] = stats.get(key, 0) + value
     stats["rounds"] = args.rounds
     print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
-    return 1 if stats["errors"] else 0
+    # Report degraded live runs as nonzero even if deterministic sends worked.
+    return 1 if stats["errors"] or (args.fallback_only and not dry_run) else 0
 
 
 if __name__ == "__main__":
