@@ -131,6 +131,7 @@ class ReplyWorkerConfig:
     auto_quick_replies: bool = False
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
     skip_chat_ids: tuple[str, ...] = ()
+    fallback_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -563,7 +564,7 @@ class ReplyWorker:
         *,
         hh: HHCLI,
         manual_queue: ManualChatQueue | None = None,
-        framework_writer: FrameworkWriter,
+        framework_writer: FrameworkWriter | None,
         send_log: ReplySendLog | None = None,
         contact_store: EmployerContactStore | None = None,
         followup_store: FollowupStore | None = None,
@@ -1092,6 +1093,10 @@ class ReplyWorker:
                             reason=decision.reason,
                         )
                     stats["manual"] += 1
+                    continue
+                if self.config.fallback_only and decision.reason not in REPEATED_QUESTION_REPLIES:
+                    logger.warning("Deferring chat %s: AI provider unavailable", decision.chat_id)
+                    stats["skipped"] += 1
                     continue
                 reply = self.generate_reply(decision)
                 if not reply:
