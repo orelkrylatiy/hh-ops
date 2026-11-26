@@ -172,7 +172,6 @@ def main() -> int:
         for key, value in round_stats.items():
             stats[key] = stats.get(key, 0) + value
     stats["rounds"] = args.rounds
-    stats["fallback"] = 0
     print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
     return 1 if stats["errors"] else 0
 
