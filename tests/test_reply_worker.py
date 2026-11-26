@@ -1079,3 +1079,23 @@ def test_fallback_only_sends_literal_but_defers_normal_questions() -> None:
     assert stats["skipped"] == 1
     assert stats["sent"] == stats["fallback"] == 0
     assert all(call.kwargs.get("method") != "POST" for call in hh.call_api.call_args_list)
+
+
+def test_chat_style_normalizes_yo_and_retries_long_reply() -> None:
+    writer = Mock()
+    writer.chat_reply.side_effect = [
+        _framework_result("Длинное объяснение. " * 30),
+        _framework_result("Да, всё устраивает. Ещё готов обсудить детали"),
+    ]
+    worker = _live_worker(framework_writer=writer)
+    assert worker.generate_reply(_decision()) == "Да, все устраивает. Еще готов обсудить детали"
+    assert writer.chat_reply.call_count == 2
+    assert writer.chat_reply.call_args.kwargs["retry_style"] is True
+
+
+def test_chat_style_never_sends_overlong_reply_after_retry() -> None:
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result("Длинное объяснение. " * 30)
+    worker = _live_worker(framework_writer=writer)
+    assert worker.generate_reply(_decision()) is None
+    assert writer.chat_reply.call_count == 2
