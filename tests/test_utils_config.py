@@ -199,3 +199,16 @@ class TestConfigBasics:
             config2 = Config(config_file)
             assert config2["name"] == "Привет"
             assert config2["emoji"] == "🚀"
+
+
+def test_save_updates_memory_under_same_lock_as_file_write(tmp_path):
+    config = Config(tmp_path / "config.json")
+    original_update = config.update
+
+    def checked_update(*args, **kwargs):
+        assert config._lock.locked()
+        original_update(*args, **kwargs)
+
+    with patch.object(config, "update", side_effect=checked_update):
+        config.save({"one": 1})
+    assert Config(tmp_path / "config.json")["one"] == 1
