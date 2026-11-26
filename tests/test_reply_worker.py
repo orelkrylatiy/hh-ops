@@ -658,7 +658,7 @@ def test_classifier_marks_explicit_button_flow_manual() -> None:
     assert reason == "ui_action_hint"
 
 
-def test_classifier_marks_repeated_question_after_our_reply_manual() -> None:
+def test_classifier_replies_yes_to_repeated_question_after_our_reply() -> None:
     question = "Есть коммерческий опыт с React?"
     messages = [
         _message("employer-1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
@@ -673,11 +673,11 @@ def test_classifier_marks_repeated_question_after_our_reply_manual() -> None:
 
     action, reason = classify_chat(messages)
 
-    assert action == ACTION_MANUAL
-    assert reason == "repeated_employer_question"
+    assert action == ACTION_REPLY
+    assert reason == "repeated_question_yes"
 
 
-def test_classifier_marks_consecutive_duplicate_question_manual() -> None:
+def test_classifier_replies_yes_to_consecutive_duplicate_question() -> None:
     question = "Готовы ли вы к переезду?"
     messages = [
         _message("employer-1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
@@ -686,8 +686,8 @@ def test_classifier_marks_consecutive_duplicate_question_manual() -> None:
 
     action, reason = classify_chat(messages)
 
-    assert action == ACTION_MANUAL
-    assert reason == "repeated_employer_question"
+    assert action == ACTION_REPLY
+    assert reason == "repeated_question_yes"
 
 
 def test_classifier_marks_repeated_question_across_other_employer_messages() -> None:
@@ -972,3 +972,79 @@ def test_interview_first_does_not_send_unfixed_resume_disclaimer() -> None:
     worker = _live_worker(framework_writer=writer)
     assert worker.generate_reply(_decision()) is None
     assert writer.chat_reply.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [
+        (["Да, готов работать в гибридном формате в Казани."], "Да"),
+        (["Да, готов работать в гибридном формате в Казани.", "Готов к гибриду."], "Да"),
+        (["Готов к гибриду.", "Да"], "да"),
+        (["Готов к гибриду.", "Да", "да"], None),
+    ],
+)
+def test_repeated_hh_question_literal_send_and_loop_limit(answers, expected) -> None:
+    question = "Готовность к гибриду в Казани"
+    messages = []
+    for i, answer in enumerate(answers):
+        messages.append(
+            _message(f"q{i}", EMPLOYER_ROLE, question, f"2026-01-01T10:{2 * i:02}:00+0300")
+        )
+        messages.append(
+            _message(f"a{i}", APPLICANT_ROLE, answer, f"2026-01-01T10:{2 * i + 1:02}:00+0300")
+        )
+    messages.append(
+        _message("latest", EMPLOYER_ROLE, question, f"2026-01-01T10:{2 * len(answers):02}:00+0300")
+    )
+    hh = Mock()
+    hh.call_api.return_value = {"items": list(reversed(messages)), "pages": 1}
+    worker = _live_worker(hh=hh)
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    stats = worker.run()
+    worker.framework_writer.chat_reply.assert_not_called()
+    posts = [call for call in hh.call_api.call_args_list if call.kwargs.get("method") == "POST"]
+    if expected is None:
+        assert not posts
+        assert stats["manual"] == 1
+        assert stats["fallback"] == 0
+    else:
+        assert len(posts) == 1
+        assert posts[0].args == ("/negotiations/chat-1/messages",)
+        assert posts[0].kwargs["form_params"] == {"message": expected}
+        assert stats["sent"] == stats["fallback"] == 1
+
+
+def test_repeat_fallback_dry_run_uses_literal_without_post() -> None:
+    question = "Готовность к гибриду в Казани"
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [
+            _message("q1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
+            _message("q2", EMPLOYER_ROLE, question, "2026-01-01T10:05:00+0300"),
+        ],
+        "pages": 1,
+    }
+    worker = ReplyWorker(ReplyWorkerConfig(), hh=hh, framework_writer=Mock())
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    decision = worker.make_decision({"id": "chat-1"})
+    assert decision is not None
+    assert worker.generate_reply(decision) == "Да"
+    stats = worker.run()
+    assert stats["planned"] == stats["fallback"] == 1
+    assert stats["sent"] == 0
+    assert all(call.kwargs.get("method") != "POST" for call in hh.call_api.call_args_list)
+
+
+def test_duplicate_api_message_id_is_not_a_repeated_question() -> None:
+    question = _message("same", EMPLOYER_ROLE, "Готовы к гибриду?", "2026-01-01T10:00:00+0300")
+    action, reason = classify_chat([question, question])
+    assert action == ACTION_MANUAL
+    assert reason == "repeated_employer_question"
+
+
+def test_repeated_acknowledgement_is_ignored() -> None:
+    messages = [
+        _message("q1", EMPLOYER_ROLE, "Спасибо за отклик", "2026-01-01T10:00:00+0300"),
+        _message("q2", EMPLOYER_ROLE, "Спасибо за отклик", "2026-01-01T10:05:00+0300"),
+    ]
+    assert classify_chat(messages) == (ACTION_IGNORE, "acknowledgement_without_question")
