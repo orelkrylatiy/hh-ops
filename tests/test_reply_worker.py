@@ -1048,3 +1048,34 @@ def test_repeated_acknowledgement_is_ignored() -> None:
         _message("q2", EMPLOYER_ROLE, "Спасибо за отклик", "2026-01-01T10:05:00+0300"),
     ]
     assert classify_chat(messages) == (ACTION_IGNORE, "acknowledgement_without_question")
+
+
+def test_fallback_only_sends_literal_but_defers_normal_questions() -> None:
+    question = "Готовность к гибриду в Казани"
+    latest = _message("q2", EMPLOYER_ROLE, question, "2026-01-01T10:05:00+0300")
+    hh = Mock()
+    hh.call_api.return_value = {
+        "items": [
+            _message("q1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
+            latest,
+        ],
+        "pages": 1,
+    }
+    worker = ReplyWorker(
+        ReplyWorkerConfig(dry_run=False, fallback_only=True),
+        hh=hh,
+        framework_writer=None,
+    )
+    worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    stats = worker.run()
+    assert stats["sent"] == stats["fallback"] == 1
+    hh.call_api.assert_called_with(
+        "/negotiations/chat-1/messages", method="POST", form_params={"message": "Да"}
+    )
+
+    hh.reset_mock()
+    hh.call_api.return_value = {"items": [latest], "pages": 1}
+    stats = worker.run()
+    assert stats["skipped"] == 1
+    assert stats["sent"] == stats["fallback"] == 0
+    assert all(call.kwargs.get("method") != "POST" for call in hh.call_api.call_args_list)
