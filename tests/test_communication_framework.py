@@ -272,3 +272,18 @@ def test_hh_interview_first_correction_is_system_rule_not_persona() -> None:
     system = CommunicationFramework().prepare(request).messages[0]["content"]
     assert "Предыдущая генерация ответила отказом" in system
     assert "полного резюме" not in request.context["candidate_profile"]
+
+
+def test_chat_style_is_in_trusted_system_rules() -> None:
+    request = build_chat_reply_request(
+        context=["Работодатель: Удобно завтра?"],
+        initiated_by_us=True,
+        vacancy_name="Developer",
+        employer_name="Acme",
+        latest_message_text="Удобно завтра?",
+        retry_style=True,
+    )
+    system = CommunicationFramework().prepare(request).messages[0]["content"]
+    assert "30-180 знаков" in system
+    assert "обычные русские слова" in system
+    assert "Предыдущий ответ был слишком длинным" in system
