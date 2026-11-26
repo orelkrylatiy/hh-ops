@@ -383,9 +383,12 @@ class Operation(BaseOperation):
                             writer = FrameworkWriter()
                             result = writer.chat_reply(**request_args)
                             send_message = sanitize_reply_text(result.text.strip())
-                            if CONTEXT_DISCLAIMER_RE.search(send_message):
+                            issues = reply_quality_issues(send_message)
+                            if issues:
                                 result = writer.chat_reply(
-                                    **request_args, retry_disclaimer=True
+                                    **request_args,
+                                    retry_disclaimer=bool(CONTEXT_DISCLAIMER_RE.search(send_message)),
+                                    retry_style=True,
                                 )
                                 send_message = sanitize_reply_text(result.text.strip())
                             issues = reply_quality_issues(send_message)
