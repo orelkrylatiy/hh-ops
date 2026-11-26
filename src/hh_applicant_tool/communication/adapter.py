@@ -144,10 +144,13 @@ def build_chat_reply_request(
     retry_disclaimer: bool = False,
 ) -> CommunicationRequest:
     """Build a framework chat_reply request from a REPLY_TEXT decision."""
-    if voice is None and (profile == "ai-engineer" or any(
-        marker in resume_context.lower()
-        for marker in ("ml-инженер", "ml engineer", "machine learning", "машинного обучения")
-    )):
+    if voice is None and (
+        profile == "ai-engineer"
+        or any(
+            marker in resume_context.lower()
+            for marker in ("ml-инженер", "ml engineer", "machine learning", "машинного обучения")
+        )
+    ):
         voice = AI_ENGINEER_VOICE
     if voice is None and any(
         marker in resume_context.lower()
