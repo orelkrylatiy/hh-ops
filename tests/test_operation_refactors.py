@@ -197,3 +197,62 @@ def test_reply_employers_ai_ignores_missing_legacy_providers() -> None:
     tool.get_reply_ai.assert_not_called()
     tool.get_cover_letter_ai.assert_not_called()
     operation.reply_employers.assert_called_once()
+
+
+def test_legacy_auto_reply_uses_same_literal_fallback(monkeypatch) -> None:
+    operation = ReplyOperation()
+    operation.tool = Mock()
+    operation.api_client = Mock()
+    operation.reply_ai = True
+    operation.reply_message = None
+    operation.max_pages = 5
+    operation.period = None
+    operation.only_invitations = False
+    operation.json_output = True
+    operation.dry_run = False
+    operation.tool.get_negotiations.return_value = [
+        {
+            "id": "chat-1",
+            "resume": {"id": "resume-1"},
+            "updated_at": "2026-01-01T10:05:00+0300",
+            "state": {"id": "response"},
+            "vacancy": {
+                "name": "Analyst",
+                "alternate_url": "https://example.test/vacancy",
+                "employer": {"name": "Acme"},
+            },
+        }
+    ]
+    question = "Готовность к гибриду в Казани"
+    operation.api_client.get.return_value = {
+        "items": [
+            {
+                "id": "q2",
+                "created_at": "2026-01-01T10:05:00+0300",
+                "author": {"participant_type": "employer"},
+                "text": question,
+            },
+            {
+                "id": "a1",
+                "created_at": "2026-01-01T10:01:00+0300",
+                "author": {"participant_type": "applicant"},
+                "text": "Да, готов к гибриду.",
+            },
+            {
+                "id": "q1",
+                "created_at": "2026-01-01T10:00:00+0300",
+                "author": {"participant_type": "employer"},
+                "text": question,
+            },
+        ],
+        "pages": 1,
+    }
+    writer = Mock()
+    monkeypatch.setattr(
+        "hh_applicant_tool.operations.reply_employers.FrameworkWriter", writer
+    )
+    result = operation._reply_chats({}, [{"id": "resume-1"}], set())
+    assert result["sent"] == 1
+    assert result["messages"][0]["message"] == "Да"
+    assert operation.api_client.post.call_args.kwargs["message"] == "Да"
+    writer.assert_not_called()

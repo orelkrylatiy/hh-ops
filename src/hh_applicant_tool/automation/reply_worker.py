@@ -42,6 +42,7 @@ ACTION_IGNORE = "IGNORE"
 ACTION_MANUAL = "MANUAL"
 ACTION_FOLLOWUP = "FOLLOWUP"
 ACTION_QUICK_REPLY = "QUICK_REPLY"
+REPEATED_QUESTION_REPLIES = {"repeated_question_yes": "Да", "repeated_question_yes_lower": "да"}
 
 AI_CLICHES = (
     "важно отметить",
@@ -130,6 +131,7 @@ class ReplyWorkerConfig:
     auto_quick_replies: bool = False
     # Чаты, которые бот обязан игнорировать (живой диалог для ручного ответа).
     skip_chat_ids: tuple[str, ...] = ()
+    fallback_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -354,6 +356,45 @@ def candidate_answers_to_repeated_question(messages: list[dict[str, Any]]) -> in
     return answers
 
 
+def repeated_question_fallback(messages: list[dict[str, Any]]) -> str | None:
+    """Choose a bounded literal reply for consecutive identical employer turns."""
+    if not messages or message_role(messages[-1]) != EMPLOYER_ROLE:
+        return None
+    latest = messages[-1]
+    text = message_text(latest)
+    normalized = normalize_message_text(text)
+    latest_id = message_id(latest)
+    if not latest_id or not normalized:
+        return None
+    if "?" not in text and not QUESTION_HINT_RE.search(text) and not FOLLOWUP_HINT_RE.search(text):
+        return None
+
+    # A different employer message resets the streak; applicant replies do not.
+    seen_ids = {latest_id}
+    answers: list[str] = []
+    repeated = False
+    used: set[str] = set()
+    for item in reversed(messages[:-1]):
+        role = message_role(item)
+        if role == APPLICANT_ROLE:
+            answers.append(message_text(item))
+            continue
+        if role != EMPLOYER_ROLE or normalize_message_text(message_text(item)) != normalized:
+            break
+        prior_id = message_id(item)
+        if not prior_id or prior_id in seen_ids:
+            continue
+        seen_ids.add(prior_id)
+        repeated = True
+        used.update(answers)
+        answers.clear()
+    if not repeated or "да" in used:
+        return None
+    if "Да" in used:
+        return "repeated_question_yes_lower"
+    return "repeated_question_yes"
+
+
 def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
     """Classify the latest employer turn before spending an LLM call."""
     ordered = sorted_messages(messages)
@@ -377,13 +418,6 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         and not FOLLOWUP_HINT_RE.search(text)
     ):
         return ACTION_IGNORE, "questionnaire_completed"
-    if repeated_employer_message_count(ordered):
-        # A repeated prompt may come from an automated HR questionnaire.
-        # Answer the first repeat with a short reply (yes/no), then go quiet:
-        # after two answers a deaf funnel would only cause an endless loop.
-        if candidate_answers_to_repeated_question(ordered) >= 2:
-            return ACTION_MANUAL, "repeated_employer_question"
-        return ACTION_REPLY, "repeated_employer_question"
     if (
         "?" not in text
         and not QUESTION_HINT_RE.search(text)
@@ -391,6 +425,11 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
         and ACKNOWLEDGEMENT_RE.search(text)
     ):
         return ACTION_IGNORE, "acknowledgement_without_question"
+    if repeated_employer_message_count(ordered):
+        fallback = repeated_question_fallback(ordered)
+        if fallback is not None:
+            return ACTION_REPLY, fallback
+        return ACTION_MANUAL, "repeated_employer_question"
     return ACTION_REPLY, "employer_message"
 
 
@@ -525,7 +564,7 @@ class ReplyWorker:
         *,
         hh: HHCLI,
         manual_queue: ManualChatQueue | None = None,
-        framework_writer: FrameworkWriter,
+        framework_writer: FrameworkWriter | None,
         send_log: ReplySendLog | None = None,
         contact_store: EmployerContactStore | None = None,
         followup_store: FollowupStore | None = None,
@@ -816,7 +855,15 @@ class ReplyWorker:
         else:
             action, reason = classify_chat(messages)
             options = quick_reply_options(latest)
-            if self.config.auto_quick_replies and options and action != ACTION_IGNORE:
+            if options and reason in REPEATED_QUESTION_REPLIES:
+                # Explicit buttons take precedence over free-text fallback.
+                action, reason = ACTION_MANUAL, "ui_action_hint"
+            if (
+                self.config.auto_quick_replies
+                and options
+                and action != ACTION_IGNORE
+                and reason != "repeated_employer_question"
+            ):
                 action, reason = ACTION_QUICK_REPLY, "structured_send_options"
         vacancy_name, employer_name = self._vacancy_info(chat)
         resume = chat.get("resume")
@@ -883,6 +930,9 @@ class ReplyWorker:
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
+        reason = getattr(decision, "reason", "")
+        if decision.action == ACTION_REPLY and reason in REPEATED_QUESTION_REPLIES:
+            return REPEATED_QUESTION_REPLIES[reason]
         if decision.action == ACTION_FOLLOWUP:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:
@@ -1009,6 +1059,7 @@ class ReplyWorker:
             "manual": 0,
             "errors": 0,
             "contacts_saved": 0,
+            "fallback": 0,
         }
         candidates = self.collect_candidate_chats()
         stats["contacts_saved"] = self.contacts_collected_last_scan
@@ -1044,6 +1095,11 @@ class ReplyWorker:
                         )
                     stats["manual"] += 1
                     continue
+                is_fallback = getattr(decision, "reason", "") in REPEATED_QUESTION_REPLIES
+                if self.config.fallback_only and not is_fallback:
+                    logger.warning("Deferring chat %s: AI provider unavailable", decision.chat_id)
+                    stats["skipped"] += 1
+                    continue
                 reply = self.generate_reply(decision)
                 if not reply:
                     if decision.action == ACTION_QUICK_REPLY:
@@ -1063,6 +1119,8 @@ class ReplyWorker:
                 if self.config.dry_run:
                     logger.info("DRY-RUN chat=%s reply=%s", decision.chat_id, reply)
                     stats["planned"] += 1
+                    if is_fallback:
+                        stats["fallback"] += 1
                     continue
                 if not self.is_still_current(decision):
                     logger.info(
@@ -1088,6 +1146,8 @@ class ReplyWorker:
                     elif self.send_log is not None:
                         self.send_log.mark_sent(decision.chat_id, decision.expected_last_message_id)
                     stats["sent"] += 1
+                    if is_fallback:
+                        stats["fallback"] += 1
                 else:
                     stats["errors"] += 1
             except (HHCLIError, ValueError) as exc:
