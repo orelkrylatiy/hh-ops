@@ -930,8 +930,9 @@ class ReplyWorker:
         )
 
     def generate_reply(self, decision: ReplyDecision) -> str | None:
-        if decision.action == ACTION_REPLY and decision.reason in REPEATED_QUESTION_REPLIES:
-            return REPEATED_QUESTION_REPLIES[decision.reason]
+        reason = getattr(decision, "reason", "")
+        if decision.action == ACTION_REPLY and reason in REPEATED_QUESTION_REPLIES:
+            return REPEATED_QUESTION_REPLIES[reason]
         if decision.action == ACTION_FOLLOWUP:
             title = " ".join(decision.vacancy_name.split())[:100]
             if not title:
@@ -1094,7 +1095,8 @@ class ReplyWorker:
                         )
                     stats["manual"] += 1
                     continue
-                if self.config.fallback_only and decision.reason not in REPEATED_QUESTION_REPLIES:
+                is_fallback = getattr(decision, "reason", "") in REPEATED_QUESTION_REPLIES
+                if self.config.fallback_only and not is_fallback:
                     logger.warning("Deferring chat %s: AI provider unavailable", decision.chat_id)
                     stats["skipped"] += 1
                     continue
@@ -1117,7 +1119,7 @@ class ReplyWorker:
                 if self.config.dry_run:
                     logger.info("DRY-RUN chat=%s reply=%s", decision.chat_id, reply)
                     stats["planned"] += 1
-                    if decision.reason in REPEATED_QUESTION_REPLIES:
+                    if is_fallback:
                         stats["fallback"] += 1
                     continue
                 if not self.is_still_current(decision):
@@ -1144,7 +1146,7 @@ class ReplyWorker:
                     elif self.send_log is not None:
                         self.send_log.mark_sent(decision.chat_id, decision.expected_last_message_id)
                     stats["sent"] += 1
-                    if decision.reason in REPEATED_QUESTION_REPLIES:
+                    if is_fallback:
                         stats["fallback"] += 1
                 else:
                     stats["errors"] += 1
