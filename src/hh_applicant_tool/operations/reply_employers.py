@@ -8,16 +8,24 @@ import random
 import re
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..ai.base import AIError
 from ..api import ApiError, datatypes
 from ..automation.reply_worker import (
+    ACTION_REPLY,
     CONTEXT_DISCLAIMER_RE,
+    EMPLOYER_ROLE,
+    REPEATED_QUESTION_REPLIES,
+    classify_chat,
     compact_resume_context,
+    message_role,
+    message_text,
     reply_quality_issues,
     sanitize_reply_text,
+    sorted_messages,
 )
+from ..automation.upstream_chat_policy import quick_reply_options
 from ..communication import FrameworkWriter
 from ..main import BaseNamespace, BaseOperation
 from ..utils.date import parse_api_datetime
@@ -273,7 +281,7 @@ class Operation(BaseOperation):
                 )
 
                 page: int = 0
-                last_message: datatypes.Message | None = None
+                raw_messages: list[dict[str, Any]] = []
                 message_history: list[str] = []
                 while True:
                     messages_res: datatypes.PaginatedItems[
@@ -282,22 +290,7 @@ class Operation(BaseOperation):
                     if not messages_res["items"]:
                         break
 
-                    last_message = messages_res["items"][-1]
-                    for message in messages_res["items"]:
-                        if not message.get("text"):
-                            continue
-                        author = (
-                            "Работодатель"
-                            if message["author"]["participant_type"] == "employer"
-                            else "Я"
-                        )
-                        message_date = parse_api_datetime(
-                            message.get("created_at")
-                        ).strftime("%d.%m.%Y %H:%M:%S")
-
-                        message_history.append(
-                            f"[ {message_date} ] {author}: {message['text']}"
-                        )
+                    raw_messages.extend(dict(message) for message in messages_res["items"])
 
                     if page + 1 >= messages_res["pages"]:
                         break
@@ -305,12 +298,22 @@ class Operation(BaseOperation):
                         break
                     page += 1
 
-                if not last_message:
+                ordered = sorted_messages(raw_messages)
+                if not ordered:
+                    results["skipped"] += 1
                     continue
+                last_message = ordered[-1]
+                for message in ordered:
+                    text = message_text(message)
+                    if not text:
+                        continue
+                    author = "Работодатель" if message_role(message) == EMPLOYER_ROLE else "Я"
+                    message_date = parse_api_datetime(message.get("created_at")).strftime(
+                        "%d.%m.%Y %H:%M:%S"
+                    )
+                    message_history.append(f"[ {message_date} ] {author}: {text}")
 
-                is_employer_message = (
-                    last_message["author"]["participant_type"] == "employer"
-                )
+                is_employer_message = message_role(last_message) == EMPLOYER_ROLE
 
                 if not is_employer_message:
                     logger.debug(
@@ -322,9 +325,20 @@ class Operation(BaseOperation):
 
                 if is_employer_message:
                     send_message = ""
+                    fallback_reply = None
+                    if self.reply_ai and not self.reply_message:
+                        action, reason = classify_chat(ordered)
+                        if action != ACTION_REPLY or quick_reply_options(last_message):
+                            logger.info("Skipping automated reply to %s: %s", nid, reason)
+                            results["skipped"] += 1
+                            continue
+                        fallback_reply = REPEATED_QUESTION_REPLIES.get(reason)
                     if self.reply_message:
                         send_message = rand_text(self.reply_message) % placeholders
                         logger.debug(f"Template message: {send_message}")
+                    elif fallback_reply is not None:
+                        send_message = fallback_reply
+                        logger.info("Literal repeated-question fallback for chat %s", nid)
                     elif self.reply_ai:
                         try:
                             context = [re.sub(r"^\[.*?\]\s*", "", line) for line in message_history[-20:]]
