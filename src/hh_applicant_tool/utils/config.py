@@ -67,9 +67,9 @@ class Config(dict):
                         raise
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        self.update(*args, **kwargs)
-        self._config_path.parent.mkdir(exist_ok=True, parents=True)
         with self._lock:
+            self.update(*args, **kwargs)
+            self._config_path.parent.mkdir(exist_ok=True, parents=True)
             try:
                 with self._config_path.open(
                     "w", encoding="utf-8", errors="replace"
