@@ -434,11 +434,7 @@ def classify_chat(messages: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 def sanitize_reply_text(text: str) -> str:
-    """Косметическая нормализация: LLM любит длинные тире, живой человек — дефис.
-
-    Вызывается до проверки качества, чтобы тире не отправляло чат
-    в fail-closed (два отклонения подряд = чат без ответа).
-    """
+    """Normalize punctuation and yo in generated free-text chat replies."""
     return (text or "").translate(str.maketrans({"—": "-", "–": "-", "ё": "е", "Ё": "Е"}))
 
 
@@ -967,8 +963,9 @@ class ReplyWorker:
         }
         try:
             result = self.framework_writer.chat_reply(**request_args)
-            reply = sanitize_reply_text(result.text.strip())
+            reply = result.text.strip()
             if decision.action != ACTION_QUICK_REPLY:
+                reply = sanitize_reply_text(reply)
                 issues = reply_quality_issues(reply)
                 if issues:
                     logger.warning(
@@ -991,7 +988,7 @@ class ReplyWorker:
                 logger.warning("No confident structured option for chat %s", decision.chat_id)
                 return None
             # HH's explicit option text must remain byte-for-byte unchanged.
-            return matched
+            reply = matched
         issues = reply_quality_issues(reply)
         if issues:
             logger.warning(
