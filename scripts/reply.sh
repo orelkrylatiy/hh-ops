@@ -114,11 +114,13 @@ python_path() {
     printf '%s\n' "$1"
 }
 
-if [[ "$RUN_MODE" == "live" ]]; then
-    "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose chat
-fi
-
 ARGS=(--max-chats "$MAX_CHATS" --rounds "$ROUNDS" --round-interval "$ROUND_INTERVAL")
+if [[ "$RUN_MODE" == "live" ]]; then
+    if ! "$PYTHON_BIN" "$(python_path "$SCRIPT_DIR/check_framework.py")" --purpose chat; then
+        echo "Framework unavailable: processing only deterministic repeated-question replies" >&2
+        ARGS+=(--fallback-only)
+    fi
+fi
 if [[ "$RUN_MODE" == "live" ]]; then
     ARGS+=(--live)
 else
