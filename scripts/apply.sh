@@ -15,6 +15,7 @@ fi
 
 SEARCH_QUERY="${SEARCH_QUERY:-Frontend разработчик}"
 MAX_RESPONSES="${APPLY_LIMIT:-${LIMIT:-100}}"
+DAILY_LIMIT="${APPLY_DAILY_LIMIT:-200}"
 PER_PAGE="${APPLY_PER_PAGE:-50}"
 TOTAL_PAGES="${APPLY_PAGES:-20}"
 RUN_TIMEOUT="${APPLY_RUN_TIMEOUT:-3600}"
@@ -174,6 +175,10 @@ for value_name in MAX_RESPONSES PER_PAGE TOTAL_PAGES RUN_TIMEOUT; do
         exit 2
     fi
 done
+if [[ ! "$DAILY_LIMIT" =~ ^[0-9]+$ ]]; then
+    echo "DAILY_LIMIT must be a non-negative integer: $DAILY_LIMIT" >&2
+    exit 2
+fi
 if (( PER_PAGE > 100 )); then
     echo "PER_PAGE cannot exceed 100" >&2
     exit 2
@@ -284,6 +289,7 @@ APPLY_CMD=(
     --force-message
     --skip-tests
     --max-responses "$MAX_RESPONSES"
+    --daily-limit "$DAILY_LIMIT"
     --per-page "$PER_PAGE"
     --total-pages "$TOTAL_PAGES"
     "${RESUME_ARGS[@]}"
@@ -306,7 +312,7 @@ fi
 selector="all-published"
 [[ -n "$RESUME_ID" ]] && selector="id:$RESUME_ID"
 [[ -n "$RESUME_ALIAS" ]] && selector="alias:$RESUME_ALIAS"
-echo "HH apply: mode=$RUN_MODE query='$SEARCH_QUERY' resume='$selector' ai_filter='${AI_FILTER:-off}' hard_filter='$FILTER_SOURCE' max_responses=$MAX_RESPONSES scan=$TOTAL_PAGES*$PER_PAGE timeout=${RUN_TIMEOUT}s"
+echo "HH apply: mode=$RUN_MODE query='$SEARCH_QUERY' resume='$selector' ai_filter='${AI_FILTER:-off}' hard_filter='$FILTER_SOURCE' max_responses=$MAX_RESPONSES daily_limit=$DAILY_LIMIT scan=$TOTAL_PAGES*$PER_PAGE timeout=${RUN_TIMEOUT}s"
 
 if command -v timeout >/dev/null 2>&1; then
     timeout --signal=TERM --kill-after=30 "${RUN_TIMEOUT}s" "${APPLY_CMD[@]}"

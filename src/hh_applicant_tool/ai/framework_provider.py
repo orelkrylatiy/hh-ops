@@ -11,7 +11,6 @@ from humanizer_framework.providers import (
     OpenCodeCLIProvider,
     ZaiAnthropicProvider,
 )
-from humanizer_framework.providers.opencode_api import openai_api_provider
 from humanizer_framework.providers.base import Provider
 
 DEFAULT_OPENCODE_MODEL = "openai/gpt-6.1-sol"
@@ -55,24 +54,41 @@ def generation_provider() -> Provider:
     except ValueError:
         opencode_timeout = 45
     opencode_model = opencode_model or DEFAULT_OPENCODE_MODEL
+    executable = os.environ.get("OPENCODE_COMMAND", "opencode").strip() or "opencode"
     if opencode_model.startswith("openai-api/"):
-        # openai-api routes through the OpenAI REST API: the child opencode
-        # process needs OPENAI_API_KEY injected via credential plumbing (same
-        # as humanizer default_chain). A bare OpenCodeCLIProvider spawns
-        # without a key and every request 401s with "no API key".
-        legs.append(
-            openai_api_provider(
-                opencode_model.split("/", 1)[1],
-                credential_source_env="OPENAI_API_KEY",
-                timeout_seconds=opencode_timeout,
-            )
-        )
-    else:
-        # OAuth-backed opencode models (openai/...) carry their own auth.
+        # Use the configured OpenCode executable and inject this profile's API
+        # key into an isolated provider config. The user's wrapper may load a
+        # different key, so point OPENCODE_COMMAND at the raw CLI binary.
+        model_name = opencode_model.split("/", 1)[1]
         legs.append(
             OpenCodeCLIProvider(
                 model=opencode_model,
                 timeout_seconds=opencode_timeout,
+                executable=executable,
+                credential_source_env="OPENAI_API_KEY",
+                credential_target_env="OPENAI_API_KEY",
+                opencode_config={
+                    "provider": {
+                        "openai-api": {
+                            "npm": "@ai-sdk/openai-compatible",
+                            "name": "OpenAI API",
+                            "options": {
+                                "baseURL": "https://api.openai.com/v1",
+                                "apiKey": "{env:OPENAI_API_KEY}",
+                            },
+                            "models": {model_name: {"name": model_name}},
+                        }
+                    }
+                },
+            )
+        )
+    else:
+        # Other OpenCode models use their configured provider/auth.
+        legs.append(
+            OpenCodeCLIProvider(
+                model=opencode_model,
+                timeout_seconds=opencode_timeout,
+                executable=executable,
             )
         )
 

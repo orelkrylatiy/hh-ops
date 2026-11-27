@@ -325,20 +325,16 @@ class Operation(BaseOperation):
 
                 if is_employer_message:
                     send_message = ""
-                    fallback_reply = None
                     if self.reply_ai and not self.reply_message:
                         action, reason = classify_chat(ordered)
                         if action != ACTION_REPLY or quick_reply_options(last_message):
                             logger.info("Skipping automated reply to %s: %s", nid, reason)
                             results["skipped"] += 1
                             continue
-                        fallback_reply = REPEATED_QUESTION_REPLIES.get(reason)
-                    if self.reply_message:
-                        send_message = rand_text(self.reply_message) % placeholders
-                        logger.debug(f"Template message: {send_message}")
-                    elif fallback_reply is not None:
-                        send_message = fallback_reply
-                        logger.info("Literal repeated-question fallback for chat %s", nid)
+                    if not self.reply_ai:
+                        raise AIError(
+                            "Humanizer Framework is required for every automated employer reply"
+                        )
                     elif self.reply_ai:
                         try:
                             context = [re.sub(r"^\[.*?\]\s*", "", line) for line in message_history[-20:]]

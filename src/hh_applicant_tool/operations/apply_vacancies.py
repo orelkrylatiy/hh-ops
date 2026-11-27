@@ -124,6 +124,7 @@ class Namespace(BaseNamespace):
     total_pages: int
     excluded_filter: str | None
     max_responses: int | None
+    daily_limit: int | None
     send_email: bool
     skip_tests: bool
 
@@ -141,6 +142,7 @@ class Operation(
         "area",
         "bottom_lat",
         "currency",
+        "daily_limit",
         "date_from",
         "date_to",
         "dry_run",
@@ -265,6 +267,12 @@ class Operation(
             "--max-responses",
             type=self._non_negative_int,
             help="Максимальное число откликов за один запуск (0 — не отправлять)",
+        )
+        parser.add_argument(
+            "--daily-limit",
+            type=self._non_negative_int,
+            help="Максимум откликов в сутки на аккаунт (учёт по базе откликов, граница суток МСК). 0 — выключить",
+            default=200,
         )
         parser.add_argument(
             "--dry-run",
@@ -401,7 +409,84 @@ class Operation(
         return parsed
 
     def _response_quota_reached(self) -> bool:
-        return self.max_responses is not None and self.responses_sent >= self.max_responses
+        if self.max_responses is not None and self.responses_sent >= self.max_responses:
+            return True
+        return self.daily_remaining is not None and self.responses_sent >= self.daily_remaining
+
+    def _sync_negotiations_storage(self) -> None:
+        # Синхронизация откликов (API -> sqlite), чтобы дневной лимит видел
+        # в т.ч. отклики прогонов, упавших до финальной синхронизации.
+        if self.dry_run:
+            logger.info("dry-run: negotiations were not synchronized to storage")
+            return
+        for neg in self.tool.get_negotiations():
+            try:
+                # Пропускаем отклики с удаленными работодателями (employer_id = null)
+                vacancy = neg.get("vacancy")
+                if (
+                    not vacancy
+                    or not vacancy.get("employer")
+                    or not vacancy["employer"].get("id")
+                ):
+                    logger.debug("Пропуск отклика: вакансия или работодатель удален")
+                    continue
+                self.tool.storage.negotiations.save(neg)
+            except RepositoryError as e:
+                logger.warning(e)
+
+    def _count_responses_today(self) -> int:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        # HH отдаёт created_at в московском времени ("YYYY-MM-DD HH:MM:SS+03:00"),
+        # поэтому граница суток — МСК; сравнение лексикографическое, формат строк единый.
+        now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+        bound = now_msk.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).strftime("%Y-%m-%d %H:%M:%S+03:00")
+        conn = self.tool.storage.negotiations.conn
+        row = conn.execute(
+            "SELECT COUNT(*) FROM negotiations "
+            "WHERE created_at IS NOT NULL AND created_at >= ?",
+            (bound,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def _init_daily_limit(self) -> None:
+        self.daily_remaining: int | None = None
+        limit = self.daily_limit or 0
+        if limit <= 0:
+            return
+        if self.dry_run:
+            logger.info("dry-run: дневной лимит не применяется")
+            return
+        try:
+            self._sync_negotiations_storage()
+        except Exception as exc:
+            logger.warning(
+                "Не удалось синхронизировать отклики перед подсчётом (%s); "
+                "считаю по сохранённой базе",
+                type(exc).__name__,
+            )
+        try:
+            sent_today = self._count_responses_today()
+        except Exception as exc:
+            logger.error(
+                "Не удалось посчитать сегодняшние отклики (%s); дневной лимит не применён",
+                type(exc).__name__,
+            )
+            return
+        self.daily_remaining = max(0, limit - sent_today)
+        logger.info(
+            "Дневной лимит: за сегодня (МСК) отправлено %d, остаток до потолка %d — %d",
+            sent_today, limit, self.daily_remaining,
+        )
+        if self.daily_remaining <= 0:
+            logger.warning(
+                "Дневной лимит откликов исчерпан: %d за сегодня >= %d. "
+                "Новые отклики сегодня отправляться не будут",
+                sent_today, limit,
+            )
 
     def _assign_args(self, args: Namespace) -> None:
         for attr_name in self._ARG_ATTRS:
@@ -465,6 +550,7 @@ class Operation(
             self.response_delay_min,
             self.response_delay_max,
         ) = self._parse_response_delay(args.response_delay)
+        self._init_daily_limit()
 
         logger.info(
             "Задежка между откликами: %.1f-%.1f сек",
@@ -780,24 +866,7 @@ class Operation(
                 seen_employers=seen_employers,
             )
 
-        # Синхронизация откликов
-        if self.dry_run:
-            logger.info("dry-run: negotiations were not synchronized to storage")
-        else:
-            for neg in self.tool.get_negotiations():
-                try:
-                    # Пропускаем отклики с удаленными работодателями (employer_id = null)
-                    vacancy = neg.get("vacancy")
-                    if (
-                        not vacancy
-                        or not vacancy.get("employer")
-                        or not vacancy["employer"].get("id")
-                    ):
-                        logger.debug("Пропуск отклика: вакансия или работодатель удален")
-                        continue
-                    self.tool.storage.negotiations.save(neg)
-                except RepositoryError as e:
-                    logger.warning(e)
+        self._sync_negotiations_storage()
 
         mode = "dry-run" if self.dry_run else "live"
         logger.info(

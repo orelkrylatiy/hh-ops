@@ -97,7 +97,9 @@ class Operation(BaseApplyOperation):
                 # AI applications must not silently send a static template.
                 raise AIError(f"framework cover letter unavailable: {exc}") from exc
 
-        return self._render_cover_letter_fallback(message_placeholders)
+        raise AIError(
+            "Humanizer Framework is required for every cover letter; static fallback is disabled"
+        )
 
     def _send_vacancy_response(
         self,
@@ -139,6 +141,7 @@ class Operation(BaseApplyOperation):
         self.response_delay_min, self.response_delay_max = self._parse_response_delay(
             args.response_delay
         )
+        self._init_daily_limit()
         logger.info(
             "Задержка между откликами: %.1f-%.1f сек",
             self.response_delay_min,
