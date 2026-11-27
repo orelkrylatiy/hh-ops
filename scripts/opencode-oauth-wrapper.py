@@ -14,14 +14,25 @@ import sys
 
 
 def main() -> None:
-    command = os.environ.get("OPENCODE_COMMAND", "opencode").strip() or "opencode"
-    executable = shutil.which(command)
-    if executable is None:
-        raise SystemExit(f"OpenCode executable not found: {command}")
     args = [arg for arg in sys.argv[1:] if arg != "--standalone"]
     # The repo's OpenAI API key is for the API-backed fallback, and it has no
     # credits. For this OAuth-backed model, let OpenCode use its saved account.
     os.environ.pop("OPENAI_API_KEY", None)
+
+    # The VPS OpenAI OAuth session belongs to the root managed OpenCode
+    # service. Use that credential store explicitly instead of starting an
+    # ubuntu service that can collide with root's listener and has no OAuth.
+    root_command = os.environ.get("HUMANIZER_OPENCODE_ROOT_COMMAND", "").strip()
+    if root_command:
+        sudo = shutil.which("sudo")
+        if sudo is None:
+            raise SystemExit("sudo is required for the configured OpenCode OAuth service")
+        os.execvpe(sudo, [sudo, "-n", root_command, *args], os.environ)
+
+    command = os.environ.get("OPENCODE_COMMAND", "opencode").strip() or "opencode"
+    executable = shutil.which(command)
+    if executable is None:
+        raise SystemExit(f"OpenCode executable not found: {command}")
     os.execv(executable, [executable, *args])
 
 
