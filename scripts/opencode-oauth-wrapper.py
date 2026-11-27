@@ -19,17 +19,13 @@ def main() -> None:
     # credits. For this OAuth-backed model, let OpenCode use its saved account.
     os.environ.pop("OPENAI_API_KEY", None)
 
-    # The VPS OpenAI OAuth session belongs to the root managed OpenCode
-    # service. Use that credential store explicitly instead of starting an
-    # ubuntu service that can collide with root's listener and has no OAuth.
-    root_command = os.environ.get("HUMANIZER_OPENCODE_ROOT_COMMAND", "").strip()
-    if root_command:
-        sudo = shutil.which("sudo")
-        if sudo is None:
-            raise SystemExit("sudo is required for the configured OpenCode OAuth service")
-        os.execvpe(sudo, [sudo, "-n", root_command, *args], os.environ)
-
-    command = os.environ.get("OPENCODE_COMMAND", "opencode").strip() or "opencode"
+    # Humanizer can select a dedicated rootless OpenCode binary. This avoids
+    # inheriting CAPTCHA/API-key wrappers from the broader HH worker process.
+    command = (
+        os.environ.get("HUMANIZER_OPENCODE_BINARY", "").strip()
+        or os.environ.get("OPENCODE_COMMAND", "opencode").strip()
+        or "opencode"
+    )
     executable = shutil.which(command)
     if executable is None:
         raise SystemExit(f"OpenCode executable not found: {command}")
