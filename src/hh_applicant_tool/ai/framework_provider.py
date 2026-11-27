@@ -88,7 +88,10 @@ def generation_provider() -> Provider:
             OpenCodeCLIProvider(
                 model=opencode_model,
                 timeout_seconds=opencode_timeout,
-                executable=executable,
+                executable=(
+                    os.environ.get("HUMANIZER_OPENCODE_COMMAND", executable).strip()
+                    or executable
+                ),
             )
         )
 
