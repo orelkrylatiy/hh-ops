@@ -7,11 +7,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# A caller-provided CONFIG_DIR (tests, containers or an operator override) must
+# keep priority over values in the project .env file.
+CALLER_CONFIG_DIR="${CONFIG_DIR:-}"
+
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
     source "$PROJECT_ROOT/.env"
     set +a
+fi
+if [[ -n "$CALLER_CONFIG_DIR" ]]; then
+    CONFIG_DIR="$CALLER_CONFIG_DIR"
+    export CONFIG_DIR
 fi
 if [[ -f /tmp/hh-runtime.env ]]; then
     # Docker/compose environment intentionally overrides values from .env.
@@ -63,23 +71,23 @@ echo "$(date -Is) starting job=$JOB mode=$MODE"
 
 case "$JOB" in
     apply)
-        "$SCRIPT_DIR/all-profiles.sh" apply "$MODE_FLAG" \
+        bash "$SCRIPT_DIR/all-profiles.sh" apply "$MODE_FLAG" \
             --limit "${APPLY_LIMIT:-100}" \
             --pages "${APPLY_PAGES:-20}" \
             --per-page "${APPLY_PER_PAGE:-50}"
         ;;
     reply)
-        "$SCRIPT_DIR/all-profiles.sh" reply "$MODE_FLAG" \
+        bash "$SCRIPT_DIR/all-profiles.sh" reply "$MODE_FLAG" \
             --chats "${REPLY_CHATS:-100}"
         ;;
     cleanup)
-        "$SCRIPT_DIR/all-profiles.sh" cleanup "$MODE_FLAG"
+        bash "$SCRIPT_DIR/all-profiles.sh" cleanup "$MODE_FLAG"
         ;;
     boost)
         if [[ "$MODE" != "live" ]]; then
             echo "$(date -Is) boost skipped outside live mode"
             exit 0
         fi
-        "$SCRIPT_DIR/all-profiles.sh" boost --live
+        bash "$SCRIPT_DIR/all-profiles.sh" boost --live
         ;;
 esac

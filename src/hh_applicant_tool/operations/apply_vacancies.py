@@ -411,7 +411,8 @@ class Operation(
     def _response_quota_reached(self) -> bool:
         if self.max_responses is not None and self.responses_sent >= self.max_responses:
             return True
-        return self.daily_remaining is not None and self.responses_sent >= self.daily_remaining
+        daily_remaining = getattr(self, "daily_remaining", None)
+        return daily_remaining is not None and self.responses_sent >= daily_remaining
 
     def _sync_negotiations_storage(self) -> None:
         # Синхронизация откликов (API -> sqlite), чтобы дневной лимит видел

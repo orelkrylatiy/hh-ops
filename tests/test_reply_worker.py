@@ -836,6 +836,8 @@ def test_upstream_followup_revalidates_applicant_turn_and_is_one_shot(tmp_path) 
     hh = Mock()
     hh.call_api.return_value = {"items": [message], "pages": 1}
     store = FollowupStore(tmp_path / "state.sqlite")
+    writer = Mock()
+    writer.chat_reply.return_value = _framework_result("Добрый день! Вакансия еще актуальна?")
     worker = ReplyWorker(
         ReplyWorkerConfig(
             dry_run=False,
@@ -844,7 +846,7 @@ def test_upstream_followup_revalidates_applicant_turn_and_is_one_shot(tmp_path) 
             max_chat_age_days=30,
         ),
         hh=hh,
-        framework_writer=Mock(),
+        framework_writer=writer,
         followup_store=store,
     )
     decision = worker.make_decision({"id": "c"})
@@ -856,6 +858,7 @@ def test_upstream_followup_revalidates_applicant_turn_and_is_one_shot(tmp_path) 
     worker.send_reply = Mock(return_value=True)
     stats = worker.run()
     assert stats["sent"] == 1
+    writer.chat_reply.assert_called_once()
     assert store.is_recorded("c")
     assert worker.run()["skipped"] == 1
 
@@ -998,23 +1001,28 @@ def test_repeated_hh_question_literal_send_and_loop_limit(answers, expected) -> 
     )
     hh = Mock()
     hh.call_api.return_value = {"items": list(reversed(messages)), "pages": 1}
-    worker = _live_worker(hh=hh)
+    writer = Mock()
+    if expected is not None:
+        writer.chat_reply.return_value = _framework_result(expected)
+    worker = _live_worker(hh=hh, framework_writer=writer)
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     stats = worker.run()
-    worker.framework_writer.chat_reply.assert_not_called()
     posts = [call for call in hh.call_api.call_args_list if call.kwargs.get("method") == "POST"]
     if expected is None:
+        writer.chat_reply.assert_not_called()
         assert not posts
         assert stats["manual"] == 1
         assert stats["fallback"] == 0
     else:
+        writer.chat_reply.assert_called_once()
         assert len(posts) == 1
         assert posts[0].args == ("/negotiations/chat-1/messages",)
         assert posts[0].kwargs["form_params"] == {"message": expected}
-        assert stats["sent"] == stats["fallback"] == 1
+        assert stats["sent"] == 1
+        assert stats["fallback"] == 0
 
 
-def test_repeat_fallback_dry_run_uses_literal_without_post() -> None:
+def test_repeated_question_dry_run_previews_without_post() -> None:
     question = "Готовность к гибриду в Казани"
     hh = Mock()
     hh.call_api.return_value = {
@@ -1028,9 +1036,12 @@ def test_repeat_fallback_dry_run_uses_literal_without_post() -> None:
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
     decision = worker.make_decision({"id": "chat-1"})
     assert decision is not None
-    assert worker.generate_reply(decision) == "Да"
+    preview = worker.generate_reply(decision)
+    assert preview
+    assert preview != "Да"
     stats = worker.run()
-    assert stats["planned"] == stats["fallback"] == 1
+    assert stats["planned"] == 1
+    assert stats["fallback"] == 0
     assert stats["sent"] == 0
     assert all(call.kwargs.get("method") != "POST" for call in hh.call_api.call_args_list)
 
@@ -1050,35 +1061,16 @@ def test_repeated_acknowledgement_is_ignored() -> None:
     assert classify_chat(messages) == (ACTION_IGNORE, "acknowledgement_without_question")
 
 
-def test_fallback_only_sends_literal_but_defers_normal_questions() -> None:
-    question = "Готовность к гибриду в Казани"
-    latest = _message("q2", EMPLOYER_ROLE, question, "2026-01-01T10:05:00+0300")
-    hh = Mock()
-    hh.call_api.return_value = {
-        "items": [
-            _message("q1", EMPLOYER_ROLE, question, "2026-01-01T10:00:00+0300"),
-            latest,
-        ],
-        "pages": 1,
-    }
-    worker = ReplyWorker(
-        ReplyWorkerConfig(dry_run=False, fallback_only=True),
-        hh=hh,
-        framework_writer=None,
-    )
+def test_live_reply_without_framework_fails_closed() -> None:
+    worker = ReplyWorker(ReplyWorkerConfig(dry_run=False), hh=Mock(), framework_writer=None)
     worker.collect_candidate_chats = Mock(return_value=[{"id": "chat-1"}])
+    worker.make_decision = Mock(return_value=_decision())
+    worker.send_reply = Mock(return_value=True)
     stats = worker.run()
-    assert stats["sent"] == stats["fallback"] == 1
-    hh.call_api.assert_called_with(
-        "/negotiations/chat-1/messages", method="POST", form_params={"message": "Да"}
-    )
-
-    hh.reset_mock()
-    hh.call_api.return_value = {"items": [latest], "pages": 1}
-    stats = worker.run()
-    assert stats["skipped"] == 1
-    assert stats["sent"] == stats["fallback"] == 0
-    assert all(call.kwargs.get("method") != "POST" for call in hh.call_api.call_args_list)
+    assert stats["sent"] == 0
+    assert stats["errors"] == 1
+    assert stats["fallback"] == 0
+    worker.send_reply.assert_not_called()
 
 
 def test_chat_style_normalizes_yo_and_retries_long_reply() -> None:

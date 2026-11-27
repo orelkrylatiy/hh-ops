@@ -199,9 +199,10 @@ def test_reply_employers_ai_ignores_missing_legacy_providers() -> None:
     operation.reply_employers.assert_called_once()
 
 
-def test_legacy_auto_reply_uses_same_literal_fallback(monkeypatch) -> None:
+def test_legacy_auto_reply_uses_framework_writer(monkeypatch) -> None:
     operation = ReplyOperation()
     operation.tool = Mock()
+    operation.tool.config = {"resume_aliases": {}}
     operation.api_client = Mock()
     operation.reply_ai = True
     operation.reply_message = None
@@ -248,6 +249,7 @@ def test_legacy_auto_reply_uses_same_literal_fallback(monkeypatch) -> None:
         "pages": 1,
     }
     writer = Mock()
+    writer.return_value.chat_reply.return_value.text = "Да"
     monkeypatch.setattr(
         "hh_applicant_tool.operations.reply_employers.FrameworkWriter", writer
     )
@@ -255,4 +257,4 @@ def test_legacy_auto_reply_uses_same_literal_fallback(monkeypatch) -> None:
     assert result["sent"] == 1
     assert result["messages"][0]["message"] == "Да"
     assert operation.api_client.post.call_args.kwargs["message"] == "Да"
-    writer.assert_not_called()
+    writer.return_value.chat_reply.assert_called_once()

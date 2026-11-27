@@ -26,11 +26,11 @@ while true; do
         for P in "${SHUF[@]}"; do
             sleep $((60 + RANDOM % 240))
             echo "[$(ts)] $P: reply"
-            PROFILES="$P" "$SCRIPT_DIR/all-profiles.sh" reply --live --chats 40 >> "$LOG" 2>&1
+            PROFILES="$P" bash "$SCRIPT_DIR/all-profiles.sh" reply --live --chats 40 >> "$LOG" 2>&1
             sleep $((30 + RANDOM % 120))
             LIMIT=$((20 + RANDOM % 40))
             echo "[$(ts)] $P: apply (limit=$LIMIT)"
-            PROFILES="$P" "$SCRIPT_DIR/all-profiles.sh" apply --live \
+            PROFILES="$P" bash "$SCRIPT_DIR/all-profiles.sh" apply --live \
                 --limit "$LIMIT" --pages 8 --per-page 50 >> "$LOG" 2>&1
         done
         echo "[$(ts)] цикл завершён"

@@ -231,12 +231,12 @@ run_stage() {
 if [[ "$WITH_BOOST" == true ]]; then
     # all-profiles.sh scopes boost to the exported PROFILES set; boost has no
     # preview mode, so it always runs live.
-    run_stage boost "$SCRIPT_DIR/all-profiles.sh" boost --live
+    run_stage boost bash "$SCRIPT_DIR/all-profiles.sh" boost --live
 fi
 
 if [[ "$REPLY_ONLY" == false ]]; then
     if [[ "$FLEET_MODE" == true ]]; then
-        run_stage apply "$SCRIPT_DIR/all-profiles.sh" apply "$MODE_FLAG" \
+        run_stage apply bash "$SCRIPT_DIR/all-profiles.sh" apply "$MODE_FLAG" \
             --search "$SEARCH_QUERY" \
             --limit "$APPLY_LIMIT" \
             --pages "$APPLY_PAGES" \
@@ -253,7 +253,7 @@ fi
 
 if [[ "$APPLY_ONLY" == false ]]; then
     if [[ "$FLEET_MODE" == true ]]; then
-        run_stage reply "$SCRIPT_DIR/all-profiles.sh" reply "$MODE_FLAG" \
+        run_stage reply bash "$SCRIPT_DIR/all-profiles.sh" reply "$MODE_FLAG" \
             --chats "$REPLY_CHATS"
     else
         run_stage reply "$SCRIPT_DIR/reply.sh" "$MODE_FLAG" \
